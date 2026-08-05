@@ -24,13 +24,17 @@ No build step, no dependencies.
 
 ## Installing on the phone
 
-Chrome needs a **secure origin** (https, or localhost) to register a service worker.
-So the app has to be served over https **once**; after that it runs entirely offline.
+**https://maxbriand.github.io/audio-timer/** — served by GitHub Pages from `main`.
 
-1. Host the folder on any https URL (Cloud Run, Cloudflare/GitHub Pages, the VPS…).
-2. On the phone, open that URL in Chrome.
-3. Chrome menu (⋮) → **Install app** / *Add to Home screen*.
-4. Open it from the launcher, tap **+ Add audio**, pick files. Done — you can go offline.
+Chrome needs a **secure origin** (https, or localhost) to register a service worker, so the
+app has to be loaded over https **once**. After that it runs entirely offline; the URL is
+never contacted again.
+
+1. On the phone, open that URL in Chrome.
+2. Chrome menu (⋮) → **Install app** / *Add to Home screen*.
+3. Open it from the launcher, tap **+ Add audio**, pick files. Done — you can go offline.
+
+Pushing to `main` republishes the site.
 
 Nothing is ever uploaded: only the app shell (HTML/JS/icons) is hosted; the audio and the
 saved positions live on the phone.
