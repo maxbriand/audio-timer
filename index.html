@@ -41,6 +41,18 @@
   #logsheet.on,#setsheet.on{display:flex}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
+  .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
+  /* The sheet grew a second section — on a short screen it must scroll, not clip the buttons. */
+  #setsheet .sheetbox{max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .syncin{
+    width:100%;padding:11px 12px;border-radius:10px;background:var(--surface-2);
+    border:1px solid var(--line);color:var(--text);font-size:14px;margin-bottom:7px;
+    -webkit-appearance:none
+  }
+  .syncin:focus{outline:0;border-color:var(--accent)}
+  .syncin::placeholder{color:var(--muted)}
+  #syncstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #syncstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
@@ -270,12 +282,29 @@
 
 <div id="setsheet">
   <div class="sheetbox">
-    <h2>Playback</h2>
+    <h2>Settings</h2>
     <p>Saved on this phone.</p>
     <div class="setrow"><label>Rewind when resuming</label><div class="chips sm" id="ch-rewind"></div></div>
     <div class="setrow"><label>Fade in when a session starts</label><div class="chips sm" id="ch-fadeIn"></div></div>
     <div class="setrow"><label>Speed</label><div class="chips sm" id="ch-speed"></div></div>
     <div class="setrow"><label>Arm the last timer automatically</label><div class="chips sm" id="ch-autoArm"></div></div>
+
+    <div class="setsplit">
+      <div class="setrow">
+        <label>Private sync — pushes the Nights log to your own private GitHub repo</label>
+        <input class="syncin" type="text" id="syncrepo" placeholder="owner/private-repo"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+        <input class="syncin" type="password" id="synctoken" placeholder="Fine-grained token"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+        <div id="syncstatus"></div>
+      </div>
+      <div class="sheetfoot">
+        <button id="syncsave">Save</button>
+        <button id="syncnow">Sync now</button>
+        <button id="syncforget">Forget</button>
+      </div>
+    </div>
+
     <div class="sheetfoot"><button id="closeset">Close</button></div>
   </div>
 </div>
@@ -337,7 +366,12 @@ const delTrack  = async id => req((await os('tracks','readwrite')).delete(id));
 const setMeta   = async (k,v) => req((await os('meta','readwrite')).put(v,k));
 const getMeta   = async k => req((await os('meta','readonly')).get(k));
 const allSessions = async () => req((await os('sessions','readonly')).getAll());
-const putSession  = async s => req((await os('sessions','readwrite')).put(s));
+const putSessionRaw = async s => req((await os('sessions','readwrite')).put(s));
+// Every ordinary write stamps a revision, so the sync layer can tell a run it already pushed
+// from one that changed afterwards (a night reopened within the 10-minute gap, say).
+// putSessionRaw skips the stamp — the sync layer uses it to record what it pushed without
+// making the row look modified again.
+const putSession = async s => { s.updatedAt = Date.now(); return putSessionRaw(s); };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID()
                                      : Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -932,6 +966,7 @@ async function sessionEnd(reason){
   const s = session;
   session = null; lastTick = 0;
   await putSession(s);
+  syncSoon();          // silent; if the app dies first, the next open picks the run back up
 }
 
 function sessionTick(){
@@ -953,6 +988,237 @@ document.addEventListener('pointerdown', () => {
   if (!session) return;
   session.lastInteraction = Date.now();
 }, {passive: true});
+
+/* ---------- private sync ----------
+   Pushes finished runs to a PRIVATE GitHub repo of your own, one JSON file per day, using
+   the Contents API. This app's own repo is public, so nothing about your nights may ever go
+   there — the destination repo and the token are typed in once and live only in IndexedDB
+   on this phone.
+
+   The unit of sync is the day file, not the individual run: each push reads the day's file,
+   merges the runs it already contains by id, and writes it back. That way a run reopened
+   later (or edited by a second device) updates in place instead of duplicating, and a day
+   whose content did not actually change costs no commit at all. */
+const GH_API = 'https://api.github.com';
+const SYNC_DIR = 'audio-sessions';
+const SYNC_DEBOUNCE_MS = 4000;
+
+let syncCfg = null;                 // {repo:'owner/name', token:'…'} or null
+let syncing = false, syncQueued = false, syncTimer = null;
+
+const loadSyncCfg = async () => { syncCfg = (await getMeta('sync')) || null; };
+const syncReady = () => !!(syncCfg && syncCfg.repo && syncCfg.token);
+
+// btoa() only speaks latin-1, and chapter names are full of accents and em dashes — go
+// through UTF-8 bytes explicitly or the push silently corrupts every non-ASCII title.
+function b64(str){
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function unb64(s){
+  const bin = atob(String(s).replace(/\s/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+// Local date, not UTC: a night that starts at 23:40 belongs to that evening's file, which is
+// how you would look for it. toISOString() would file it under the next day in most zones.
+function dayKey(ms){
+  const d = new Date(ms);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0')
+                         + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+// The revision of a row: what the last ordinary write stamped. Rows recorded before sync
+// existed have no stamp, so fall back to something stable rather than re-pushing forever.
+const sessionRev = s => s.updatedAt || s.endedAt || s.startedAt || 0;
+const needsSync  = s => !!s.endedAt && (!s.syncedAt || s.syncedAt < sessionRev(s));
+
+/* What actually leaves the phone. Explicit, so adding an internal field to a session row
+   never starts uploading it by accident. */
+function exportSession(s){
+  const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+  return {
+    id: s.id,
+    started: new Date(s.startedAt).toISOString(),
+    ended: s.endedAt ? new Date(s.endedAt).toISOString() : null,
+    listenedMinutes: Number(((s.listenedSeconds || 0) / 60).toFixed(1)),
+    timerMinutes: s.timerMinutes || null,
+    timerCancelled: !!s.timerCancelled,
+    timerAutoArmed: !!s.autoArmed,
+    speed: s.speed || 1,
+    fadeInSeconds: s.fadeInSeconds || 0,
+    stopReason: s.stopReason || '',
+    trackStart: s.trackStart || '',
+    trackEnd: s.trackEnd || '',
+    stopPositionSeconds: Math.round(s.stopPosition || 0),
+    minutesUntouchedBeforeStop: Number((quiet / 60000).toFixed(1))
+  };
+}
+
+function ghMessage(status){
+  if (status === 401) return 'token rejected';
+  if (status === 403) return 'token lacks Contents write';
+  if (status === 404) return 'repo not found';
+  if (status === 409) return 'conflict';
+  if (status === 422) return 'rejected by GitHub';
+  return 'HTTP ' + status;
+}
+async function gh(path, init){
+  const res = await fetch(GH_API + path, Object.assign({cache:'no-store'}, init, {
+    headers: Object.assign({
+      'Authorization': 'Bearer ' + syncCfg.token,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    }, init && init.headers)
+  }));
+  return res;
+}
+async function ghRead(path){
+  const res = await gh('/repos/' + syncCfg.repo + '/contents/' + path);
+  if (res.status === 404) return null;                    // no file for this day yet
+  if (!res.ok) throw new Error(ghMessage(res.status));
+  const j = await res.json();
+  return {sha: j.sha, text: j.content ? unb64(j.content) : ''};
+}
+async function ghWrite(path, text, sha, message){
+  const body = {message: message, content: b64(text)};
+  if (sha) body.sha = sha;
+  const res = await gh('/repos/' + syncCfg.repo + '/contents/' + path, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  if (!res.ok){
+    const err = new Error(ghMessage(res.status));
+    err.status = res.status;
+    throw err;
+  }
+}
+
+async function pushDay(day, rows, retry){
+  const path = SYNC_DIR + '/' + day + '.json';
+  const remote = await ghRead(path);
+  const merged = new Map();
+  if (remote && remote.text){
+    try {
+      const prev = JSON.parse(remote.text);
+      for (const r of (prev.sessions || [])) if (r && r.id) merged.set(r.id, r);
+    } catch(_){}                                          // unreadable file: rewrite it
+  }
+  for (const s of rows) merged.set(s.id, exportSession(s));
+  const out = {
+    app: 'audio-timer',
+    date: day,
+    sessions: [...merged.values()].sort((a, b) => String(a.started).localeCompare(String(b.started)))
+  };
+  const text = JSON.stringify(out, null, 1) + '\n';
+  if (remote && remote.text === text) return;             // nothing new — do not make a commit
+  try {
+    await ghWrite(path, text, remote && remote.sha,
+                  'audio-timer: ' + day + ' (' + out.sessions.length + ')');
+  } catch(err){
+    // Someone (another device, or a half-finished earlier push) moved the file underneath us.
+    if (err.status === 409 && !retry) return pushDay(day, rows, true);
+    throw err;
+  }
+}
+
+function setSyncStatus(text, bad){
+  const el = $('#syncstatus');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('bad', !!bad);
+}
+
+async function syncStatusLine(){
+  if (!syncReady()) return setSyncStatus('Not set up — enter a private repo and a token.');
+  const all = await allSessions();
+  const waiting = all.filter(needsSync).length;
+  const done = all.filter(s => s.syncedAt).length;
+  setSyncStatus(syncCfg.repo + ' · ' + done + ' synced'
+                + (waiting ? ' · ' + waiting + ' waiting' : ''));
+}
+
+async function syncNow(manual){
+  if (!syncReady()){ if (manual) toast('Enter the repo and token first'); return; }
+  if (syncing){ syncQueued = true; return; }
+  if (!navigator.onLine){
+    if (manual) setSyncStatus('Offline — it will retry on its own.', true);
+    return;
+  }
+  syncing = true;
+  try {
+    const due = (await allSessions()).filter(needsSync);
+    if (!due.length){ await syncStatusLine(); if (manual) toast('Already up to date'); return; }
+
+    const byDay = new Map();
+    for (const s of due){
+      const k = dayKey(s.startedAt);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(s);
+    }
+
+    let pushed = 0;
+    for (const day of [...byDay.keys()].sort()){
+      const rows = byDay.get(day);
+      await pushDay(day, rows);
+      // Only stamp after the day landed, and stamp the exact revision that was pushed —
+      // a run that changes again later goes back into the queue on its own.
+      for (const s of rows){ s.syncedAt = sessionRev(s); await putSessionRaw(s); }
+      pushed += rows.length;
+    }
+    await syncStatusLine();
+    if (manual) toast(pushed + (pushed === 1 ? ' night synced' : ' nights synced'));
+  } catch(err){
+    // Nothing is stamped on failure, so the same runs are simply retried next time.
+    setSyncStatus('Last try failed: ' + (err && err.message || 'error') + ' — will retry.', true);
+    if (manual) toast('Sync failed: ' + (err && err.message || 'error'));
+  } finally {
+    syncing = false;
+    if (syncQueued){ syncQueued = false; syncSoon(1000); }
+  }
+}
+
+/* Debounced, silent, and never awaited by anything on the playback path. */
+function syncSoon(delay){
+  if (!syncReady()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(false), delay == null ? SYNC_DEBOUNCE_MS : delay);
+}
+addEventListener('online', () => syncSoon(2000));
+
+/* The token is never written back into the DOM — the field stays empty and a blank one on
+   save means "keep what is stored", so the sheet can be opened without exposing it. */
+function paintSync(){
+  $('#syncrepo').value = syncCfg && syncCfg.repo || '';
+  $('#synctoken').value = '';
+  $('#synctoken').placeholder = syncCfg && syncCfg.token ? 'Token saved — leave blank to keep'
+                                                         : 'Fine-grained token';
+  syncStatusLine();
+}
+$('#syncsave').onclick = async () => {
+  const repo = $('#syncrepo').value.trim().replace(/^https?:\/\/github\.com\//i, '')
+                                          .replace(/\.git$/i, '').replace(/^\/|\/$/g, '');
+  const typed = $('#synctoken').value.trim();
+  const token = typed || (syncCfg && syncCfg.token) || '';
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast('Repo must look like owner/name');
+  if (!token) return toast('Paste the token');
+  syncCfg = {repo: repo, token: token};
+  await setMeta('sync', syncCfg);
+  paintSync();
+  toast('Sync set up');
+  syncNow(true);
+};
+$('#syncnow').onclick = () => syncNow(true);
+$('#syncforget').onclick = async () => {
+  if (!confirm('Forget the token and repo? Nothing already pushed is deleted.')) return;
+  syncCfg = null;
+  await setMeta('sync', null);
+  paintSync();
+  toast('Sync settings cleared');
+};
 
 /* log sheet */
 function fmtClock(ms){
@@ -1090,7 +1356,7 @@ function buildSettings(){
     });
   }
 }
-$('#setnav').onclick = () => { buildSettings(); $('#setsheet').classList.add('on'); };
+$('#setnav').onclick = () => { buildSettings(); paintSync(); $('#setsheet').classList.add('on'); };
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
 $('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
 
@@ -1108,12 +1374,16 @@ $('#posfile').onchange = async e => {
 /* ---------- boot ---------- */
 (async () => {
   await loadSettings();
+  await loadSyncCfg();
   await render();
   showStorage();
   renderTimer();
   const last = await getMeta('lastTimer');
   if (last) $('#custom').placeholder = 'Custom minutes (last: ' + last + ')';
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  // Anything the phone could not push last night — the app is usually killed before the
+  // final push finishes — goes out now, once the UI is already up.
+  syncSoon(2500);
 })();
 </script>
 </body>
