@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Audio Timer</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<style>
+  :root{
+    --bg:#0b0d10; --surface:#14181d; --surface-2:#1c2128; --line:#262c34;
+    --text:#e9ebee; --muted:#8b939c; --accent:#e8b046; --accent-dim:#5a4a2a;
+    --danger:#d8674f;
+    --safe-b:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--text);
+    font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex;flex-direction:column;overscroll-behavior:none;
+  }
+  header{
+    padding:18px 18px 12px;display:flex;align-items:baseline;justify-content:space-between;
+    border-bottom:1px solid var(--line);
+  }
+  h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
+  #storage{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+  main{flex:1;overflow-y:auto;padding:12px 12px 8px;-webkit-overflow-scrolling:touch}
+
+  .empty{color:var(--muted);text-align:center;padding:48px 24px;font-size:15px;line-height:1.6}
+  .empty b{color:var(--text);font-weight:600}
+
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  li.track{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:12px 12px 10px;display:flex;gap:12px;align-items:center;cursor:pointer;
+  }
+  li.track.playing{border-color:var(--accent-dim);background:var(--surface-2)}
+  .tmeta{flex:1;min-width:0}
+  .tname{font-size:15px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tsub{font-size:12.5px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+  .tsub .resume{color:var(--accent)}
+  .bar{height:3px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--accent);border-radius:2px}
+  .del{
+    background:none;border:0;color:var(--muted);font-size:20px;line-height:1;
+    padding:8px 6px;border-radius:8px;flex:none
+  }
+  .del:active{background:var(--surface-2);color:var(--danger)}
+
+  #addwrap{padding:8px 12px calc(12px + var(--safe-b))}
+  #add{
+    width:100%;padding:14px;border-radius:14px;border:1px dashed var(--line);
+    background:transparent;color:var(--muted);font-size:15px;font-weight:550
+  }
+  #add:active{background:var(--surface)}
+
+  /* player */
+  #player{
+    border-top:1px solid var(--line);background:var(--surface);
+    padding:14px 16px calc(14px + var(--safe-b));display:none
+  }
+  #player.on{display:block}
+  #ptitle{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #seek{width:100%;margin:12px 0 0;-webkit-appearance:none;background:transparent;height:24px}
+  #seek::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--line)}
+  #seek::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--accent);margin-top:-6px
+  }
+  #seek::-moz-range-track{height:4px;border-radius:2px;background:var(--line)}
+  #seek::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--accent)}
+  .times{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);
+    font-variant-numeric:tabular-nums;margin-top:-2px}
+  .controls{display:flex;align-items:center;justify-content:center;gap:22px;margin:10px 0 4px}
+  .ctl{
+    background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+    border-radius:12px;padding:11px 14px;font-size:13px;font-weight:600;min-width:64px
+  }
+  .ctl:active{background:var(--line)}
+  #playpause{
+    width:64px;height:64px;border-radius:50%;background:var(--accent);color:#171205;
+    border:0;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center
+  }
+  #playpause:active{filter:brightness(.9)}
+  #timerbtn{
+    width:100%;margin-top:10px;padding:12px;border-radius:12px;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+    font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px
+  }
+  #timerbtn.armed{border-color:var(--accent);color:var(--accent)}
+  #timerbtn:active{background:var(--line)}
+
+  /* sheet */
+  #sheet{
+    position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+    align-items:flex-end;z-index:10
+  }
+  #sheet.on{display:flex}
+  .sheetbox{
+    width:100%;background:var(--surface);border-radius:20px 20px 0 0;
+    padding:20px 18px calc(20px + var(--safe-b));border-top:1px solid var(--line)
+  }
+  .sheetbox h2{margin:0 0 4px;font-size:17px;font-weight:650}
+  .sheetbox p{margin:0 0 16px;font-size:13px;color:var(--muted)}
+  .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .chip{
+    padding:14px 0;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);
+    color:var(--text);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums
+  }
+  .chip:active{background:var(--accent);color:#171205;border-color:var(--accent)}
+  .customrow{display:flex;gap:8px;margin-top:12px}
+  #custom{
+    flex:1;padding:14px;border-radius:12px;background:var(--surface-2);
+    border:1px solid var(--line);color:var(--text);font-size:16px;min-width:0
+  }
+  #custom:focus{outline:0;border-color:var(--accent)}
+  #startcustom{
+    padding:14px 20px;border-radius:12px;background:var(--accent);color:#171205;
+    border:0;font-size:15px;font-weight:650
+  }
+  .sheetfoot{display:flex;gap:8px;margin-top:14px}
+  .sheetfoot button{
+    flex:1;padding:13px;border-radius:12px;background:transparent;
+    border:1px solid var(--line);color:var(--muted);font-size:14px;font-weight:600
+  }
+  #cancel{color:var(--danger);border-color:var(--accent-dim)}
+
+  #toast{
+    position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translateX(-50%);
+    background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+    padding:11px 16px;border-radius:999px;font-size:13.5px;font-weight:550;
+    opacity:0;pointer-events:none;transition:opacity .25s;z-index:20;max-width:90vw;text-align:center
+  }
+  #toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Audio Timer</h1>
+  <span id="storage"></span>
+</header>
+
+<main>
+  <div class="empty" id="empty">
+    No audio yet.<br>Tap <b>Add audio</b> and pick files from your phone.<br>
+    They're stored inside this app — no internet needed.
+  </div>
+  <ul id="list"></ul>
+</main>
+
+<div id="addwrap">
+  <button id="add">+ Add audio</button>
+  <input type="file" id="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.flac,.wav" multiple hidden>
+</div>
+
+<div id="player">
+  <div id="ptitle"></div>
+  <input type="range" id="seek" min="0" max="1000" value="0" step="1">
+  <div class="times"><span id="tcur">0:00</span><span id="tdur">0:00</span></div>
+  <div class="controls">
+    <button class="ctl" id="back">−30s</button>
+    <button id="playpause" aria-label="Play">▶</button>
+    <button class="ctl" id="fwd">+30s</button>
+  </div>
+  <button id="timerbtn">⏱ Sleep timer — off</button>
+</div>
+
+<div id="sheet">
+  <div class="sheetbox">
+    <h2>Stop after…</h2>
+    <p>Audio fades out and the exact moment is saved.</p>
+    <div class="chips" id="chips"></div>
+    <div class="customrow">
+      <input type="number" id="custom" inputmode="numeric" min="1" max="600" placeholder="Custom minutes">
+      <button id="startcustom">Start</button>
+    </div>
+    <div class="sheetfoot">
+      <button id="cancel">Cancel timer</button>
+      <button id="close">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ---------- storage ---------- */
+const DB_NAME = 'audio-timer', DB_VER = 1;
+let _db;
+function openDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, DB_VER);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', {keyPath:'id'});
+      if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+const db = () => _db || (_db = openDB());
+const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+async function os(name, mode){ return (await db()).transaction(name, mode).objectStore(name); }
+const allTracks = async () => req((await os('tracks','readonly')).getAll());
+const getTrack  = async id => req((await os('tracks','readonly')).get(id));
+const putTrack  = async t  => req((await os('tracks','readwrite')).put(t));
+const delTrack  = async id => req((await os('tracks','readwrite')).delete(id));
+const setMeta   = async (k,v) => req((await os('meta','readwrite')).put(v,k));
+const getMeta   = async k => req((await os('meta','readonly')).get(k));
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+function fmt(s){
+  s = Math.max(0, Math.floor(s || 0));
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return h ? h + ':' + String(m).padStart(2,'0') + ':' + String(x).padStart(2,'0')
+           : m + ':' + String(x).padStart(2,'0');
+}
+function mb(b){ return b > 1e9 ? (b/1e9).toFixed(1)+' GB' : Math.round(b/1e6)+' MB'; }
+let toastT;
+function toast(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 3200);
+}
+
+/* ---------- library ---------- */
+let tracks = [];
+
+async function render(){
+  tracks = (await allTracks()).sort((a,b) => (b.lastPlayed||b.addedAt) - (a.lastPlayed||a.addedAt));
+  const list = $('#list');
+  list.innerHTML = '';
+  $('#empty').style.display = tracks.length ? 'none' : 'block';
+  for (const t of tracks){
+    const li = document.createElement('li');
+    li.className = 'track' + (current && current.id === t.id ? ' playing' : '');
+    const pct = t.duration ? Math.min(100, (t.position/t.duration)*100) : 0;
+    const sub = t.position > 5
+      ? '<span class="resume">resume ' + fmt(t.position) + '</span> · ' + fmt(t.duration)
+      : fmt(t.duration);
+    li.innerHTML =
+      '<div class="tmeta">' +
+        '<div class="tname"></div>' +
+        '<div class="tsub">' + sub + '</div>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+      '</div>' +
+      '<button class="del" aria-label="Delete">✕</button>';
+    li.querySelector('.tname').textContent = t.name;
+    li.querySelector('.del').onclick = async e => {
+      e.stopPropagation();
+      if (!confirm('Delete "' + t.name + '"?')) return;
+      if (current && current.id === t.id) stopAll();
+      await delTrack(t.id); render(); showStorage();
+    };
+    li.onclick = () => load(t.id, true);
+    list.appendChild(li);
+  }
+}
+
+async function showStorage(){
+  const used = tracks.reduce((n,t) => n + (t.size||0), 0);
+  let s = tracks.length + (tracks.length === 1 ? ' file · ' : ' files · ') + mb(used);
+  if (!tracks.length) s = '';
+  $('#storage').textContent = s;
+}
+
+function probeDuration(blob){
+  return new Promise((res, rej) => {
+    const a = new Audio(), u = URL.createObjectURL(blob);
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => { const d = a.duration; URL.revokeObjectURL(u); res(isFinite(d) ? d : 0); };
+    a.onerror = () => { URL.revokeObjectURL(u); rej(new Error('unreadable')); };
+    a.src = u;
+  });
+}
+
+$('#add').onclick = () => $('#file').click();
+$('#file').onchange = async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!files.length) return;
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  let ok = 0;
+  for (const f of files){
+    let dur = 0;
+    try { dur = await probeDuration(f); } catch(_) { toast('Skipped ' + f.name + ' (unsupported)'); continue; }
+    await putTrack({
+      id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)),
+      name: f.name.replace(/\.[^.]+$/, ''), type: f.type, size: f.size, blob: f,
+      duration: dur, position: 0, addedAt: Date.now(), lastPlayed: 0
+    });
+    ok++;
+  }
+  await render(); showStorage();
+  if (ok) toast(ok + (ok === 1 ? ' file added' : ' files added'));
+};
+
+/* ---------- player ---------- */
+const audio = new Audio();
+audio.preload = 'metadata';
+let current = null, objUrl = null, seeking = false, lastSave = 0, loading = false;
+
+async function load(id, autoplay){
+  const t = await getTrack(id);
+  if (!t) return;
+  if (current && current.id !== id) savePos(true);
+  // Capture the resume point before touching the element: swapping the source
+  // fires `pause` / `emptied` with currentTime back at 0.
+  const want = Number(t.position) || 0;
+  loading = true;
+  if (objUrl) URL.revokeObjectURL(objUrl);
+  current = t;
+  objUrl = URL.createObjectURL(t.blob);
+  audio.src = objUrl;
+  audio.load();
+  await new Promise(r => audio.addEventListener('loadedmetadata', r, {once:true}));
+  if (isFinite(audio.duration) && audio.duration > 0 && Math.abs((t.duration||0) - audio.duration) > 1){
+    current.duration = audio.duration;
+  }
+  const d = current.duration || audio.duration || 0;
+  audio.currentTime = (want > 2 && want < d - 2) ? want : 0;
+  current.position = audio.currentTime;
+  loading = false;
+  putTrack(current);
+  $('#player').classList.add('on');
+  $('#ptitle').textContent = t.name;
+  drawTimes();
+  mediaSession();
+  render();
+  if (autoplay) play();
+}
+
+function play(){
+  if (!current) return;
+  audio.play().catch(err => toast('Could not play: ' + err.message));
+}
+function pause(){ audio.pause(); }
+function stopAll(){
+  savePos(true);
+  loading = true;
+  audio.pause(); audio.removeAttribute('src'); audio.load();
+  if (objUrl) URL.revokeObjectURL(objUrl);
+  objUrl = null; current = null; loading = false; cancelTimer();
+  $('#player').classList.remove('on');
+}
+function skip(sec){
+  if (!current) return;
+  audio.currentTime = Math.max(0, Math.min((audio.duration||0) - 0.5, audio.currentTime + sec));
+  savePos(true); drawTimes();
+}
+
+function savePos(force){
+  if (!current || loading) return;
+  if (!audio.src || audio.readyState === 0) return;
+  const pos = audio.currentTime;
+  if (!(pos > 0)) return;               // never overwrite a resume point with 0
+  const now = Date.now();
+  if (!force && now - lastSave < 5000) return;
+  lastSave = now;
+  current.position = pos;
+  current.lastPlayed = now;
+  putTrack(current);
+}
+
+function drawTimes(){
+  const d = audio.duration || current && current.duration || 0;
+  $('#tcur').textContent = fmt(audio.currentTime);
+  $('#tdur').textContent = fmt(d);
+  if (!seeking) $('#seek').value = d ? Math.round(audio.currentTime / d * 1000) : 0;
+}
+
+$('#playpause').onclick = () => audio.paused ? play() : pause();
+$('#back').onclick = () => skip(-30);
+$('#fwd').onclick  = () => skip(30);
+$('#seek').oninput = () => { seeking = true; };
+$('#seek').onchange = () => {
+  const d = audio.duration || 0;
+  if (d) audio.currentTime = ($('#seek').value / 1000) * d;
+  seeking = false; savePos(true); drawTimes();
+};
+
+audio.addEventListener('play',  () => { $('#playpause').textContent = '❚❚'; mediaPos(); });
+audio.addEventListener('pause', () => { $('#playpause').textContent = '▶'; savePos(true); render(); });
+audio.addEventListener('timeupdate', () => { drawTimes(); tickTimer(); savePos(false); mediaPos(); });
+audio.addEventListener('ended', () => {
+  if (current){ current.position = 0; current.lastPlayed = Date.now(); putTrack(current); }
+  cancelTimer(); render();
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) savePos(true); });
+addEventListener('pagehide', () => savePos(true));
+
+/* lock-screen controls */
+let lastPosPush = 0;
+function mediaSession(){
+  if (!('mediaSession' in navigator) || !current) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: current.name,
+      artist: timerLabel(),
+      album: 'Audio Timer',
+      artwork: [{src:'./icon-512.png', sizes:'512x512', type:'image/png'}]
+    });
+    navigator.mediaSession.setActionHandler('play', play);
+    navigator.mediaSession.setActionHandler('pause', pause);
+    navigator.mediaSession.setActionHandler('seekbackward', () => skip(-30));
+    navigator.mediaSession.setActionHandler('seekforward', () => skip(30));
+    navigator.mediaSession.setActionHandler('seekto', e => {
+      if (e.seekTime != null){ audio.currentTime = e.seekTime; savePos(true); }
+    });
+  } catch(_){}
+}
+function mediaPos(){
+  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+  const now = Date.now();
+  if (now - lastPosPush < 1000) return;
+  lastPosPush = now;
+  const d = audio.duration;
+  if (!isFinite(d) || d <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: d, playbackRate: audio.playbackRate,
+      position: Math.min(audio.currentTime, d)
+    });
+  } catch(_){}
+}
+
+/* ---------- sleep timer ---------- */
+const FADE_MS = 8000;
+let deadline = 0, fadeIv = null, savedVol = 1;
+
+function timerLabel(){
+  if (!deadline) return 'No timer';
+  const left = Math.max(0, deadline - Date.now());
+  return 'Stops in ' + fmt(left/1000);
+}
+function renderTimer(){
+  const b = $('#timerbtn');
+  if (deadline){
+    b.classList.add('armed');
+    b.textContent = '⏱ Stops in ' + fmt(Math.max(0, deadline - Date.now())/1000) + ' — tap to change';
+  } else {
+    b.classList.remove('armed');
+    b.textContent = '⏱ Sleep timer — off';
+  }
+}
+function startTimer(min){
+  min = Number(min);
+  if (!(min > 0)) return;
+  abortFade();
+  deadline = Date.now() + min * 60000;
+  setMeta('lastTimer', min);
+  renderTimer(); mediaSession(); closeSheet();
+  toast('Stops in ' + min + ' min');
+  if (audio.paused && current) play();
+}
+function cancelTimer(){
+  deadline = 0; abortFade(); renderTimer(); mediaSession();
+}
+function abortFade(){
+  if (fadeIv){ clearInterval(fadeIv); fadeIv = null; audio.volume = savedVol; }
+}
+function tickTimer(){
+  if (!deadline) return;
+  renderTimer();
+  const left = deadline - Date.now();
+  if (left <= 0 && !fadeIv){ finish(); return; }
+  if (left <= FADE_MS && !fadeIv && !audio.paused) startFade(left);
+}
+function startFade(ms){
+  savedVol = audio.volume;
+  const from = savedVol, t0 = Date.now(), span = Math.max(500, ms);
+  fadeIv = setInterval(() => {
+    const p = Math.min(1, (Date.now() - t0) / span);
+    audio.volume = Math.max(0, from * (1 - p));
+    if (p >= 1){ clearInterval(fadeIv); fadeIv = null; finish(); }
+  }, 100);
+}
+function finish(){
+  const at = audio.currentTime;
+  audio.pause();
+  audio.volume = savedVol || 1;
+  deadline = 0;
+  savePos(true);
+  renderTimer(); mediaSession(); render();
+  toast('Stopped at ' + fmt(at) + ' — saved');
+}
+setInterval(tickTimer, 500);
+
+/* sheet */
+const PRESETS = [5, 10, 15, 20, 30, 45, 60, 90];
+const chips = $('#chips');
+PRESETS.forEach(m => {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = m + 'm';
+  b.onclick = () => startTimer(m);
+  chips.appendChild(b);
+});
+function openSheet(){ $('#sheet').classList.add('on'); }
+function closeSheet(){ $('#sheet').classList.remove('on'); }
+$('#timerbtn').onclick = openSheet;
+$('#close').onclick = closeSheet;
+$('#cancel').onclick = () => { cancelTimer(); closeSheet(); toast('Timer cancelled'); };
+$('#startcustom').onclick = () => startTimer($('#custom').value);
+$('#custom').addEventListener('keydown', e => { if (e.key === 'Enter') startTimer($('#custom').value); });
+$('#sheet').onclick = e => { if (e.target.id === 'sheet') closeSheet(); };
+
+/* ---------- boot ---------- */
+(async () => {
+  await render();
+  showStorage();
+  renderTimer();
+  const last = await getMeta('lastTimer');
+  if (last) $('#custom').placeholder = 'Custom minutes (last: ' + last + ')';
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+})();
+</script>
+</body>
+</html>
