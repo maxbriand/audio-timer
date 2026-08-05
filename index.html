@@ -29,6 +29,22 @@
   }
   h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
   #storage{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .hright{display:flex;align-items:center;gap:10px}
+  #lognav{
+    background:var(--surface-2);border:1px solid var(--line);color:var(--accent);
+    width:34px;height:34px;border-radius:10px;font-size:16px;line-height:1;flex:none
+  }
+  #lognav:active{background:var(--line)}
+
+  #logsheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+    align-items:flex-end;z-index:10}
+  #logsheet.on{display:flex}
+  #loglist{max-height:46vh;overflow-y:auto;margin-bottom:6px}
+  .logrow{padding:10px 0;border-bottom:1px solid var(--line)}
+  .logrow:last-child{border-bottom:0}
+  .logday{font-size:14px;font-weight:600}
+  .logmeta{font-size:12.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+  .logempty{color:var(--muted);font-size:13.5px;padding:20px 0;text-align:center}
 
   main{flex:1;overflow-y:auto;padding:12px 12px 8px;-webkit-overflow-scrolling:touch}
 
@@ -183,7 +199,10 @@
 
 <header>
   <h1>Audio Timer</h1>
-  <span id="storage"></span>
+  <div class="hright">
+    <span id="storage"></span>
+    <button id="lognav" aria-label="Listening log">☾</button>
+  </div>
 </header>
 
 <main>
@@ -240,23 +259,49 @@
   </div>
 </div>
 
+<div id="logsheet">
+  <div class="sheetbox">
+    <h2>Nights</h2>
+    <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
+    <div id="loglist"></div>
+    <div class="sheetfoot">
+      <button id="exportcsv">Export CSV</button>
+      <button id="closelog">Close</button>
+    </div>
+    <div class="sheetfoot">
+      <button id="exportpos">Back up positions</button>
+      <button id="importpos">Restore positions</button>
+    </div>
+    <input type="file" id="posfile" accept="application/json,.json" hidden>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
 'use strict';
 
 /* ---------- storage ---------- */
-const DB_NAME = 'audio-timer', DB_VER = 1;
+const DB_NAME = 'audio-timer', DB_VER = 2;
 let _db;
 function openDB(){
   return new Promise((res, rej) => {
     const r = indexedDB.open(DB_NAME, DB_VER);
     r.onupgradeneeded = () => {
       const d = r.result;
+      // Additive only — an existing library must survive the upgrade untouched.
       if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', {keyPath:'id'});
       if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+      if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', {keyPath:'id'});
     };
-    r.onsuccess = () => res(r.result);
+    // Without this, a second copy of the app (a stray Chrome tab alongside the installed
+    // one) holds the old version open and the upgrade blocks forever with no error.
+    r.onblocked = () => toast('Close the other copy of this app to finish updating');
+    r.onsuccess = () => {
+      const d = r.result;
+      d.onversionchange = () => { d.close(); _db = null; };
+      res(d);
+    };
     r.onerror = () => rej(r.error);
   });
 }
@@ -269,6 +314,11 @@ const putTrack  = async t  => req((await os('tracks','readwrite')).put(t));
 const delTrack  = async id => req((await os('tracks','readwrite')).delete(id));
 const setMeta   = async (k,v) => req((await os('meta','readwrite')).put(v,k));
 const getMeta   = async k => req((await os('meta','readonly')).get(k));
+const allSessions = async () => req((await os('sessions','readonly')).getAll());
+const putSession  = async s => req((await os('sessions','readwrite')).put(s));
+
+const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+                                     : Date.now() + '-' + Math.random().toString(36).slice(2));
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -585,9 +635,15 @@ $('#seek').onchange = () => {
   seeking = false; savePos(true); drawTimes();
 };
 
-audio.addEventListener('play',  () => { $('#playpause').textContent = '❚❚'; mediaPos(); });
-audio.addEventListener('pause', () => { $('#playpause').textContent = '▶'; savePos(true); paintList(); });
-audio.addEventListener('timeupdate', () => { drawTimes(); tickTimer(); savePos(false); mediaPos(); });
+audio.addEventListener('play',  () => { $('#playpause').textContent = '❚❚'; mediaPos(); sessionStart(); });
+audio.addEventListener('pause', () => {
+  $('#playpause').textContent = '▶'; savePos(true); paintList();
+  // A source swap also fires pause; that is a handover, not the end of a listening run.
+  if (!loading){ sessionEnd(pendingStop || 'manual'); pendingStop = ''; }
+});
+audio.addEventListener('timeupdate', () => {
+  drawTimes(); tickTimer(); savePos(false); mediaPos(); sessionTick();
+});
 
 audio.addEventListener('ended', async () => {
   const finished = current;
@@ -612,11 +668,12 @@ audio.addEventListener('ended', async () => {
     candidate = nextTrack(candidate);
   }
   cancelTimer(); paintList();
+  await sessionEnd('end of library');
 });
 
 $('#search').addEventListener('input', paintList);
 document.addEventListener('visibilitychange', () => { if (document.hidden) savePos(true); });
-addEventListener('pagehide', () => savePos(true));
+addEventListener('pagehide', () => { savePos(true); sessionEnd('app closed'); });
 
 /* lock-screen controls */
 let lastPosPush = 0;
@@ -677,6 +734,8 @@ function startTimer(min){
   if (!(min > 0)) return;
   abortFade();
   deadline = Date.now() + min * 60000;
+  timerSetTo = min;
+  if (session) session.timerMinutes = min;
   setMeta('lastTimer', min);
   renderTimer(); mediaSession(); closeSheet();
   toast('Stops in ' + min + ' min');
@@ -706,6 +765,7 @@ function startFade(ms){
 }
 function finish(){
   const at = audio.currentTime;
+  pendingStop = 'sleep timer';        // read by the pause handler that closes the session
   audio.pause();
   audio.volume = savedVol || 1;
   deadline = 0;
@@ -732,6 +792,163 @@ $('#cancel').onclick = () => { cancelTimer(); closeSheet(); toast('Timer cancell
 $('#startcustom').onclick = () => startTimer($('#custom').value);
 $('#custom').addEventListener('keydown', e => { if (e.key === 'Enter') startTimer($('#custom').value); });
 $('#sheet').onclick = e => { if (e.target.id === 'sheet') closeSheet(); };
+
+/* ---------- session log ----------
+   One row per listening run. This is not a sleep tracker: it records when audio started,
+   how long it actually played, what stopped it, and when you last touched the phone.
+   The gap between your last interaction and the stop is the useful part — if you set 45
+   minutes and never touched it again, you were asleep well before it ended. */
+const SESSION_GAP_MS = 10 * 60 * 1000;   // resuming within 10 min continues the same night
+let session = null, lastTick = 0, pendingStop = '', timerSetTo = null;
+
+async function sessionStart(){
+  if (session) return;
+  const all = (await allSessions()).sort((a,b) => b.startedAt - a.startedAt);
+  // Any row without an end was killed by Android before pagehide could write. Close each of
+  // them at its last known activity, not just the newest, or old ones dangle forever.
+  for (const s of all){
+    if (s.endedAt) continue;
+    s.endedAt = Math.max(s.lastInteraction || 0, s.startedAt + (s.listenedSeconds || 0) * 1000);
+    s.stopReason = s.stopReason || 'app stopped';
+    await putSession(s);
+  }
+  const last = all[0];
+  if (last && last.endedAt && Date.now() - last.endedAt < SESSION_GAP_MS){
+    session = last;                       // same night, brief pause — keep one row
+    session.endedAt = null;
+  } else {
+    session = {
+      id: uid(), startedAt: Date.now(), endedAt: null,
+      trackStart: current ? current.name : '', trackEnd: '',
+      timerMinutes: timerSetTo, stopReason: '', stopPosition: 0,
+      listenedSeconds: 0, lastInteraction: Date.now()
+    };
+  }
+  await putSession(session);
+}
+
+async function sessionEnd(reason){
+  if (!session) return;
+  session.endedAt = Date.now();
+  session.stopReason = reason;
+  if (current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+  if (timerSetTo) session.timerMinutes = timerSetTo;
+  const s = session;
+  session = null; lastTick = 0;
+  await putSession(s);
+}
+
+function sessionTick(){
+  if (!session || audio.paused) { lastTick = 0; return; }
+  const now = Date.now();
+  // Only count contiguous time, so a backgrounded gap is not billed as listening.
+  if (lastTick && now - lastTick < 5000) session.listenedSeconds += (now - lastTick) / 1000;
+  lastTick = now;
+}
+
+document.addEventListener('pointerdown', () => {
+  if (session) session.lastInteraction = Date.now();
+}, {passive: true});
+
+/* log sheet */
+function fmtClock(ms){
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function fmtDay(ms){
+  return new Date(ms).toLocaleDateString(undefined, {weekday:'short', day:'numeric', month:'short'});
+}
+
+async function openLog(){
+  const rows = (await allSessions()).sort((a,b) => b.startedAt - a.startedAt).slice(0, 40);
+  const box = $('#loglist');
+  if (!rows.length){
+    box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you listen.</div>';
+  } else {
+    box.innerHTML = '';
+    for (const s of rows){
+      const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+      const el = document.createElement('div');
+      el.className = 'logrow';
+      el.innerHTML =
+        '<div class="logday"></div>' +
+        '<div class="logmeta"></div>';
+      el.querySelector('.logday').textContent = fmtDay(s.startedAt) + ' · ' + fmtClock(s.startedAt);
+      el.querySelector('.logmeta').textContent =
+        fmt(s.listenedSeconds) + ' played'
+        + (s.timerMinutes ? ' · ' + s.timerMinutes + 'm timer' : '')
+        + (s.stopReason ? ' · ' + s.stopReason : '')
+        + (quiet > 60000 ? ' · untouched for ' + fmt(quiet/1000) : '');
+      box.appendChild(el);
+    }
+  }
+  $('#logsheet').classList.add('on');
+}
+
+function download(filename, text, type){
+  const url = URL.createObjectURL(new Blob([text], {type}));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function exportCSV(){
+  const rows = (await allSessions()).sort((a,b) => a.startedAt - b.startedAt);
+  if (!rows.length) return toast('Nothing to export yet');
+  const head = ['started','ended','listened_minutes','timer_minutes','stop_reason',
+                'track_start','track_end','stop_position_seconds','minutes_untouched_before_stop'];
+  const csv = [head.join(',')].concat(rows.map(s => {
+    const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+    return [
+      new Date(s.startedAt).toISOString(),
+      s.endedAt ? new Date(s.endedAt).toISOString() : '',
+      (s.listenedSeconds / 60).toFixed(1),
+      s.timerMinutes || '',
+      s.stopReason || '',
+      '"' + String(s.trackStart || '').replace(/"/g,'""') + '"',
+      '"' + String(s.trackEnd || '').replace(/"/g,'""') + '"',
+      Math.round(s.stopPosition || 0),
+      (quiet / 60000).toFixed(1)
+    ].join(',');
+  })).join('\n');
+  download('audio-timer-sessions.csv', csv, 'text/csv');
+  toast(rows.length + ' sessions exported');
+}
+
+/* Positions are keyed by filename, not id, so they can be restored onto a re-imported
+   library after the phone clears site data. */
+async function exportPositions(){
+  const data = (await allTracks()).map(t => ({name: t.name, position: Math.round(t.position || 0)}));
+  if (!data.length) return toast('Nothing to back up yet');
+  download('audio-timer-positions.json', JSON.stringify(data, null, 1), 'application/json');
+  toast(data.length + ' positions backed up');
+}
+
+async function importPositions(file){
+  let data;
+  try { data = JSON.parse(await file.text()); } catch(_) { return toast('That file is not readable'); }
+  if (!Array.isArray(data)) return toast('That file is not a positions backup');
+  const byName = new Map(data.map(d => [d.name, Number(d.position) || 0]));
+  let n = 0;
+  for (const t of await allTracks()){
+    const p = byName.get(t.name);
+    if (p != null && p !== t.position){ t.position = p; await putTrack(t); n++; }
+  }
+  await refresh();
+  toast(n + ' positions restored');
+}
+
+$('#lognav').onclick = openLog;
+$('#closelog').onclick = () => $('#logsheet').classList.remove('on');
+$('#logsheet').onclick = e => { if (e.target.id === 'logsheet') e.currentTarget.classList.remove('on'); };
+$('#exportcsv').onclick = exportCSV;
+$('#exportpos').onclick = exportPositions;
+$('#importpos').onclick = () => $('#posfile').click();
+$('#posfile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (f) await importPositions(f);
+};
 
 /* ---------- boot ---------- */
 (async () => {

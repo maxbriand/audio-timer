@@ -14,6 +14,17 @@ that saves the exact moment it stops.
   **Continue** card for the last thing you played once the library passes 12 files.
 - Lock-screen / notification controls via the Media Session API (play, pause, ±30 s, scrub).
 - Works with no internet at all after the first load — the service worker caches the app shell.
+- Records a **session log** (the ☾ button): when audio started, how long it actually played,
+  what stopped it, and how long the phone went untouched before it stopped. Exports to CSV.
+- **Back up / restore positions** as JSON, keyed by filename so a backup still applies after
+  the audio is re-imported with new ids.
+
+## What the session log is and is not
+
+It is not a sleep tracker and it measures nothing about your body. It records what the app
+itself observed. The useful column is `minutes_untouched_before_stop`: if a 45-minute timer
+ran out and the phone had not been touched for 38 of those minutes, you were almost certainly
+asleep well before it stopped. Treat that as a rough sleep-onset proxy, not a measurement.
 
 ## Files
 
@@ -69,6 +80,11 @@ python3 make-icons.py
   the outgoing position and would otherwise write the end of the file over the reset.
 - Long imports must never await `requestAnimationFrame` — it stops firing when the screen
   sleeps, which would stall the import silently.
+- The IndexedDB open sets `onversionchange` (and handles `onblocked`). Without it, a second
+  copy of the app open elsewhere holds the old version and a schema upgrade hangs forever
+  with no error — the app just never finishes booting.
+- `sessionStart()` closes every session row that has no `endedAt`, not just the newest.
+  Android can kill the app before `pagehide` writes, and older orphans would dangle.
 - The countdown is a wall-clock deadline checked on every `timeupdate`, not a `setInterval`
   count — background tabs throttle timers, but media playback keeps firing `timeupdate`, so
   the stop lands on time with the screen off.
