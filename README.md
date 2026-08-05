@@ -14,8 +14,10 @@ that saves the exact moment it stops.
   **Continue** card for the last thing you played once the library passes 12 files.
 - Lock-screen / notification controls via the Media Session API (play, pause, ±30 s, scrub).
 - Works with no internet at all after the first load — the service worker caches the app shell.
-- Records a **session log** (the ☾ button): when audio started, how long it actually played,
-  what stopped it, and how long the phone went untouched before it stopped. Exports to CSV.
+- Records a **session log** (the ☾ button): every run is kept, newest first — when audio
+  started and ended, how long it actually played, what stopped it, the timer and playback
+  settings in force, the chapters it ran from and to, and how long the phone went untouched
+  before it stopped. The full history is shown, not just recent nights. Exports to CSV.
 - **Back up / restore positions** as JSON, keyed by filename so a backup still applies after
   the audio is re-imported with new ids.
 - Playback settings (the ⚙ button, saved on the device): rewind on resume, fade-in at the

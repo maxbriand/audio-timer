@@ -50,6 +50,9 @@
   .logday{font-size:14px;font-weight:600}
   .logmeta{font-size:12.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
   .logempty{color:var(--muted);font-size:13.5px;padding:20px 0;text-align:center}
+  #logcount{font-size:12.5px;color:var(--muted);margin-bottom:6px;font-variant-numeric:tabular-nums}
+  .logsub{opacity:.75}
+  .logsub:empty{display:none}
 
   main{flex:1;overflow-y:auto;padding:12px 12px 8px;-webkit-overflow-scrolling:touch}
 
@@ -281,6 +284,7 @@
   <div class="sheetbox">
     <h2>Nights</h2>
     <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
+    <div id="logcount"></div>
     <div id="loglist"></div>
     <div class="sheetfoot">
       <button id="exportcsv">Export CSV</button>
@@ -708,7 +712,18 @@ audio.addEventListener('ended', async () => {
 });
 
 $('#search').addEventListener('input', paintList);
-document.addEventListener('visibilitychange', () => { if (document.hidden) savePos(true); });
+document.addEventListener('visibilitychange', () => {
+  // Backgrounding is the last reliable moment on mobile — pagehide often never runs before
+  // the OS reclaims the app, so snapshot the run here while it can still be written.
+  if (!document.hidden) return;
+  savePos(true);
+  if (session){
+    session.lastInteraction = Date.now();
+    if (current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+    lastSessionSave = Date.now();
+    putSession(session).catch(() => {});
+  }
+});
 addEventListener('pagehide', () => { savePos(true); sessionEnd('app closed'); });
 
 /* lock-screen controls */
@@ -771,7 +786,11 @@ function startTimer(min){
   abortFade();
   deadline = Date.now() + min * 60000;
   timerSetTo = min;
-  if (session) session.timerMinutes = min;
+  if (session){
+    session.timerMinutes = min;
+    session.timerCancelled = false;      // re-arming undoes an earlier cancel
+    if (!session.timerArmedAt) session.timerArmedAt = Date.now();
+  }
   setMeta('lastTimer', min);
   renderTimer(); mediaSession(); closeSheet();
   toast('Stops in ' + min + ' min');
@@ -779,6 +798,9 @@ function startTimer(min){
 }
 function cancelTimer(){
   deadline = 0; abortFade(); renderTimer(); mediaSession();
+  // Clear the armed value too, or the next untimed run inherits it and is logged as timed.
+  timerSetTo = null;
+  if (session && session.timerMinutes) session.timerCancelled = true;
 }
 function abortFade(){
   if (fadeIv){ clearInterval(fadeIv); fadeIv = null; audio.volume = TARGET_VOL; }
@@ -856,7 +878,12 @@ $('#sheet').onclick = e => { if (e.target.id === 'sheet') closeSheet(); };
    The gap between your last interaction and the stop is the useful part — if you set 45
    minutes and never touched it again, you were asleep well before it ended. */
 const SESSION_GAP_MS = 10 * 60 * 1000;   // resuming within 10 min continues the same night
-let session = null, lastTick = 0, pendingStop = '', timerSetTo = null;
+// A run stopped for one of these reasons is finished for good. Reopening such a row would
+// rewrite a real night's outcome ("sleep timer") with whatever ended the next one, which is
+// how history used to collapse into a single entry. Only an incidental stop may be resumed.
+const RESUMABLE_STOPS = ['manual', 'app stopped', 'app closed'];
+const SESSION_SAVE_MS = 15 * 1000;       // how often an in-flight run is flushed to disk
+let session = null, lastTick = 0, pendingStop = '', timerSetTo = null, lastSessionSave = 0;
 
 async function sessionStart(){
   if (session) return;
@@ -870,22 +897,29 @@ async function sessionStart(){
     await putSession(s);
   }
   const last = all[0];
-  if (last && last.endedAt && Date.now() - last.endedAt < SESSION_GAP_MS){
+  const resumable = last && last.endedAt
+    && RESUMABLE_STOPS.includes(last.stopReason)
+    && Date.now() - last.endedAt < SESSION_GAP_MS;
+  if (resumable){
     session = last;                       // same night, brief pause — keep one row
     session.endedAt = null;
+    session.stopReason = '';
   } else {
     session = {
       id: uid(), startedAt: Date.now(), endedAt: null,
       trackStart: current ? current.name : '', trackEnd: '',
-      timerMinutes: timerSetTo, stopReason: '', stopPosition: 0,
+      timerMinutes: timerSetTo, timerArmedAt: timerSetTo ? Date.now() : null,
+      autoArmed: false, fadeInSeconds: Number(settings.fadeIn) || 0,
+      speed: Number(settings.speed) || 1, stopReason: '', stopPosition: 0,
       listenedSeconds: 0, lastInteraction: Date.now()
     };
     startFadeIn();                       // a fresh run, not an auto-advance handover
     if (settings.autoArm && !deadline){
       const m = await getMeta('lastTimer');
-      if (m){ startTimer(m); toast('Sleep timer armed: ' + m + ' min'); }
+      if (m){ startTimer(m); session.autoArmed = true; toast('Sleep timer armed: ' + m + ' min'); }
     }
   }
+  lastSessionSave = Date.now();
   await putSession(session);
 }
 
@@ -906,10 +940,18 @@ function sessionTick(){
   // Only count contiguous time, so a backgrounded gap is not billed as listening.
   if (lastTick && now - lastTick < 5000) session.listenedSeconds += (now - lastTick) / 1000;
   lastTick = now;
+  // Flush periodically: if the OS kills the app mid-night, pagehide never gets to write and
+  // the row would otherwise be stuck at the zero seconds it was created with.
+  if (now - lastSessionSave > SESSION_SAVE_MS){
+    lastSessionSave = now;
+    if (current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+    putSession(session).catch(() => {});
+  }
 }
 
 document.addEventListener('pointerdown', () => {
-  if (session) session.lastInteraction = Date.now();
+  if (!session) return;
+  session.lastInteraction = Date.now();
 }, {passive: true});
 
 /* log sheet */
@@ -921,12 +963,18 @@ function fmtDay(ms){
   return new Date(ms).toLocaleDateString(undefined, {weekday:'short', day:'numeric', month:'short'});
 }
 
+/* Every run ever recorded, newest first — the whole history, not a recent window. */
 async function openLog(){
-  const rows = (await allSessions()).sort((a,b) => b.startedAt - a.startedAt).slice(0, 40);
+  const rows = (await allSessions()).sort((a,b) => b.startedAt - a.startedAt);
   const box = $('#loglist');
+  const count = $('#logcount');
   if (!rows.length){
     box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you listen.</div>';
+    count.textContent = '';
   } else {
+    const total = rows.reduce((n, s) => n + (s.listenedSeconds || 0), 0);
+    count.textContent = rows.length + (rows.length === 1 ? ' night' : ' nights') +
+                        ' · ' + fmt(total) + ' listened in total';
     box.innerHTML = '';
     for (const s of rows){
       const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
@@ -934,13 +982,23 @@ async function openLog(){
       el.className = 'logrow';
       el.innerHTML =
         '<div class="logday"></div>' +
-        '<div class="logmeta"></div>';
-      el.querySelector('.logday').textContent = fmtDay(s.startedAt) + ' · ' + fmtClock(s.startedAt);
+        '<div class="logmeta"></div>' +
+        '<div class="logmeta logsub"></div>';
+      el.querySelector('.logday').textContent =
+        fmtDay(s.startedAt) + ' · ' + fmtClock(s.startedAt)
+        + (s.endedAt ? '–' + fmtClock(s.endedAt) : '');
       el.querySelector('.logmeta').textContent =
         fmt(s.listenedSeconds) + ' played'
-        + (s.timerMinutes ? ' · ' + s.timerMinutes + 'm timer' : '')
-        + (s.stopReason ? ' · ' + s.stopReason : '')
+        + (s.timerMinutes ? ' · ' + s.timerMinutes + 'm timer'
+            + (s.timerCancelled ? ' (cancelled)' : '') + (s.autoArmed ? ' (auto)' : '') : ' · no timer')
+        + (s.stopReason ? ' · ' + s.stopReason : ' · still running')
         + (quiet > 60000 ? ' · untouched for ' + fmt(quiet/1000) : '');
+      el.querySelector('.logsub').textContent =
+        [s.trackStart && 'from ' + s.trackStart,
+         s.trackEnd && s.trackEnd !== s.trackStart && 'to ' + s.trackEnd,
+         s.speed && s.speed !== 1 && s.speed + '×',
+         s.fadeInSeconds ? s.fadeInSeconds + 's fade-in' : ''
+        ].filter(Boolean).join(' · ');
       box.appendChild(el);
     }
   }
@@ -958,15 +1016,20 @@ function download(filename, text, type){
 async function exportCSV(){
   const rows = (await allSessions()).sort((a,b) => a.startedAt - b.startedAt);
   if (!rows.length) return toast('Nothing to export yet');
-  const head = ['started','ended','listened_minutes','timer_minutes','stop_reason',
+  const head = ['started','ended','listened_minutes','timer_minutes','timer_cancelled',
+                'timer_auto_armed','speed','fade_in_seconds','stop_reason',
                 'track_start','track_end','stop_position_seconds','minutes_untouched_before_stop'];
   const csv = [head.join(',')].concat(rows.map(s => {
     const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
     return [
       new Date(s.startedAt).toISOString(),
       s.endedAt ? new Date(s.endedAt).toISOString() : '',
-      (s.listenedSeconds / 60).toFixed(1),
+      ((s.listenedSeconds || 0) / 60).toFixed(1),
       s.timerMinutes || '',
+      s.timerCancelled ? 'yes' : '',
+      s.autoArmed ? 'yes' : '',
+      s.speed || '',
+      s.fadeInSeconds || '',
       s.stopReason || '',
       '"' + String(s.trackStart || '').replace(/"/g,'""') + '"',
       '"' + String(s.trackEnd || '').replace(/"/g,'""') + '"',
