@@ -18,6 +18,8 @@ that saves the exact moment it stops.
   what stopped it, and how long the phone went untouched before it stopped. Exports to CSV.
 - **Back up / restore positions** as JSON, keyed by filename so a backup still applies after
   the audio is re-imported with new ids.
+- Playback settings (the ⚙ button, saved on the device): rewind on resume, fade-in at the
+  start of a session, speed, and auto-arming the last sleep timer when you press play.
 
 ## What the session log is and is not
 
@@ -85,6 +87,22 @@ python3 make-icons.py
   with no error — the app just never finishes booting.
 - `sessionStart()` closes every session row that has no `endedAt`, not just the newest.
   Android can kill the app before `pagehide` writes, and older orphans would dangle.
+- Fade-in and the sleep timer's fade-out both restore volume to `TARGET_VOL`, never to
+  "whatever it was". Fading out from a volume the fade-in was still raising, then restoring
+  that captured value, leaves playback permanently quiet.
+- `startFadeIn()` runs only when a *new* session begins, so chapters do not each fade in
+  during auto-advance.
+
+## Getting the sessions into the Body asset
+
+```bash
+python3 tools/sleep-log-to-body.py            # preview what would be added
+python3 tools/sleep-log-to-body.py --write    # append
+```
+
+Reads `~/Downloads/audio-timer-sessions.csv` and appends new rows to
+`~/Documents/Assets/Body/sources/sleep/audio-sessions.csv`, de-duplicating on the `started`
+timestamp. It writes nothing without `--write`.
 - The countdown is a wall-clock deadline checked on every `timeupdate`, not a `setInterval`
   count — background tabs throttle timers, but media playback keeps firing `timeupdate`, so
   the stop lands on time with the screen off.
