@@ -35,6 +35,30 @@
   .empty{color:var(--muted);text-align:center;padding:48px 24px;font-size:15px;line-height:1.6}
   .empty b{color:var(--text);font-weight:600}
 
+  #searchwrap{display:none;margin-bottom:8px}
+  #search{
+    width:100%;padding:12px 14px;border-radius:12px;background:var(--surface);
+    border:1px solid var(--line);color:var(--text);font-size:15px;-webkit-appearance:none
+  }
+  #search:focus{outline:0;border-color:var(--accent)}
+  #search::placeholder{color:var(--muted)}
+
+  #continue{
+    display:none;align-items:center;gap:12px;margin-bottom:8px;padding:12px;
+    border-radius:14px;background:var(--surface-2);border:1px solid var(--accent-dim);cursor:pointer
+  }
+  #continue:active{background:var(--line)}
+  .cmeta{flex:1;min-width:0}
+  .cmeta b{display:block;font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .cmeta span{font-size:12.5px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .cgo{
+    flex:none;width:36px;height:36px;border-radius:50%;background:var(--accent);color:#171205;
+    display:flex;align-items:center;justify-content:center;font-size:14px
+  }
+
+  #clipped{display:none;color:var(--muted);font-size:12.5px;text-align:center;padding:14px 8px 4px}
+
   ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
   li.track{
     background:var(--surface);border:1px solid var(--line);border-radius:14px;
@@ -167,7 +191,15 @@
     No audio yet.<br>Tap <b>Add audio</b> and pick files from your phone.<br>
     They're stored inside this app — no internet needed.
   </div>
+  <div id="searchwrap">
+    <input type="search" id="search" placeholder="Search…" autocomplete="off" autocapitalize="none" spellcheck="false">
+  </div>
+  <div id="continue">
+    <div class="cmeta"><b></b><span></span></div>
+    <div class="cgo">▶</div>
+  </div>
   <ul id="list"></ul>
+  <div id="clipped"></div>
 </main>
 
 <div id="addwrap">
@@ -256,12 +288,43 @@ function toast(msg){
 /* ---------- library ---------- */
 let tracks = [];
 
-async function render(){
-  tracks = (await allTracks()).sort((a,b) => (b.lastPlayed||b.addedAt) - (a.lastPlayed||a.addedAt));
+// Natural order, so "Genesis 2" sorts before "Genesis 10" and a numbered audiobook
+// plays in its intended sequence.
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, {numeric:true, sensitivity:'base'});
+
+const SEARCH_FROM = 12;   // show the filter once the library stops fitting on a screen
+const MAX_ROWS = 300;     // painting 1000+ rows on every pause is what makes a big library lag
+
+async function refresh(){
+  tracks = (await allTracks()).sort(byName);
+  paintList();
+}
+
+// Repaint from the in-memory list — no IndexedDB round trip, so it is cheap enough to call
+// on every play/pause even with a thousand chapters.
+function paintList(){
   const list = $('#list');
-  list.innerHTML = '';
+  const q = ($('#search').value || '').trim().toLowerCase();
+  const matched = q ? tracks.filter(t => t.name.toLowerCase().includes(q)) : tracks;
+  const shown = matched.slice(0, MAX_ROWS);
+
   $('#empty').style.display = tracks.length ? 'none' : 'block';
-  for (const t of tracks){
+  $('#searchwrap').style.display = tracks.length >= SEARCH_FROM ? 'block' : 'none';
+
+  const last = tracks.reduce((b, t) => (t.lastPlayed > (b ? b.lastPlayed : 0) ? t : b), null);
+  const cont = $('#continue');
+  if (last && last.lastPlayed && (!current || current.id !== last.id)){
+    cont.style.display = 'flex';
+    cont.querySelector('b').textContent = last.name;
+    cont.querySelector('span').textContent = last.position > 5 ? 'resume ' + fmt(last.position) : 'from the start';
+    cont.onclick = () => load(last.id, true);
+  } else {
+    cont.style.display = 'none';
+  }
+
+  list.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const t of shown){
     const li = document.createElement('li');
     li.className = 'track' + (current && current.id === t.id ? ' playing' : '');
     const pct = t.duration ? Math.min(100, (t.position/t.duration)*100) : 0;
@@ -280,11 +343,33 @@ async function render(){
       e.stopPropagation();
       if (!confirm('Delete "' + t.name + '"?')) return;
       if (current && current.id === t.id) stopAll();
-      await delTrack(t.id); render(); showStorage();
+      await delTrack(t.id); await refresh(); showStorage();
     };
     li.onclick = () => load(t.id, true);
-    list.appendChild(li);
+    frag.appendChild(li);
   }
+  list.appendChild(frag);
+
+  const note = $('#clipped');
+  if (matched.length > shown.length){
+    note.style.display = 'block';
+    note.textContent = 'Showing ' + shown.length + ' of ' + matched.length + ' — type above to narrow it down';
+  } else if (q && !matched.length){
+    note.style.display = 'block';
+    note.textContent = 'Nothing matches "' + q + '"';
+  } else {
+    note.style.display = 'none';
+  }
+}
+
+// Kept so existing call sites stay honest about needing fresh data from disk.
+const render = refresh;
+
+// The next chapter in natural order, ignoring any active search filter.
+function nextTrack(t){
+  if (!t) return null;
+  const i = tracks.findIndex(x => x.id === t.id);
+  return i >= 0 && i + 1 < tracks.length ? tracks[i + 1] : null;
 }
 
 async function showStorage(){
@@ -367,23 +452,27 @@ $('#file').onchange = async e => {
     let dur = 0;
     try { dur = await probeDuration(f); } catch(_) { failed.push(f.name); doneBytes += f.size; continue; }
     try {
-      await putTrack({
+      const rec = {
         id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)),
         name: f.name.replace(/\.[^.]+$/, ''), type: f.type, size: f.size, blob: f,
         duration: dur, position: 0, addedAt: Date.now(), lastPlayed: 0
-      });
+      };
+      await putTrack(rec);
+      // Append in memory rather than re-reading the whole store per file — with a thousand
+      // chapters a full reload each time would make the import quadratic.
+      tracks.push(rec);
       ok++;
     } catch(err){
       failed.push(f.name + (err && /quota/i.test(err.name + err.message) ? ' (out of space)' : ''));
     }
     doneBytes += f.size;
-    await render();            // the list grows as files land, instead of after all of them
+    paintList();               // the list grows as files land, instead of after all of them
   }
 
   clearInterval(ticker);
   showProgress(false);
   if (lock) lock.release().catch(()=>{});
-  await render(); await showStorage();
+  await refresh(); await showStorage();
   toast(failed.length
     ? ok + ' added, ' + failed.length + ' failed: ' + failed.slice(0,2).join(', ')
     : ok + (ok === 1 ? ' file added' : ' files added'));
@@ -404,10 +493,32 @@ async function load(id, autoplay){
   loading = true;
   if (objUrl) URL.revokeObjectURL(objUrl);
   current = t;
+  // Point the cached list entry at the same object, so position updates show up in the
+  // list without re-reading the store.
+  const ci = tracks.findIndex(x => x.id === id);
+  if (ci >= 0) tracks[ci] = t;
   objUrl = URL.createObjectURL(t.blob);
   audio.src = objUrl;
   audio.load();
-  await new Promise(r => audio.addEventListener('loadedmetadata', r, {once:true}));
+  // Never wait on loadedmetadata alone: a corrupt or unsupported file would hang here
+  // forever, and one bad file in a big import would freeze the whole queue.
+  const opened = await new Promise(res => {
+    const done = v => {
+      audio.removeEventListener('loadedmetadata', onMeta);
+      audio.removeEventListener('error', onErr);
+      clearTimeout(tid);
+      res(v);
+    };
+    const onMeta = () => done(true), onErr = () => done(false);
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('error', onErr);
+    const tid = setTimeout(() => done(false), 10000);
+  });
+  if (!opened){
+    loading = false;
+    toast('Cannot play "' + t.name + '" — skipped');
+    return false;
+  }
   if (isFinite(audio.duration) && audio.duration > 0 && Math.abs((t.duration||0) - audio.duration) > 1){
     current.duration = audio.duration;
   }
@@ -420,8 +531,9 @@ async function load(id, autoplay){
   $('#ptitle').textContent = t.name;
   drawTimes();
   mediaSession();
-  render();
+  paintList();
   if (autoplay) play();
+  return true;
 }
 
 function play(){
@@ -474,12 +586,35 @@ $('#seek').onchange = () => {
 };
 
 audio.addEventListener('play',  () => { $('#playpause').textContent = '❚❚'; mediaPos(); });
-audio.addEventListener('pause', () => { $('#playpause').textContent = '▶'; savePos(true); render(); });
+audio.addEventListener('pause', () => { $('#playpause').textContent = '▶'; savePos(true); paintList(); });
 audio.addEventListener('timeupdate', () => { drawTimes(); tickTimer(); savePos(false); mediaPos(); });
-audio.addEventListener('ended', () => {
-  if (current){ current.position = 0; current.lastPlayed = Date.now(); putTrack(current); }
-  cancelTimer(); render();
+
+audio.addEventListener('ended', async () => {
+  const finished = current;
+  if (finished){
+    finished.position = 0;                 // played through, so start it over next time
+    finished.lastPlayed = Date.now();
+    await putTrack(finished);
+    // Detach before loading the next one: load() saves the outgoing track's position,
+    // which would immediately write the end of the file back over that reset.
+    current = null;
+  }
+  // A track ending mid-fade means the sleep timer was already expiring: stop there.
+  if (fadeIv){ abortFade(); finish(); return; }
+
+  // Skip past files that will not open, so one bad chapter cannot end the night's listening.
+  let candidate = nextTrack(finished);
+  for (let tries = 0; candidate && tries < 5; tries++){
+    if (await load(candidate.id, true)){   // the sleep timer deliberately survives the handover
+      if (deadline) toast('Next: ' + candidate.name);
+      return;
+    }
+    candidate = nextTrack(candidate);
+  }
+  cancelTimer(); paintList();
 });
+
+$('#search').addEventListener('input', paintList);
 document.addEventListener('visibilitychange', () => { if (document.hidden) savePos(true); });
 addEventListener('pagehide', () => savePos(true));
 
@@ -575,7 +710,7 @@ function finish(){
   audio.volume = savedVol || 1;
   deadline = 0;
   savePos(true);
-  renderTimer(); mediaSession(); render();
+  renderTimer(); mediaSession(); paintList();
   toast('Stopped at ' + fmt(at) + ' — saved');
 }
 setInterval(tickTimer, 500);

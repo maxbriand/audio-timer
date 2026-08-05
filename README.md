@@ -8,6 +8,10 @@ that saves the exact moment it stops.
 - Set a stop time: presets (5/10/15/20/30/45/60/90 min) or any custom number of minutes.
 - At zero the audio fades out over 8 s, pauses, and the position is written to disk.
 - Every track remembers where it stopped. Tapping it resumes from there.
+- Chapters auto-advance: when one ends the next starts, and the sleep timer keeps running
+  across the handover. Files that will not open are skipped rather than ending the queue.
+- Sorted in natural order (`Genesis 2` before `Genesis 10`), with a search box and a
+  **Continue** card for the last thing you played once the library passes 12 files.
 - Lock-screen / notification controls via the Media Session API (play, pause, ±30 s, scrub).
 - Works with no internet at all after the first load — the service worker caches the app shell.
 
@@ -56,9 +60,15 @@ python3 make-icons.py
 
 ## Notes
 
-- The service worker is cache-first, so after you change `index.html` the **next** open still
-  shows the old version and the one after that shows the new one. To push an update
-  immediately, bump `CACHE` in `sw.js` (`audio-timer-v1` → `-v2`).
+- The page is served network-first with a 2.5 s timeout, so an update lands on the next open
+  when online and the cache answers instantly when offline. Icons and the manifest stay
+  cache-first. Bump `CACHE` in `sw.js` on release to drop the old entries.
+- `load()` races `loadedmetadata` against `error` and a 10 s timeout. Waiting on
+  `loadedmetadata` alone means one corrupt file hangs the queue forever.
+- The `ended` handler clears `current` before loading the next track, because `load()` saves
+  the outgoing position and would otherwise write the end of the file over the reset.
+- Long imports must never await `requestAnimationFrame` — it stops firing when the screen
+  sleeps, which would stall the import silently.
 - The countdown is a wall-clock deadline checked on every `timeupdate`, not a `setInterval`
   count — background tabs throttle timers, but media playback keeps firing `timeupdate`, so
   the stop lands on time with the screen off.
