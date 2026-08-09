@@ -90,7 +90,7 @@ paste the token as the password at the first prompt.
 Check the script runs by hand before automating it:
 
 ```bash
-~/Documents/Sources/audio-timer/mac/body-data-sync.sh && tail -3 ~/Library/Logs/body-data-sync.log
+~/Projects/audio-timer/mac/body-data-sync.sh && tail -3 ~/Library/Logs/body-data-sync.log
 ```
 
 You should get a line like `no change · 3 day files · 7 sessions`.
@@ -99,7 +99,7 @@ Then install the LaunchAgent. `launchd` does not expand `~`, so the home path is
 in as the template is copied:
 
 ```bash
-sed "s|__HOME__|$HOME|g" ~/Documents/Sources/audio-timer/mac/com.maxbriand.body-data-sync.plist > ~/Library/LaunchAgents/com.maxbriand.body-data-sync.plist
+sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.body-data-sync.plist > ~/Library/LaunchAgents/com.maxbriand.body-data-sync.plist
 ```
 
 ```bash

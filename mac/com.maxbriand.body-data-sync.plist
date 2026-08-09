@@ -4,7 +4,7 @@
   Template. launchd does not expand ~, so install it with the home path substituted in:
 
     sed "s|__HOME__|$HOME|g" \
-      ~/Documents/Sources/audio-timer/mac/com.maxbriand.body-data-sync.plist \
+      ~/Projects/audio-timer/mac/com.maxbriand.body-data-sync.plist \
       > ~/Library/LaunchAgents/com.maxbriand.body-data-sync.plist
 
   See SETUP.md for the full sequence.
@@ -17,7 +17,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
-    <string>__HOME__/Documents/Sources/audio-timer/mac/body-data-sync.sh</string>
+    <string>__HOME__/Projects/audio-timer/mac/body-data-sync.sh</string>
   </array>
 
   <!-- Every 30 minutes. If the Mac was asleep at the due moment, launchd runs it on wake. -->

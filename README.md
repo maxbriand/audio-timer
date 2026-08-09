@@ -68,7 +68,7 @@ saved positions live on the phone.
 ## Local development
 
 ```bash
-python3 -m http.server 4180 --directory ~/Documents/Sources/audio-timer
+python3 -m http.server 4180 --directory ~/Projects/audio-timer
 ```
 
 Then open http://127.0.0.1:4180 — localhost counts as a secure origin, so the service worker
