@@ -45,8 +45,16 @@ asleep well before it stopped. Treat that as a rough sleep-onset proxy, not a me
 | `mac/body-data-sync.sh` | Pulls the private repo into the Body asset (run by launchd) |
 | `mac/com.maxbriand.body-data-sync.plist` | LaunchAgent template, every 30 min |
 | `tools/sessions-json-to-csv.py` | Flattens the pushed day files into one CSV |
+| `capacitor.config.json` | Native shell config — app id, name, background colour |
+| `android/` | Capacitor's generated Android project (committed; build output is not) |
+| `scripts/build-www.mjs` | Copies the root web assets into `www/` for the APK |
+| `scripts/build-apk.mjs` | Gradle release build → `~/Downloads/audio-timer-standalone.apk` |
+| `scripts/make-android-icons.py` | Adaptive launcher icons from the same mark as the PWA |
+| `scripts/bench.html` | Throwaway harness used to measure the storage writes (see below) |
 
-No build step, no dependencies.
+The web app itself still has no build step and no dependencies — `index.html` is the whole
+thing, and the repo root is what GitHub Pages serves. The Capacitor tooling only exists to
+wrap that same file into an APK, and never edits it.
 
 ## Installing on the phone
 
@@ -64,6 +72,57 @@ Pushing to `main` republishes the site.
 
 Nothing is ever uploaded: only the app shell (HTML/JS/icons) is hosted; the audio and the
 saved positions live on the phone.
+
+## Installing as an APK
+
+The same app, wrapped by [Capacitor](https://capacitorjs.com) into an ordinary Android app —
+its own launcher icon and no browser chrome, and nothing to install it from.
+
+```bash
+npm install && npm run apk
+```
+
+That rebuilds `www/`, syncs it into `android/`, runs a signed Gradle release build and leaves
+`~/Downloads/audio-timer-standalone.apk`. Copy it to the phone and open it.
+
+**What this does and does not change.** Capacitor renders in Android's WebView, which since
+Android 10 is its own package (*Android System WebView*) and not part of Chrome — so Chrome can
+be absent or disabled and the app still runs. What it does *not* do is ship a browser engine
+inside the APK; the 3.6 MB APK is the web app plus the Capacitor bridge, and it uses whatever
+WebView the phone has. Genuinely bundling an engine means GeckoView (~70 MB), which Capacitor
+does not support.
+
+**Keep the keystore.** `android/keystore.properties` and `android/audio-timer-release.keystore`
+are gitignored and exist only on this Mac. Android refuses to install an upgrade signed by a
+different key, so losing them means uninstalling the app — and its library — before the next
+build will install.
+
+## How storage is laid out, and why
+
+Three things live in IndexedDB, and the split between the first two is what keeps writes cheap:
+
+| Store | Holds | Written |
+|---|---|---|
+| `tracks` | the audio blob, name, duration, size | once at import |
+| `positions` | where each track is up to, keyed by track id | every 5 s of playback |
+| `sessions` | the run log the ☾ sheet shows | at the end of each run |
+
+Position used to live on the track record itself, which meant every 5-second save handed the
+whole record — audio included — back to IndexedDB. There is no copy-on-write there: a 6 MB
+chapter cost a measured 110–160 ms and a fresh 6 MB on disk *per save*, roughly 3 GB of flash
+writes across a 45-minute sleep timer. Writing the position on its own costs ~6 ms. Tracks
+imported before the split keep their old `position` field and are read back through it, so
+nothing needed migrating.
+
+Import reads each picked file **once**. A file from the Android picker is a handle to a
+`content://` provider, not bytes in memory, and the old path pulled it through twice — once for
+the media element to measure the duration, then again for IndexedDB. Reading it into memory
+first and reusing that copy takes the duration probe from ~730 ms to ~30 ms on a 6 MB MP3.
+Files above 96 MB skip this and stream from the handle, to stay off the heap.
+
+The numbers above came from `scripts/bench.html` — drop it over
+`android/app/src/main/assets/public/index.html`, build, and read the results with
+`adb logcat | grep BENCH`.
 
 ## Local development
 

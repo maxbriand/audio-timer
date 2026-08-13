@@ -1,0 +1,12 @@
+{
+  "appId": "com.maxbriand.audiotimer",
+  "appName": "Audio Timer",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0b0d10",
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
