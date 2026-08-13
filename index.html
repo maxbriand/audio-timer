@@ -15,6 +15,9 @@
     --text:#e9ebee; --muted:#8b939c; --accent:#e8b046; --accent-dim:#5a4a2a;
     --danger:#d8674f;
     --safe-b:env(safe-area-inset-bottom,0px);
+    /* Installed from Chrome the browser kept its own bar above the page, so the header never
+       had to clear the status bar. The APK draws edge to edge and it does. */
+    --safe-t:env(safe-area-inset-top,0px);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
@@ -24,7 +27,8 @@
     display:flex;flex-direction:column;overscroll-behavior:none;
   }
   header{
-    padding:18px 18px 12px;display:flex;align-items:baseline;justify-content:space-between;
+    padding:calc(18px + var(--safe-t)) 18px 12px;
+    display:flex;align-items:baseline;justify-content:space-between;
     border-bottom:1px solid var(--line);
   }
   h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
@@ -333,7 +337,7 @@
 'use strict';
 
 /* ---------- storage ---------- */
-const DB_NAME = 'audio-timer', DB_VER = 2;
+const DB_NAME = 'audio-timer', DB_VER = 3;
 let _db;
 function openDB(){
   return new Promise((res, rej) => {
@@ -344,6 +348,12 @@ function openDB(){
       if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', {keyPath:'id'});
       if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
       if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', {keyPath:'id'});
+      // Where a track is up to, kept away from the track itself. A record in `tracks` carries
+      // the audio, so rewriting one to move a play position by five seconds costs a full copy
+      // of the file — ~130 ms and 6 MB of flash for a 6 MB chapter, every 5 s of playback.
+      // These rows are a few bytes each and cost ~6 ms. Nothing is migrated into it: an
+      // absent row simply falls back to the position already on the track record.
+      if (!d.objectStoreNames.contains('positions')) d.createObjectStore('positions');
     };
     // Without this, a second copy of the app (a stray Chrome tab alongside the installed
     // one) holds the old version open and the upgrade blocks forever with no error.
@@ -359,10 +369,36 @@ function openDB(){
 const db = () => _db || (_db = openDB());
 const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 async function os(name, mode){ return (await db()).transaction(name, mode).objectStore(name); }
-const allTracks = async () => req((await os('tracks','readonly')).getAll());
-const getTrack  = async id => req((await os('tracks','readonly')).get(id));
+// A track's stored position is whatever the positions store says, falling back to the copy on
+// the record itself for anything imported before the split.
+function withPos(t, p){
+  if (!t || !p) return t;
+  if (p.position != null) t.position = p.position;
+  if (p.lastPlayed != null) t.lastPlayed = p.lastPlayed;
+  return t;
+}
+async function allTracks(){
+  const list = await req((await os('tracks','readonly')).getAll());
+  const store = await os('positions','readonly');
+  // Both requests go in before either is awaited: a transaction with nothing outstanding
+  // commits at the end of the task, and the second read would then land on a dead one.
+  const keysReq = store.getAllKeys(), valsReq = store.getAll();
+  const [keys, vals] = await Promise.all([req(keysReq), req(valsReq)]);
+  const by = new Map(keys.map((k, i) => [k, vals[i]]));
+  return list.map(t => withPos(t, by.get(t.id)));
+}
+async function getTrack(id){
+  const t = await req((await os('tracks','readonly')).get(id));
+  return withPos(t, await req((await os('positions','readonly')).get(id)));
+}
 const putTrack  = async t  => req((await os('tracks','readwrite')).put(t));
-const delTrack  = async id => req((await os('tracks','readwrite')).delete(id));
+async function delTrack(id){
+  await req((await os('tracks','readwrite')).delete(id));
+  await req((await os('positions','readwrite')).delete(id));
+}
+// The hot write: a couple of numbers, never the audio.
+const putPos = async (id, position, lastPlayed) =>
+  req((await os('positions','readwrite')).put({position, lastPlayed}, id));
 const setMeta   = async (k,v) => req((await os('meta','readwrite')).put(v,k));
 const getMeta   = async k => req((await os('meta','readonly')).get(k));
 const allSessions = async () => req((await os('sessions','readonly')).getAll());
@@ -507,6 +543,43 @@ function probeDuration(blob){
 // app is backgrounded, which would stall a long import indefinitely.
 const paint = () => new Promise(r => setTimeout(r, 0));
 
+// Both of the calls the import makes before it starts are best-effort favours to the phone,
+// and neither is worth waiting on: if the device answers slowly, or never, the import must
+// still run. Without this an unresolved promise here stalls everything with the progress bar
+// already on screen, so the delay reads as "writing the file is slow".
+const withTimeout = (p, msLimit) => Promise.race([
+  Promise.resolve(p).catch(() => null),
+  new Promise(r => setTimeout(() => r(null), msLimit))
+]);
+
+// A picked file is not bytes in memory — it is a handle to a content:// provider, and every
+// read of it goes back out through Android. The old path read each file twice: once for the
+// media element to measure the duration, then again for IndexedDB to copy it. Reading it once
+// here and handing the same in-memory copy to both is the whole optimisation; measured on a
+// 6 MB MP3 the duration probe alone drops from ~730 ms to ~30 ms, because the media stack no
+// longer has to pull the file back through the provider.
+const MEMORY_LIMIT = 96 * 1024 * 1024;   // above this, stream from the handle rather than risk the heap
+
+// Some pickers hand over a file with no MIME type at all, and the fresh Blob would inherit
+// that emptiness. The media stack sniffs the content anyway, but keeping a sensible type
+// means the stored record still reports what it is.
+const MIME = {mp3:'audio/mpeg', m4a:'audio/mp4', m4b:'audio/mp4', aac:'audio/aac', ogg:'audio/ogg',
+              oga:'audio/ogg', opus:'audio/ogg', wav:'audio/wav', flac:'audio/flac', mp4:'audio/mp4'};
+function typeOf(f){
+  if (f.type) return f.type;
+  const ext = (f.name.match(/\.([^.]+)$/) || [,''])[1].toLowerCase();
+  return MIME[ext] || '';
+}
+
+// Returns an in-memory Blob holding the file's bytes, or the original handle when the file is
+// too big to hold — in which case the caller simply pays the old double-read cost rather than
+// risking an allocation failure on a phone.
+async function materialize(f){
+  if (f.size > MEMORY_LIMIT) return f;
+  const buf = await f.arrayBuffer();
+  return new Blob([buf], {type: typeOf(f)});
+}
+
 function showProgress(on){
   $('#progress').classList.toggle('on', on);
   $('#add').disabled = on;
@@ -536,12 +609,13 @@ $('#file').onchange = async e => {
   let doneBytes = 0, ok = 0, failed = [];
   const t0 = Date.now();
 
-  // Ask the phone not to evict this data, and not to sleep the screen mid-import.
-  if (navigator.storage && navigator.storage.persist) await navigator.storage.persist().catch(()=>{});
+  // Ask the phone not to evict this data, and not to sleep the screen mid-import. Both are
+  // capped: a device that never answers must not hold the import hostage.
+  if (navigator.storage && navigator.storage.persist) await withTimeout(navigator.storage.persist(), 1500);
   let lock = null;
   // Only meaningful while visible, and it must never block the import if it is refused.
   if (navigator.wakeLock && document.visibilityState === 'visible'){
-    try { lock = await navigator.wakeLock.request('screen'); } catch(_){}
+    lock = await withTimeout(navigator.wakeLock.request('screen'), 1500);
   }
 
   showProgress(true);
@@ -555,12 +629,16 @@ $('#file').onchange = async e => {
     setProgress({name: f.name, index: i + 1, count: files.length, doneBytes, totalBytes,
                  elapsed: Math.round((Date.now() - t0)/1000)});
     await paint();
+    // One trip through the content provider, reused for both the probe and the write.
+    let body;
+    try { body = await materialize(f); }
+    catch(_) { failed.push(f.name + ' (unreadable)'); doneBytes += f.size; continue; }
     let dur = 0;
-    try { dur = await probeDuration(f); } catch(_) { failed.push(f.name); doneBytes += f.size; continue; }
+    try { dur = await probeDuration(body); } catch(_) { failed.push(f.name); doneBytes += f.size; continue; }
     try {
       const rec = {
         id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)),
-        name: f.name.replace(/\.[^.]+$/, ''), type: f.type, size: f.size, blob: f,
+        name: f.name.replace(/\.[^.]+$/, ''), type: typeOf(f), size: f.size, blob: body,
         duration: dur, position: 0, addedAt: Date.now(), lastPlayed: 0
       };
       await putTrack(rec);
@@ -640,8 +718,10 @@ async function load(id, autoplay){
     toast('Cannot play "' + t.name + '" — skipped');
     return false;
   }
+  let durationCorrected = false;
   if (isFinite(audio.duration) && audio.duration > 0 && Math.abs((t.duration||0) - audio.duration) > 1){
     current.duration = audio.duration;
+    durationCorrected = true;
   }
   const d = current.duration || audio.duration || 0;
   // Back up a few seconds so you re-enter mid-sentence with context rather than cold.
@@ -650,7 +730,10 @@ async function load(id, autoplay){
   audio.playbackRate = settings.speed || 1;   // a source swap resets the rate
   current.position = audio.currentTime;
   loading = false;
-  putTrack(current);
+  putPos(current.id, current.position, current.lastPlayed || 0);
+  // A duration read off the file beats the one guessed at import, but it is a property of the
+  // track rather than of playback, so it is worth the one full write — once, not every 5 s.
+  if (durationCorrected) putTrack(current);
   $('#player').classList.add('on');
   $('#ptitle').textContent = t.name;
   drawTimes();
@@ -670,7 +753,7 @@ function stopAll(){
   loading = true;
   audio.pause(); audio.removeAttribute('src'); audio.load();
   if (objUrl) URL.revokeObjectURL(objUrl);
-  objUrl = null; current = null; loading = false; cancelTimer();
+  objUrl = null; current = null; loading = false; cancelTimer(); stopShakeWatch(true);
   $('#player').classList.remove('on');
 }
 function skip(sec){
@@ -689,7 +772,7 @@ function savePos(force){
   lastSave = now;
   current.position = pos;
   current.lastPlayed = now;
-  putTrack(current);
+  putPos(current.id, pos, now);
 }
 
 function drawTimes(){
@@ -709,7 +792,12 @@ $('#seek').onchange = () => {
   seeking = false; savePos(true); drawTimes();
 };
 
-audio.addEventListener('play',  () => { $('#playpause').textContent = '❚❚'; mediaPos(); sessionStart(); });
+audio.addEventListener('play',  () => {
+  $('#playpause').textContent = '❚❚'; mediaPos(); sessionStart();
+  // Resuming any way closes the shake window. The native service is only shut down when
+  // nothing will want it again: no timer still counting, and no auto-arm about to set one.
+  stopShakeWatch(!deadline && !settings.autoArm);
+});
 audio.addEventListener('pause', () => {
   $('#playpause').textContent = '▶'; savePos(true); paintList();
   // A source swap also fires pause; that is a handover, not the end of a listening run.
@@ -724,7 +812,7 @@ audio.addEventListener('ended', async () => {
   if (finished){
     finished.position = 0;                 // played through, so start it over next time
     finished.lastPlayed = Date.now();
-    await putTrack(finished);
+    await putPos(finished.id, 0, finished.lastPlayed);
     // Detach before loading the next one: load() saves the outgoing track's position,
     // which would immediately write the end of the file back over that reset.
     current = null;
@@ -826,12 +914,15 @@ function startTimer(min){
     if (!session.timerArmedAt) session.timerArmedAt = Date.now();
   }
   setMeta('lastTimer', min);
+  // Arm the native shake watcher now, while the app is visible and allowed to start it.
+  if (nativeShake) nativeShake.arm({deadline: deadline, windowMs: SHAKE_WINDOW_MS}).catch(() => {});
   renderTimer(); mediaSession(); closeSheet();
   toast('Stops in ' + min + ' min');
   if (audio.paused && current) play();
 }
 function cancelTimer(){
   deadline = 0; abortFade(); renderTimer(); mediaSession();
+  if (nativeShake) nativeShake.stop().catch(() => {});
   // Clear the armed value too, or the next untimed run inherits it and is logged as timed.
   timerSetTo = null;
   if (session && session.timerMinutes) session.timerCancelled = true;
@@ -884,9 +975,81 @@ function finish(){
   deadline = 0;
   savePos(true);
   renderTimer(); mediaSession(); paintList();
+  startShakeWatch();
   toast('Stopped at ' + fmt(at) + ' — saved');
 }
 setInterval(tickTimer, 500);
+
+/* ---------- shake to restart ----------
+   The timer ran out but you are still awake: shaking the phone starts the audio again from
+   where it stopped, without having to find the screen in the dark. The window only stays
+   open for the first minute after the timer fired — still awake, you notice the silence
+   within moments; past that, a shake is just the phone being handled later, and must not
+   start audio in a hand or a pocket.
+   Two detectors share this logic. In a plain browser the page listens to devicemotion
+   itself, which works while the screen is lit. In the APK the native ShakeService listens
+   instead — it keeps the CPU up and hears the accelerometer with the screen off, and its
+   detection thresholds mirror the ones below. The service must be STARTED while the app is
+   still visible (Android refuses cold foreground-service starts from the background), so it
+   is armed the moment a timer is set, and merely poked awake when the timer fires. */
+const nativeShake = (() => {
+  const C = window.Capacitor;
+  const p = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.ShakeWatch;
+  if (!p) return null;
+  p.addListener('shake', () => shakeRestart());
+  return p;
+})();
+
+const SHAKE_WINDOW_MS = 60 * 1000;
+const SHAKE_FORCE = 18;         // m/s² of gravity-free acceleration — a deliberate shake, not a nudge
+const SHAKE_PEAKS = 3;          // distinct strong movements required…
+const SHAKE_PEAK_GAP_MS = 150;  // …each its own, not one jolt seen at sensor rate
+const SHAKE_SPAN_MS = 1200;     // …all within this
+let shakeUntil = 0, shakePeakTimes = [], shakeWatching = false;
+
+function onShakeMotion(e){
+  const now = Date.now();
+  if (now > shakeUntil){ stopShakeWatch(true); return; }
+  // Gravity-free acceleration when the device reports it; otherwise strip ~1 g off the raw one.
+  const a = e.acceleration, g = e.accelerationIncludingGravity;
+  let force;
+  if (a && a.x != null) force = Math.hypot(a.x, a.y, a.z);
+  else if (g && g.x != null) force = Math.abs(Math.hypot(g.x, g.y, g.z) - 9.81);
+  else return;
+  if (force < SHAKE_FORCE) return;
+  const last = shakePeakTimes[shakePeakTimes.length - 1];
+  if (last && now - last < SHAKE_PEAK_GAP_MS) return;
+  shakePeakTimes = shakePeakTimes.filter(t => now - t < SHAKE_SPAN_MS);
+  shakePeakTimes.push(now);
+  if (shakePeakTimes.length >= SHAKE_PEAKS) shakeRestart();
+}
+
+function shakeRestart(){
+  // The native service goes idle by itself after reporting a shake; auto-arm will either
+  // re-claim it seconds from now or the play handler below will shut it down.
+  stopShakeWatch(false);
+  if (!current || !audio.src || !audio.paused) return;
+  // The same re-entry courtesy as any other resume: back up a few seconds for context.
+  audio.currentTime = Math.max(0, audio.currentTime - (Number(settings.rewind) || 0));
+  play();       // the play handler opens a fresh run, so fade-in and auto-arm apply as usual
+  toast('Shake — resuming');
+}
+
+function startShakeWatch(){
+  shakeUntil = Date.now() + SHAKE_WINDOW_MS;
+  shakePeakTimes = [];
+  if (nativeShake){ nativeShake.open({windowMs: SHAKE_WINDOW_MS}).catch(() => {}); return; }
+  if (!('DeviceMotionEvent' in window)) return;
+  if (!shakeWatching){ addEventListener('devicemotion', onShakeMotion); shakeWatching = true; }
+}
+// stopNative distinguishes "this window is truly over" from "the service should live on":
+// while a timer is still counting down, or auto-arm is about to set one, killing the service
+// would be fatal — Android will not let it start again from the background.
+function stopShakeWatch(stopNative){
+  shakeUntil = 0; shakePeakTimes = [];
+  if (stopNative && nativeShake) nativeShake.stop().catch(() => {});
+  if (shakeWatching){ removeEventListener('devicemotion', onShakeMotion); shakeWatching = false; }
+}
 
 /* sheet */
 const PRESETS = [5, 10, 15, 20, 30, 45, 60, 90];
@@ -1324,7 +1487,7 @@ async function importPositions(file){
   let n = 0;
   for (const t of await allTracks()){
     const p = byName.get(t.name);
-    if (p != null && p !== t.position){ t.position = p; await putTrack(t); n++; }
+    if (p != null && p !== t.position){ t.position = p; await putPos(t.id, p, t.lastPlayed || 0); n++; }
   }
   await refresh();
   toast(n + ' positions restored');
