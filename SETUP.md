@@ -152,3 +152,132 @@ launchctl bootout gui/$(id -u)/com.maxbriand.body-data-sync
   changes — the Mac uses SSH and is unaffected.
 - **If the phone is wiped**, the repo is the backup. The app's own **Back up positions** JSON
   (☾ sheet) still covers where you were in each file; that is separate and stays manual.
+
+---
+
+# Server upload setup
+
+A second, independent destination: the phone sends each finished night to **a server of your
+own**, and — unlike the GitHub sync — clears it from the phone once the server has confirmed
+it. Set up alongside the sync above, or instead of it; they do not know about each other.
+
+```
+phone (IndexedDB)  ──stage──▶  native outbox  ──POST, when there is a network──▶  your server
+                                                                                      │
+                             ◀── {"accepted":[ids]} ────────────────────────────────────
+                                        │
+                          stamped, then deleted from the phone 14 days later
+```
+
+## Why this is not the GitHub sync with a different URL
+
+The GitHub sync uploads from the page, when the page is open and online. That works if the
+phone has data at night. **It does not work if you take the SIM out at bedtime**: the app is
+open and recording exactly while there is no network, and the network comes back during the
+day with the app closed. Nothing in the page is running at that moment.
+
+So on the APK the page only *stages* a finished night into a native outbox, and Android's
+WorkManager does the sending under a "needs a network" constraint. It fires when connectivity
+returns with the app closed, retries with backoff, and is rescheduled after a reboot.
+Uninstalling the app or force-stopping it from Settings is the only thing that stops it.
+
+Run as an ordinary web page there is no such mechanism, so the page falls back to posting
+while it is open and online. Useful for trying it out; not what the phone relies on.
+
+## 1. Put the receiver on the server
+
+[`tools/log-receiver.py`](tools/log-receiver.py) — stdlib only, no dependencies.
+
+```bash
+scp ~/Projects/audio-timer/tools/log-receiver.py you@your-server:/opt/audio-timer/
+```
+
+Generate a token and keep it somewhere you can paste from:
+
+```bash
+openssl rand -hex 32
+```
+
+Run it as a service (systemd shown; anything that keeps a process up will do):
+
+```ini
+[Unit]
+Description=audio-timer log receiver
+After=network.target
+
+[Service]
+Environment=AUDIO_TIMER_TOKEN=<the token you just generated>
+Environment=AUDIO_TIMER_DIR=/var/lib/audio-timer
+ExecStart=/usr/bin/python3 /opt/audio-timer/log-receiver.py
+Restart=always
+DynamicUser=yes
+StateDirectory=audio-timer
+
+[Install]
+WantedBy=multi-user.target
+```
+
+It listens on `127.0.0.1:8787` and refuses to start without a token.
+
+## 2. Give it TLS
+
+The token travels in an `Authorization` header, so the app refuses any URL that is not
+`https://` (localhost excepted, for trying it out). Put it behind whatever already terminates
+TLS on that box:
+
+```nginx
+location /audio-timer {
+    proxy_pass http://127.0.0.1:8787/;
+    client_max_body_size 8m;
+}
+```
+
+Check it from your Mac before touching the phone — a wrong token must be a 401:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Authorization: Bearer wrong' -d '{"sessions":[]}' https://your-server/audio-timer
+```
+
+## 3. Enter it in the app
+
+Phone → **⚙** → **Server upload**.
+
+1. **URL**: `https://your-server/audio-timer`
+2. **Token**: the one from step 1.
+3. **Save**.
+
+The line underneath becomes `your-server · 12 sent · cleared after 14 days`. Like the sync
+token, it is never written back into the page — the field stays blank and blank means *keep
+the stored one*.
+
+| Line | Meaning |
+|---|---|
+| `12 sent · 3 waiting` | Three nights are staged; they go out at the next network |
+| `server rejected the token` | Typo, or a different token on the server |
+| `server refused the log (HTTP 4xx)` | The URL points at something that is not the receiver |
+| `could not reach the server — will retry` | Normal at night, and at any bad-signal moment |
+
+## What gets deleted, and when
+
+Deleting is deliberately several steps behind sending:
+
+1. the server answers `2xx` with the ids it wrote, and only those are marked as sent;
+2. a marked night must also be **older than 14 days**;
+3. and it must have reached **every destination that is configured** — so if the GitHub sync
+   above is set up and stuck, nothing is cleared at all.
+
+Until then the ☾ sheet and **Export CSV** show it as usual. After that the server is the only
+copy of that night, which is the point: the phone stops accumulating. Change the window by
+editing `UPLOAD_KEEP_DAYS` in `index.html`.
+
+**Forget** stops the sending and stops the clearing; nights already on the server stay there.
+
+## What lands on the server
+
+`/var/lib/audio-timer/YYYY-MM-DD.json` — the same shape the GitHub sync writes, one file per
+night, sessions sorted by start time, upserted by id. The day a night is filed under is the
+one the *phone* says it is, not the server's own date, so a run starting at 00:30 lands where
+you would look for it even if the server sits in another timezone.
+
+`tools/sessions-json-to-csv.py` flattens these into one CSV exactly as it does for the pulled
+GitHub files.

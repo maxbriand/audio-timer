@@ -55,8 +55,8 @@
   }
   .syncin:focus{outline:0;border-color:var(--accent)}
   .syncin::placeholder{color:var(--muted)}
-  #syncstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
-  #syncstatus.bad{color:var(--danger)}
+  #syncstatus,#upstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #syncstatus.bad,#upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
@@ -309,6 +309,23 @@
       </div>
     </div>
 
+    <div class="setsplit">
+      <div class="setrow">
+        <label>Server upload — sends each finished night to your own server the next time the
+               phone has internet, even with the app closed, and clears it here afterwards</label>
+        <input class="syncin" type="url" id="upurl" placeholder="https://your-server/audio-timer"
+               autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="url">
+        <input class="syncin" type="password" id="uptoken" placeholder="Bearer token"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+        <div id="upstatus"></div>
+      </div>
+      <div class="sheetfoot">
+        <button id="upsave">Save</button>
+        <button id="upnow">Send now</button>
+        <button id="upforget">Forget</button>
+      </div>
+    </div>
+
     <div class="sheetfoot"><button id="closeset">Close</button></div>
   </div>
 </div>
@@ -408,6 +425,7 @@ const putSessionRaw = async s => req((await os('sessions','readwrite')).put(s));
 // putSessionRaw skips the stamp — the sync layer uses it to record what it pushed without
 // making the row look modified again.
 const putSession = async s => { s.updatedAt = Date.now(); return putSessionRaw(s); };
+const delSession = async id => req((await os('sessions','readwrite')).delete(id));
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID()
                                      : Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -1130,6 +1148,7 @@ async function sessionEnd(reason){
   session = null; lastTick = 0;
   await putSession(s);
   syncSoon();          // silent; if the app dies first, the next open picks the run back up
+  uploadSoon();        // stages the night for the outbox — the sending itself waits for a network
 }
 
 function sessionTick(){
@@ -1383,6 +1402,262 @@ $('#syncforget').onclick = async () => {
   toast('Sync settings cleared');
 };
 
+/* ---------- server upload ----------
+   Sends each finished night to a server of your own, and clears it from the phone once the
+   server has confirmed it and a grace period has passed.
+
+   The timing is the point. The SIM comes out at night — which is exactly when the app is
+   open and recording — and goes back in during the day, when the app is closed. So the page
+   cannot be what notices the network coming back: by then it is not running. On the APK the
+   page only stages runs into a native outbox (LogUpload), and Android's WorkManager does the
+   sending under a "needs a network" constraint, app closed, surviving reboots. In a plain
+   browser there is no such thing, so the page falls back to posting them itself while it is
+   open and online — enough to develop against, and honest about what it can promise.
+
+   Deleting a night locally is downstream of the server confirming it, never of having sent
+   it: the server answers with the ids it stored, and only those are stamped. Nothing is
+   deleted at that moment either — a stamped run has to also be older than UPLOAD_KEEP_DAYS,
+   and to have reached every other destination that is configured (the GitHub sync above), so
+   a server-side mistake is still recoverable from the phone for two weeks. */
+const UPLOAD_KEEP_DAYS = 14;
+const UPLOAD_DEBOUNCE_MS = 4000;
+const UPLOAD_BATCH = 100;
+
+let upCfg = null;                   // {url:'https://…', token:'…'} or null
+let uploading = false, upTimer = null;
+let upNative = null;                // last {pending, lastError, lastOkAt} the outbox reported
+
+/* IndexedDB is the source of truth for where to send; the native outbox keeps its own copy
+   because the worker runs with no WebView to ask. Pushing it on every boot means the two
+   cannot drift — an APK upgrade, or settings entered before this build, still ends up
+   configured without the user opening ⚙ again. */
+async function loadUpCfg(){
+  upCfg = (await getMeta('upload')) || null;
+  if (nativeUpload){
+    try { await nativeUpload.configure({url: upCfg && upCfg.url || '', token: upCfg && upCfg.token || ''}); }
+    catch(_){}
+  }
+}
+const upReady = () => !!(upCfg && upCfg.url);
+
+const nativeUpload = (() => {
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.LogUpload) || null;
+})();
+
+// Same shape as the GitHub sync's own test, against its own stamp: a run that was edited
+// after it went out (a night reopened within the 10-minute gap) goes back in the queue.
+const needsUpload = s => !!s.endedAt && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
+
+function uploadMessage(status){
+  if (status === 401 || status === 403) return 'server rejected the token';
+  if (status === 404) return 'URL not found on the server';
+  if (status >= 500) return 'server error ' + status;
+  return 'HTTP ' + status;
+}
+
+function upHost(url){
+  try { return new URL(url).host; } catch(_){ return url; }
+}
+
+// Only used by the browser fallback; the APK keeps its own id in native storage. One device
+// never uses both paths, so the two cannot disagree about who it is.
+async function deviceId(){
+  let id = await getMeta('deviceId');
+  if (!id){ id = uid(); await setMeta('deviceId', id); }
+  return id;
+}
+
+function setUpStatus(text, bad){
+  const el = $('#upstatus');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('bad', !!bad);
+}
+
+/* A run may be dropped from the phone only when every destination in use has it and the
+   grace period is up. If the GitHub sync is configured but stuck, nothing is cleared — the
+   local copy is the last one standing and it stays. */
+function clearable(s, now){
+  if (!s.endedAt || !s.uploadedAt || s.uploadedAt < sessionRev(s)) return false;
+  if (now - s.endedAt < UPLOAD_KEEP_DAYS * 86400000) return false;
+  if (syncReady() && !(s.syncedAt && s.syncedAt >= sessionRev(s))) return false;
+  return true;
+}
+
+async function sweepUploaded(){
+  if (!upReady()) return 0;
+  const now = Date.now();
+  const gone = (await allSessions()).filter(s => clearable(s, now));
+  for (const s of gone) await delSession(s.id);
+  return gone.length;
+}
+
+/* Stamp the runs the server said it stored — with the revision that was actually sent, not
+   whatever the row says now. A run that changed while it was in the outbox is left alone: it
+   is still due, goes out again, and is stamped on the round that matches it. Getting this
+   wrong would mark a stale copy as delivered and eventually delete the real one. */
+async function stampUploaded(ids){
+  if (!ids || !ids.length) return 0;
+  const want = new Set(ids);
+  const rows = (await allSessions()).filter(s => want.has(s.id));
+  let n = 0;
+  for (const s of rows){
+    const rev = sessionRev(s);
+    if (s.uploadQueuedRev && s.uploadQueuedRev < rev) continue;
+    s.uploadedAt = rev;
+    await putSessionRaw(s);
+    n++;
+  }
+  return n;
+}
+
+/* APK: hand every due run to the outbox. This is not sending — it is putting the night
+   somewhere that outlives the app, so the upload can happen days later with the app closed. */
+async function queueUploads(){
+  const due = (await allSessions()).filter(needsUpload);
+  let n = 0;
+  for (const s of due){
+    try {
+      await nativeUpload.enqueue({id: s.id, json: JSON.stringify(uploadBody(s))});
+      s.uploadQueuedRev = sessionRev(s);
+      await putSessionRaw(s);
+      n++;
+    } catch(_){}          // could not stage it: still due, tried again next time
+  }
+  return n;
+}
+
+/* APK: what landed while the page was not running. Reading the ledger empties it, so this is
+   the one chance to record those ids — hence the stamp is written before anything else. */
+async function drainUploads(){
+  let r = null;
+  try { r = await nativeUpload.drain(); } catch(_){ return; }
+  upNative = r;
+  await stampUploaded(r && r.uploaded);
+}
+
+/* What one run looks like on the wire. exportSession() is shared with the GitHub sync and is
+   deliberately left alone; the day is added here because the server has to file the night
+   under the same date the phone would — and it cannot work that out from a UTC timestamp
+   without knowing which zone the phone was in. A night that starts at 00:30 belongs to that
+   date, and a server sitting in UTC would otherwise file it under the day before. */
+const uploadBody = s => Object.assign({localDay: dayKey(s.startedAt)}, exportSession(s));
+
+/* Browser fallback: post them from here, while the page is open and online. */
+async function postUploads(){
+  const due = (await allSessions()).filter(needsUpload).slice(0, UPLOAD_BATCH);
+  if (!due.length) return 0;
+  for (const s of due){ s.uploadQueuedRev = sessionRev(s); await putSessionRaw(s); }
+  const headers = {'Content-Type': 'application/json'};
+  if (upCfg.token) headers['Authorization'] = 'Bearer ' + upCfg.token;
+  const res = await fetch(upCfg.url, {
+    method: 'POST', cache: 'no-store', headers: headers,
+    body: JSON.stringify({
+      app: 'audio-timer', device: await deviceId(), sentAt: new Date().toISOString(),
+      sessions: due.map(uploadBody)
+    })
+  });
+  if (!res.ok) throw new Error(uploadMessage(res.status));
+  let accepted = due.map(s => s.id);
+  try {
+    const j = await res.json();
+    if (j && Array.isArray(j.accepted)) accepted = j.accepted;
+  } catch(_){}            // a 2xx with no readable body stands for the whole batch
+  return stampUploaded(accepted);
+}
+
+async function uploadStatusLine(){
+  if (!upReady()) return setUpStatus('Not set up — the log stays on this phone.');
+  const all = await allSessions();
+  const waiting = all.filter(needsUpload).length;
+  const sent = all.filter(s => s.uploadedAt).length;
+  const bits = [upHost(upCfg.url), sent + ' sent'];
+  if (waiting) bits.push(waiting + ' waiting');
+  bits.push('cleared after ' + UPLOAD_KEEP_DAYS + ' days');
+  if (upNative && upNative.lastError) return setUpStatus(bits.join(' · ') + ' — ' + upNative.lastError, true);
+  setUpStatus(bits.join(' · '));
+}
+
+async function uploadNow(manual){
+  if (!upReady()){ if (manual) toast('Enter the server URL first'); return; }
+  if (uploading) return;
+  uploading = true;
+  try {
+    if (nativeUpload){
+      await drainUploads();               // first, so a run confirmed overnight is not re-sent
+      const queued = await queueUploads();
+      if (manual) await nativeUpload.flush();
+      await sweepUploaded();
+      await uploadStatusLine();
+      if (manual) toast(queued ? 'Queued — sends when the phone has internet' : 'Nothing waiting');
+    } else {
+      if (!navigator.onLine){
+        if (manual) setUpStatus('Offline — it will retry on its own.', true);
+        return;
+      }
+      const n = await postUploads();
+      await sweepUploaded();
+      await uploadStatusLine();
+      if (manual) toast(n ? n + (n === 1 ? ' night sent' : ' nights sent') : 'Already up to date');
+    }
+  } catch(err){
+    // Nothing was stamped, so nothing can be cleared — the same runs simply go again.
+    setUpStatus('Last try failed: ' + (err && err.message || 'error') + ' — will retry.', true);
+    if (manual) toast('Upload failed: ' + (err && err.message || 'error'));
+  } finally {
+    uploading = false;
+  }
+}
+
+/* Debounced and silent, exactly like syncSoon — never awaited from the playback path. */
+function uploadSoon(delay){
+  if (!upReady()) return;
+  clearTimeout(upTimer);
+  upTimer = setTimeout(() => uploadNow(false), delay == null ? UPLOAD_DEBOUNCE_MS : delay);
+}
+addEventListener('online', () => uploadSoon(2000));
+
+/* The token behaves like the sync one: never written back into the DOM, and blank on save
+   means "keep the stored one". */
+function paintUpload(){
+  $('#upurl').value = upCfg && upCfg.url || '';
+  $('#uptoken').value = '';
+  $('#uptoken').placeholder = upCfg && upCfg.token ? 'Token saved — leave blank to keep'
+                                                   : 'Bearer token';
+  uploadStatusLine();
+}
+$('#upsave').onclick = async () => {
+  const url = $('#upurl').value.trim();
+  const typed = $('#uptoken').value.trim();
+  const token = typed || (upCfg && upCfg.token) || '';
+  let u;
+  try { u = new URL(url); } catch(_){ return toast('That is not a URL'); }
+  // The token rides in a header, so plain http would put it on the wire in the clear. Allowed
+  // on localhost only, which is where the receiver gets tried out before it has a certificate.
+  const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (u.protocol !== 'https:' && !local) return toast('Use https — the token is sent with it');
+  upCfg = {url: u.href, token: token};
+  await setMeta('upload', upCfg);
+  if (nativeUpload){
+    try { await nativeUpload.configure({url: upCfg.url, token: upCfg.token}); }
+    catch(err){ return toast('Could not save: ' + (err && err.message || 'error')); }
+  }
+  paintUpload();
+  toast('Server upload set up');
+  uploadNow(true);
+};
+$('#upnow').onclick = () => uploadNow(true);
+$('#upforget').onclick = async () => {
+  if (!confirm('Stop sending to the server? Nights already sent stay on the server, and'
+             + ' whatever is still here stops being cleared.')) return;
+  upCfg = null;
+  await setMeta('upload', null);
+  if (nativeUpload){ try { await nativeUpload.configure({url: '', token: ''}); } catch(_){} }
+  paintUpload();
+  toast('Server upload cleared');
+};
+
 /* log sheet */
 function fmtClock(ms){
   const d = new Date(ms);
@@ -1519,7 +1794,10 @@ function buildSettings(){
     });
   }
 }
-$('#setnav').onclick = () => { buildSettings(); paintSync(); $('#setsheet').classList.add('on'); };
+$('#setnav').onclick = () => {
+  buildSettings(); paintSync(); paintUpload();
+  $('#setsheet').classList.add('on');
+};
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
 $('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
 
@@ -1538,6 +1816,7 @@ $('#posfile').onchange = async e => {
 (async () => {
   await loadSettings();
   await loadSyncCfg();
+  await loadUpCfg();
   await render();
   showStorage();
   renderTimer();
@@ -1547,6 +1826,10 @@ $('#posfile').onchange = async e => {
   // Anything the phone could not push last night — the app is usually killed before the
   // final push finishes — goes out now, once the UI is already up.
   syncSoon(2500);
+  // And the other direction: collect what the outbox managed to send while the app was shut,
+  // stamp those runs, then clear the ones that are old enough. This is the only moment the
+  // page learns anything about an upload it was not present for.
+  uploadSoon(3000);
 })();
 </script>
 </body>

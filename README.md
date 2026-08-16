@@ -25,6 +25,10 @@ that saves the exact moment it stops.
 - **Private sync** (also under ⚙): finished runs are pushed automatically to a *private*
   GitHub repo of your own, one JSON file per night, and a LaunchAgent on the Mac pulls them
   into the Body asset every 30 minutes. Set up once — see [SETUP.md](SETUP.md).
+- **Server upload** (also under ⚙): each finished night is sent to a server of your own the
+  next time the phone has internet — **with the app closed**, which is what makes it work on
+  a phone whose SIM comes out at night — and is then cleared from the phone once the server
+  has confirmed it and two weeks have passed. Also in [SETUP.md](SETUP.md).
 
 ## What the session log is and is not
 
@@ -45,6 +49,10 @@ asleep well before it stopped. Treat that as a rough sleep-onset proxy, not a me
 | `mac/body-data-sync.sh` | Pulls the private repo into the Body asset (run by launchd) |
 | `mac/com.maxbriand.body-data-sync.plist` | LaunchAgent template, every 30 min |
 | `tools/sessions-json-to-csv.py` | Flattens the pushed day files into one CSV |
+| `tools/log-receiver.py` | The server end of the upload — files each night by day, stdlib only |
+| `android/…/LogUploadPlugin.java` | The page's handle on the outbox: stage a night, ask what landed |
+| `android/…/Outbox.java` | The staged nights on disk, and where to send them |
+| `android/…/UploadWorker.java` | Sends them when the phone next has a network, app closed |
 | `capacitor.config.json` | Native shell config — app id, name, background colour |
 | `android/` | Capacitor's generated Android project (committed; build output is not) |
 | `scripts/build-www.mjs` | Copies the root web assets into `www/` for the APK |
@@ -171,6 +179,24 @@ python3 make-icons.py
   are never cached or served from cache.
 - Base64 for the GitHub API goes through `TextEncoder`, not `btoa` directly — `btoa` only
   speaks latin-1 and would corrupt every accented chapter name.
+- The server upload cannot be a page-level `online` listener, which is what the GitHub sync
+  is. The SIM comes out at night — while the app is open and recording — and goes back in
+  during the day with the app closed, so the page is never running at the moment connectivity
+  returns. The page only stages nights into a native outbox; `UploadWorker` sends them under
+  a WorkManager network constraint, app closed, surviving reboots.
+- A night is deleted locally on the strength of the server's answer, never of having sent it.
+  The receiver replies with the ids it wrote and only those are stamped; the row then has to
+  outlive `UPLOAD_KEEP_DAYS` **and** have reached every other configured destination before
+  the sweep touches it. A 2xx that accepts nothing leaves everything queued, on purpose.
+- `stampUploaded()` stamps the revision that was *staged*, and skips a row that changed while
+  it sat in the outbox. Stamping the current revision instead would mark a stale copy as
+  delivered, and the sweep would eventually delete the run the server never received.
+- `LogUploadPlugin.configure()` only touches the work queue when the config actually changed.
+  The page pushes it on every boot so the two copies cannot drift, and without that test each
+  app open would reset the backoff of a job patiently waiting out a server outage.
+- The receiver answers CORS preflight. Native uploads never see it, but the app also runs as
+  an ordinary web page, and there the upload is a cross-origin fetch the browser blocks
+  outright without it.
 
 ## Getting the sessions into the Body asset
 
