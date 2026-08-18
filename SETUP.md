@@ -281,3 +281,35 @@ you would look for it even if the server sits in another timezone.
 
 `tools/sessions-json-to-csv.py` flattens these into one CSV exactly as it does for the pulled
 GitHub files.
+
+## Getting the server files into the Body asset
+
+The Mac pulls the day files off the VPS every 30 minutes — the server-upload counterpart of
+step 4 of the GitHub route, and the piece that makes the Mac (not the VPS) the durable record
+once the phone starts clearing uploaded nights after 14 days.
+
+```bash
+sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.audio-server-sync.plist > ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist
+```
+
+**One manual step, once: Full Disk Access.** The destination is under `~/Documents`, which
+macOS denies to background agents — silently, no prompt. System Settings → Privacy &
+Security → Full Disk Access → **+** → ⌘⇧G → `/bin/zsh` → toggle on. Until then every run
+logs `Operation not permitted` and retries harmlessly.
+
+What lands, same as the GitHub route would have: `~/Documents/Assets/Body/sources/audio-sessions/`
+— one `YYYY-MM-DD.json` per night plus a derived `sessions.csv`, rebuilt on every run.
+
+```bash
+tail -5 ~/Library/Logs/audio-server-sync.log
+```
+
+```bash
+launchctl kickstart gui/$(id -u)/com.maxbriand.audio-server-sync
+```
+
+(check on it · force a run)
