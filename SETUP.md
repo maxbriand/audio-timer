@@ -284,9 +284,12 @@ GitHub files.
 
 ## Getting the server files into the Body asset
 
-The Mac pulls the day files off the VPS every 30 minutes — the server-upload counterpart of
-step 4 of the GitHub route, and the piece that makes the Mac (not the VPS) the durable record
-once the phone starts clearing uploaded nights after 14 days.
+The Mac pulls the day files off the VPS **once a day at 16:00** — the server-upload
+counterpart of step 4 of the GitHub route, and the piece that makes the Mac (not the VPS) the
+durable record once the phone starts clearing uploaded nights after 14 days. Asleep at 16:00,
+launchd runs the missed job on wake; powered off, it catches up at the next login (the script
+knows whether a 16:00 run is still owed, so a morning boot does not pull early). Run it by
+hand any time with `--force`.
 
 ```bash
 sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.audio-server-sync.plist > ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist

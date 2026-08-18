@@ -20,9 +20,17 @@
     <string>__HOME__/Projects/audio-timer/mac/audio-server-sync.sh</string>
   </array>
 
-  <!-- Every 30 minutes. If the Mac was asleep at the due moment, launchd runs it on wake. -->
-  <key>StartInterval</key>
-  <integer>1800</integer>
+  <!-- Daily at 16:00. If the Mac was asleep at that moment, launchd runs the missed job on
+       wake. If it was powered off entirely, RunAtLoad fires at the next login and the
+       script's own guard decides whether a 16:00 run is still owed — so a boot at 09:00
+       does not pull early, and a boot at 19:00 catches up the missed one. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>16</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
 
   <key>RunAtLoad</key>
   <true/>

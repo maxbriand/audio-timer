@@ -32,8 +32,25 @@ LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
 # The CSV roll-up lives next to this script, in the audio-timer checkout.
 TO_CSV="${0:A:h}/../tools/sessions-json-to-csv.py"
 
+STAMP="${AUDIO_SYNC_STAMP:-$HOME/Library/Logs/audio-server-sync.last-ok}"
+
 mkdir -p "$(dirname "$LOG_FILE")"
 log(){ print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG_FILE" }
+
+# Once a day, at or after 16:00 — never before. launchd fires this at 16:00 (or on wake if
+# the Mac slept through it) and again at every login (RunAtLoad, for the powered-off case);
+# this guard is what turns "runs at every trigger" into "runs once per 16:00 deadline".
+# The most recent deadline is today's 16:00 if that has passed, otherwise yesterday's; if the
+# last successful pull is newer than that, nothing is owed. --force (or a failed last pull)
+# skips the guard, so testing by hand never has to wait for the clock.
+if [[ "${1:-}" != "--force" ]]; then
+  due=$(date -v16H -v0M -v0S +%s)
+  (( $(date +%s) < due )) && due=$(( due - 86400 ))
+  if [[ -f "$STAMP" ]] && (( $(stat -f %m "$STAMP") >= due )); then
+    log "not due: already pulled since $(date -r $due '+%a %H:%M')"
+    exit 0
+  fi
+fi
 
 # A previous run that is still going (a slow transfer on a bad connection) wins; this one leaves.
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -83,6 +100,10 @@ if (( changed == 0 )); then
 else
   log "pulled $changed file(s) · $days day files · $rows sessions"
 fi
+
+# Stamped only after a pull that worked — a failed one leaves the run owed, so the next
+# trigger (a login, or tomorrow's 16:00) retries instead of skipping.
+touch "$STAMP"
 
 # Keep the log from growing without bound.
 if [[ -f "$LOG_FILE" ]] && (( $(wc -l < "$LOG_FILE") > 2000 )); then
