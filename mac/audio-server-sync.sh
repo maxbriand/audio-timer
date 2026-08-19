@@ -1,17 +1,18 @@
 #!/bin/zsh
-# Pull the Nights-log day files from the VPS receiver into the Body asset.
+# Rebuild the derived views (CSV roll-up + sleep diary) over the Nights-log day files.
 #
-# Run every 30 minutes by ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist.
-# Safe to run by hand at any time; it is idempotent and takes a lock, so two copies can never
-# fight over the destination.
+# Since 2026-08-19 the day files land here directly: log-receiver.py runs on this Mac
+# (com.maxbriand.audio-receiver), published as audio.maximebriand.com through a reverse SSH
+# tunnel held open by com.maxbriand.audio-tunnel — the VPS relays, it no longer stores.
+# So there is nothing to pull any more; this script's job is only to keep the CSV and the
+# sleep diary from drifting away from the day files.
 #
-#   VPS          contabo:~/audio-timer/data/YYYY-MM-DD.json   (POSTed by the phone, see DEPLOY.md there)
-#   Body asset   ~/Documents/Assets/Body/sources/audio-sessions/   (what this writes)
+#   Day files    ~/Documents/Assets/Body/sources/audio-sessions/YYYY-MM-DD.json
+#                (written live by log-receiver.py as the phone uploads)
+#   Derived      sessions.csv next to them, and the sleep diary (tools/sleep-diary.py)
 #
-# This replaces the never-built GitHub route (body-data-sync.sh): same destination, same CSV
-# roll-up, but the source is the server upload rather than a private repo. The phone deletes
-# uploaded nights after 14 days, so this copy — not the phone — is the durable record, and the
-# VPS stops being the only one.
+# Run by ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist. Safe to run by hand
+# at any time; it is idempotent and takes a lock, so two copies can never fight.
 #
 # Override any path with an environment variable of the same name if the layout ever moves.
 #
@@ -25,7 +26,6 @@ set -u
 # launchd gives a process almost no PATH, so name the tools' real locations.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-REMOTE="${AUDIO_SYNC_REMOTE:-contabo:audio-timer/data/}"
 DEST_DIR="${AUDIO_SYNC_DEST:-$HOME/Documents/Assets/Body/sources/audio-sessions}"
 LOG_FILE="${AUDIO_SYNC_LOG:-$HOME/Library/Logs/audio-server-sync.log}"
 LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
@@ -62,23 +62,6 @@ trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT INT TERM
 
 mkdir -p "$DEST_DIR"
 
-# BatchMode: under launchd there is no one to answer a prompt, so fail instead of hanging.
-# -i (itemize) is the change detector: no output means nothing new.
-# No --delete — a day file withdrawn on the server must not silently vanish from the record
-# here; this directory is the archive, the server is just the relay.
-if ! changes="$(rsync -ai --include='*.json' --exclude='*' \
-      -e 'ssh -o BatchMode=yes -o ConnectTimeout=15' \
-      "$REMOTE" "$DEST_DIR/" 2>&1)"; then
-  # The Mac being offline, or the VPS rebooting, is the normal case — log it and let the
-  # next run in 30 minutes handle it.
-  log "pull failed (will retry): $(print -r -- "$changes" | tail -1)"
-  # The last line is often just rsync's generic "code 12"; the line that names the real
-  # cause (e.g. macOS denying ~/Documents to a background agent) is above it. Keep it all.
-  print -r -- "$changes" > "${TMPDIR:-/tmp}/audio-server-sync.debug"
-  exit 0
-fi
-changed=$(print -r -- "$changes" | grep -c '^>' || true)
-
 days=$(ls -1 "$DEST_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
 
 # One flat CSV alongside the JSON, so the sessions can be read without parsing 200 files.
@@ -96,17 +79,13 @@ if [[ -f "$TO_CSV" ]] && command -v python3 >/dev/null 2>&1; then
   rm -f "$csv_err"
 fi
 
-if (( changed == 0 )); then
-  log "no change · $days day files · $rows sessions"
-else
-  log "pulled $changed file(s) · $days day files · $rows sessions"
-fi
+log "rebuilt · $days day files · $rows sessions"
 
-# The sleep diary is derived, like the CSV: rebuilt whole on every pull so it can never
+# The sleep diary is derived, like the CSV: rebuilt whole on every run so it can never
 # drift from the day files. Its rules live in tools/sleep-diary.py.
 python3 "$REPO_DIR/tools/sleep-diary.py" "$DEST_DIR" >/dev/null 2>&1 || log "sleep-diary generation failed (data is safe; diary is derived)"
 
-# Stamped only after a pull that worked — a failed one leaves the run owed, so the next
+# Stamped only after a run that worked — a failed one leaves the run owed, so the next
 # trigger (a login, or tomorrow's 16:00) retries instead of skipping.
 touch "$STAMP"
 
