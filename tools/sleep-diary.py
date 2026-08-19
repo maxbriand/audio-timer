@@ -26,7 +26,10 @@ The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
   rise time       the last wake-up marker after sleep onset — the recorded moment
                   of getting out of bed, raw. Only the marker records it; a night
                   without one has no rise, whatever else it has.
-  awakenings      play blocks between the initial one and the morning one.
+  awakenings      play blocks between the initial one and the morning one. No
+                  middle block means ZERO, not unknown — waking at night always
+                  means playing audio, so silence is itself the record. Same for
+                  WASO.
   Nothing is ever stood in for: every value has exactly one source, and a night
   missing the source leaves the cell blank. TIB needs rise; TST needs final wake;
   SE needs both.
@@ -127,14 +130,18 @@ def night_metrics(rows):
         n["note"] = markers[-1]["note"]
         n["tib"] = mins(n["rise"] - bedtime)
 
+    # Awakenings and WASO come from the middle blocks, and an absent middle block IS the
+    # record: waking at night always means playing audio, so no block means no awakening —
+    # zero, not unknown (Maxime, 2026-08-19).
+    awakening_blocks = blocks[1:-1]
+    n["awakenings"] = len(awakening_blocks)
+    n["waso"] = sum(
+        mins(b[-1]["end"] - b[0]["start"]) - sum(s["played"] for s in b)
+        for b in awakening_blocks
+    )
+
     if len(blocks) >= 2:                      # woke and played: only a block proves it
         n["final_wake"] = blocks[-1][0]["start"]
-        awakening_blocks = blocks[1:-1]
-        n["awakenings"] = len(awakening_blocks)
-        n["waso"] = sum(
-            mins(b[-1]["end"] - b[0]["start"]) - sum(s["played"] for s in b)
-            for b in awakening_blocks
-        )
         n["tst"] = mins(n["final_wake"] - onset) - n["waso"]
 
     if n["tst"] is not None and n["tib"]:
