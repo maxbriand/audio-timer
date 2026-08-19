@@ -41,9 +41,9 @@
   #setnav:active,#lognav:active,#modenav:active{background:var(--line)}
   #sunview{display:none}
 
-  #logsheet,#setsheet,#issuesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
-    align-items:flex-end;z-index:10}
-  #logsheet.on,#setsheet.on,#issuesheet.on{display:flex}
+  #logsheet,#setsheet,#issuesheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
+    display:none;align-items:flex-end;z-index:10}
+  #logsheet.on,#setsheet.on,#issuesheet.on,#wakesheet.on{display:flex}
 
   /* day-mode issue tracking */
   #issuegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
@@ -58,17 +58,19 @@
     background:transparent;color:var(--muted);font-size:15px;font-weight:550
   }
   #addissue:active{background:var(--surface)}
-  #inote{
+  #inote,#wakenote{
     width:100%;min-height:90px;padding:12px;border-radius:12px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--text);font:15px/1.4 inherit;resize:vertical;
     -webkit-appearance:none
   }
-  #inote:focus{outline:0;border-color:var(--accent)}
-  #inote::placeholder{color:var(--muted)}
+  #inote:focus,#wakenote:focus{outline:0;border-color:var(--accent)}
+  #inote::placeholder,#wakenote::placeholder{color:var(--muted)}
   #ithumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   #ithumbs:empty{margin-top:0}
   #ithumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
-  #isave{color:var(--accent);border-color:var(--accent-dim)}
+  #isave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
+  #wakeline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
+  #wakeline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
   .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
@@ -272,6 +274,7 @@
   </div>
 </div>
 <div id="sunview">
+  <div id="wakeline"></div>
   <div class="empty" id="issueempty">
     No issues yet.<br>Tap <b>Add issue</b> to create one (headache, eye pain, …).
   </div>
@@ -279,6 +282,18 @@
   <button id="addissue">+ Add issue</button>
 </div>
 </main>
+
+<div id="wakesheet">
+  <div class="sheetbox">
+    <h2>Switch to day mode?</h2>
+    <p>Your wake-up time will be logged.</p>
+    <textarea id="wakenote" placeholder="A note about the night or the morning (optional)"></textarea>
+    <div class="sheetfoot">
+      <button id="wakego">Log wake-up</button>
+      <button id="wakecancel">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div id="issuesheet">
   <div class="sheetbox">
@@ -1286,6 +1301,7 @@ function exportSession(s){
     trackStart: s.trackStart || '',
     trackEnd: s.trackEnd || '',
     stopPositionSeconds: Math.round(s.stopPosition || 0),
+    note: s.note || '',
     minutesUntouchedBeforeStop: Number((quiet / 60000).toFixed(1))
   };
 }
@@ -1747,7 +1763,8 @@ async function openLog(){
         + (s.stopReason ? ' · ' + s.stopReason : ' · still running')
         + (quiet > 60000 ? ' · untouched for ' + fmt(quiet/1000) : '');
       el.querySelector('.logsub').textContent =
-        [s.trackStart && 'from ' + s.trackStart,
+        [s.note && '“' + s.note + '”',
+         s.trackStart && 'from ' + s.trackStart,
          s.trackEnd && s.trackEnd !== s.trackStart && 'to ' + s.trackEnd,
          s.speed && s.speed !== 1 && s.speed + '×',
          s.fadeInSeconds ? s.fadeInSeconds + 's fade-in' : ''
@@ -1864,21 +1881,36 @@ function showView(v){
   $('#player').classList.toggle('on', v === 'audio' && !!current);
   // One toggle button, wearing the icon of the mode you are IN.
   $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
-  if (v === 'sun') paintIssues();
+  if (v === 'sun'){ paintIssues(); paintSun(); }
   // The mode survives an app restart: closed in day mode, it reopens in day mode.
   setMeta('view', v).catch(() => {});
   syncShake();    // day mode closes the shake watch; night mode reopens it if eligible
 }
-async function logWakeUp(){
+async function logWakeUp(note){
   const now = Date.now();
   await putSession({
     id: uid(), startedAt: now, endedAt: now, trackStart: '', trackEnd: '',
     timerMinutes: null, timerArmedAt: null, autoArmed: false, fadeInSeconds: 0,
     speed: 1, stopReason: 'wake-up', stopPosition: 0, listenedSeconds: 0,
-    lastInteraction: now
+    lastInteraction: now, note: note || ''
   });
   toast('Wake-up logged — ' + fmtClock(now));
   syncSoon(); uploadSoon();
+}
+
+/* Today's wake-up (the latest one), shown at the top of the day screen with its note —
+   the visible proof that the note written at the switch was saved. */
+async function paintSun(){
+  const el = $('#wakeline');
+  const today = dayKey(Date.now());
+  const w = (await allSessions())
+    .filter(s => s.stopReason === 'wake-up' && dayKey(s.startedAt) === today)
+    .sort((a, b) => b.startedAt - a.startedAt)[0];
+  if (!w){ el.style.display = 'none'; el.textContent = ''; return; }
+  el.innerHTML = '☀️ Woke at <b></b>';
+  el.querySelector('b').textContent = fmtClock(w.startedAt);
+  if (w.note) el.append(' — ' + w.note);
+  el.style.display = 'block';
 }
 /* ---------- day-mode issue tracking ----------
    Issue types are created once (headache, eye pain, …); logging an occurrence is one tap
@@ -1955,14 +1987,21 @@ $('#issuesheet').onclick = e => { if (e.target.id === 'issuesheet') closeIssueSh
 
 $('#modenav').onclick = () => {
   if (view === 'audio'){
-    if (!confirm('Switch to day mode? Your wake-up time will be logged.')) return;
-    logWakeUp();
-    showView('sun');
+    // The confirmation is the sheet itself: write the note (optional), then log & switch.
+    $('#wakenote').value = '';
+    $('#wakesheet').classList.add('on');
   } else {
     if (!confirm('Switch to night mode?')) return;
     showView('audio');
   }
 };
+$('#wakego').onclick = async () => {
+  $('#wakesheet').classList.remove('on');
+  await logWakeUp($('#wakenote').value.trim());
+  showView('sun');
+};
+$('#wakecancel').onclick = () => $('#wakesheet').classList.remove('on');
+$('#wakesheet').onclick = e => { if (e.target.id === 'wakesheet') e.currentTarget.classList.remove('on'); };
 
 $('#lognav').onclick = openLog;
 $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
