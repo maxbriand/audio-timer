@@ -29,6 +29,15 @@ that saves the exact moment it stops.
   next time the phone has internet — **with the app closed**, which is what makes it work on
   a phone whose SIM comes out at night — and is then cleared from the phone once the server
   has confirmed it and two weeks have passed. Also in [SETUP.md](SETUP.md).
+- **Fatigue alarm** (APK only): logging the wake-up arms a real alarm clock for 45 minutes
+  later — it rings over the lock screen like the classic alarm, survives a reboot, and asks
+  for a 1–10 fatigue score (10 = maximum). The answer rides the upload pipeline like any
+  other row and becomes the diary's Fatigue column; dismissing it leaves the cell blank.
+  Going back to night mode before it rings withdraws it.
+- **Melatonin reminder** (APK only): set your bedtime in ⚙ and every day, 5 hours before
+  it — the chronobiotic timing for the 0.5 mg dose — an alarm rings that only "Taken ✓"
+  can close: it snoozes in 10-minute steps, its notification cannot be swiped away, and
+  each dose taken is logged through the upload pipeline like everything else.
 
 ## What the session log is and is not
 

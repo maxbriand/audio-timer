@@ -32,6 +32,40 @@
                 android:value="Listens to the accelerometer after the sleep timer ends so shaking the phone can resume playback" />
         </service>
 
+        <!-- The fatigue check, 45 minutes after the day-mode switch. The receiver fires the
+             ring; AlarmActivity is the alarm screen itself, allowed over the lock screen;
+             BootReceiver re-arms a pending check that a reboot would otherwise drop. -->
+        <receiver
+            android:name=".FatigueAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".AlarmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance" />
+
+        <!-- The daily melatonin reminder (bedtime − 5 h, set in ⚙). Same shape as the
+             fatigue alarm; its notification is un-swipeable and only "Taken ✓" ends it. -->
+        <receiver
+            android:name=".MelatoninReceiver"
+            android:exported="false" />
+        <activity
+            android:name=".MelatoninActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -48,4 +82,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- The fatigue alarm. USE_EXACT_ALARM (13+) is the alarm-clock permission — granted by
+         install, not revocable, which is what "exactly like the classic alarm" requires;
+         SCHEDULE_EXACT_ALARM covers 12/12L, where USE_EXACT_ALARM does not exist yet. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>
