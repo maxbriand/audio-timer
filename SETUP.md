@@ -284,12 +284,18 @@ GitHub files.
 
 ## Getting the server files into the Body asset
 
-The Mac pulls the day files off the VPS **once a day at 16:00** — the server-upload
-counterpart of step 4 of the GitHub route, and the piece that makes the Mac (not the VPS) the
-durable record once the phone starts clearing uploaded nights after 14 days. Asleep at 16:00,
-launchd runs the missed job on wake; powered off, it catches up at the next login (the script
-knows whether a 16:00 run is still owed, so a morning boot does not pull early). Run it by
-hand any time with `--force`.
+Since 2026-08-19 there is nothing to pull: the receiver itself runs **on the Mac**
+(`mac/com.maxbriand.audio-receiver.plist`), and the public URL reaches it through a reverse
+SSH tunnel the Mac holds open into the VPS (`mac/com.maxbriand.audio-tunnel.plist`) — the
+Mac's home connection is CGNAT'd, so the Mac dials out and the VPS only relays. Day files
+land in the Body asset the moment the phone uploads; the Mac is the durable record directly,
+which matters once the phone starts clearing uploaded nights after 14 days. The Mac being
+off just means the phone's WorkManager retries later — same contract as ever.
+
+The daily 16:00 job below remains, but its job is now only the derived views: it rebuilds
+`sessions.csv` and the sleep diary from the day files. Asleep at 16:00, launchd runs the
+missed job on wake; powered off, it catches up at the next login (the script knows whether a
+16:00 run is still owed). Run it by hand any time with `--force`.
 
 ```bash
 sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.audio-server-sync.plist > ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist

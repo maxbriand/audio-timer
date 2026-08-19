@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.maxbriand.audio-tunnel</string>
+
+  <!-- Holds the reverse tunnel that publishes the Mac's receiver (127.0.0.1:8787) inside
+       the audio-timer-receiver container on the VPS, where Caddy already proxies
+       audio.maximebriand.com. ServerAlive makes a dead link exit within ~90s and
+       KeepAlive restarts it; ExitOnForwardFailure turns a refused bind into an exit
+       instead of a silent tunnel-less connection. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/ssh</string>
+    <string>-N</string>
+    <string>-i</string>
+    <string>/Users/maximebriand/.ssh/audio-tunnel_ed25519</string>
+    <string>-p</string>
+    <string>2222</string>
+    <string>-o</string>
+    <string>BatchMode=yes</string>
+    <string>-o</string>
+    <string>IdentitiesOnly=yes</string>
+    <string>-o</string>
+    <string>ExitOnForwardFailure=yes</string>
+    <string>-o</string>
+    <string>ServerAliveInterval=30</string>
+    <string>-o</string>
+    <string>ServerAliveCountMax=3</string>
+    <string>-o</string>
+    <string>StrictHostKeyChecking=accept-new</string>
+    <string>-o</string>
+    <string>UserKnownHostsFile=/Users/maximebriand/.ssh/known_hosts_audio-tunnel</string>
+    <string>-R</string>
+    <string>0.0.0.0:8787:127.0.0.1:8787</string>
+    <string>tunnel@161.97.180.78</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/maximebriand/Library/Logs/audio-tunnel.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/maximebriand/Library/Logs/audio-tunnel.log</string>
+</dict>
+</plist>
