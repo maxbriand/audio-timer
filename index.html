@@ -83,7 +83,7 @@
   }
   .syncin:focus{outline:0;border-color:var(--accent)}
   .syncin::placeholder{color:var(--muted)}
-  #syncstatus,#upstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #syncstatus,#upstatus,#bedstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #syncstatus.bad,#upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
@@ -380,6 +380,19 @@
         <button id="upsave">Save</button>
         <button id="upnow">Send now</button>
         <button id="upforget">Forget</button>
+      </div>
+    </div>
+
+    <div class="setsplit">
+      <div class="setrow">
+        <label>Bedtime — 5 h before it, an alarm asks to take the melatonin (0.5 mg).
+               It snoozes but only "Taken ✓" closes it. APK only.</label>
+        <input class="syncin" type="time" id="bedtime">
+        <div id="bedstatus"></div>
+      </div>
+      <div class="sheetfoot">
+        <button id="bedsave">Save</button>
+        <button id="bedoff">Turn off</button>
       </div>
     </div>
 
@@ -1861,8 +1874,55 @@ function buildSettings(){
   }
 }
 $('#setnav').onclick = () => {
-  buildSettings(); paintSync(); paintUpload();
+  buildSettings(); paintSync(); paintUpload(); paintBedtime();
   $('#setsheet').classList.add('on');
+};
+
+/* ---------- bedtime → melatonin reminder ----------
+   The alarm itself is native — it must ring with the page long gone — so the page only
+   stores the bedtime and pushes it across on boot and on save, the same no-drift contract
+   as the upload config. 5 h before bed is the chronobiotic timing for the 0.5 mg dose. */
+const nativeMelatonin = (() => {
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.MelatoninAlarm) || null;
+})();
+let bedtimeCfg = '';
+async function loadBedtime(){
+  bedtimeCfg = (await getMeta('bedtime')) || '';
+  if (nativeMelatonin){
+    try { await nativeMelatonin.configure({bedtime: bedtimeCfg}); } catch(_){}
+  }
+}
+function reminderClock(t){
+  const [h, m] = t.split(':').map(Number);
+  const mins = ((h * 60 + m) - 300 + 1440) % 1440;
+  return String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
+}
+function paintBedtime(){
+  $('#bedtime').value = bedtimeCfg;
+  $('#bedstatus').textContent = !bedtimeCfg ? 'Off.'
+    : 'Rings at ' + reminderClock(bedtimeCfg) + ' — 5 h before ' + bedtimeCfg + '.'
+      + (nativeMelatonin ? '' : ' Needs the APK to actually ring.');
+}
+$('#bedsave').onclick = async () => {
+  const v = $('#bedtime').value;
+  if (!v) return toast('Pick a bedtime first');
+  bedtimeCfg = v;
+  await setMeta('bedtime', v);
+  if (nativeMelatonin){
+    try { await nativeMelatonin.configure({bedtime: v}); } catch(_){}
+  }
+  paintBedtime();
+  toast('Melatonin alarm set — ' + reminderClock(v));
+};
+$('#bedoff').onclick = async () => {
+  bedtimeCfg = '';
+  await setMeta('bedtime', '');
+  if (nativeMelatonin){
+    try { await nativeMelatonin.configure({bedtime: ''}); } catch(_){}
+  }
+  paintBedtime();
+  toast('Melatonin alarm off');
 };
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
 $('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
@@ -1895,6 +1955,14 @@ async function logWakeUp(note){
     lastInteraction: now, note: note || ''
   });
   toast('Wake-up logged — ' + fmtClock(now));
+  /* Getting up also arms the fatigue check: 45 minutes from now the phone rings like an
+     alarm clock and asks for a 1–10 score, which rides the same upload pipeline as this
+     row. Only the APK can ring with the page gone, so in a browser this is simply skipped. */
+  try {
+    const C = window.Capacitor;
+    const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
+    if (FA) await FA.schedule({minutes: 45, nightDay: dayKey(now)});
+  } catch(_){}
   syncSoon(); uploadSoon();
 }
 
@@ -1992,6 +2060,13 @@ $('#modenav').onclick = () => {
     $('#wakesheet').classList.add('on');
   } else {
     if (!confirm('Switch to night mode?')) return;
+    /* Back to bed means the morning is over: a fatigue alarm still counting down from the
+       last rise would ring into the nap, so it is withdrawn. The next rise re-arms it. */
+    try {
+      const C = window.Capacitor;
+      const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
+      if (FA) FA.cancel();
+    } catch(_){}
     showView('audio');
   }
 };
@@ -2019,6 +2094,7 @@ $('#posfile').onchange = async e => {
   await loadSettings();
   await loadSyncCfg();
   await loadUpCfg();
+  await loadBedtime();
   await render();
   showStorage();
   renderTimer();
