@@ -176,19 +176,7 @@ def main():
     now = datetime.now().astimezone()
     tsts, ses = window_avgs(now)
 
-    # One row per week, newest first: the trailing average as of each Sunday night. The
-    # sheet is rebuilt whole on every sync, so this is how the averages keep a past — not
-    # by storing state, but by being recomputable forever from the day files, which are.
-    weekly = []
-    if nights:
-        first = min(n["bedtime"] for n in nights)
-        wk_end = (now + timedelta(days=6 - now.weekday())).replace(
-            hour=23, minute=59, second=59, microsecond=0)
-        while wk_end > first:
-            w_tst, w_se = window_avgs(wk_end)
-            if w_tst or w_se:
-                weekly.append((wk_end, w_tst, w_se))
-            wk_end -= timedelta(days=7)
+
 
     lines = [
         "# Sleep diary",
@@ -204,33 +192,25 @@ def main():
         f"- **Average sleep efficiency**: {f'{sum(ses) / len(ses):.0f} %' if ses else '—'}"
         f" ({len(ses)} night{'s' if len(ses) != 1 else ''} with data)",
         "",
-        "## 4-week averages, week by week",
-        "",
-        "Trailing 28-day window as of each Sunday; recomputed from the raw log every sync,",
-        "so past rows never change unless the underlying nights do.",
-        "",
-        "| Week ending | Avg TST | on | Avg SE | on |",
-        "|---|---|---|---|---|",
-        *[
-            f"| {wk:%Y-%m-%d} "
-            f"| {fmt_min(sum(w_tst) / len(w_tst)) if w_tst else ''} | {len(w_tst) or ''} "
-            f"| {f'{sum(w_se) / len(w_se):.0f} %' if w_se else ''} | {len(w_se) or ''} |"
-            for wk, w_tst, w_se in weekly
-        ],
-        "",
         "## Nights",
         "",
-        "| Night | Bedtime | SOL | Awakenings | WASO | Final wake | Rise | TIB | TST | SE | Note |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "The 4wk columns are the trailing 28-day averages as of that night — the running",
+        "record the therapy tracks, recomputed from the raw log on every sync.",
+        "",
+        "| Night | Bedtime | SOL | Awakenings | WASO | Final wake | Rise | TIB | TST | SE | 4wk TST | 4wk SE | Note |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for n in nights:
         se = f"{n['se']:.0f} %" if n["se"] is not None else ""
         aw = "" if n["awakenings"] is None else str(n["awakenings"])
         note = n["note"].replace("|", "\\|").replace("\n", " ")
+        w_tst, w_se = window_avgs(n["bedtime"])
+        avg_tst = fmt_min(sum(w_tst) / len(w_tst)) if w_tst else ""
+        avg_se = f"{sum(w_se) / len(w_se):.0f} %" if w_se else ""
         lines.append(
             f"| {n['date']} | {fmt_clock(n['bedtime'])} | {fmt_min(n['sol'])} | {aw}"
             f" | {fmt_min(n['waso'])} | {fmt_clock(n['final_wake'])} | {fmt_clock(n['rise'])}"
-            f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {note} |"
+            f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {avg_tst} | {avg_se} | {note} |"
         )
     lines.append("")
     OUT.write_text("\n".join(lines))
