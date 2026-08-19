@@ -166,10 +166,29 @@ def main():
               if (n := night_metrics(g))]
     nights.reverse()                          # newest first, like the app's own log
 
-    cutoff = datetime.now().astimezone() - timedelta(days=AVG_WINDOW_DAYS)
-    recent = [n for n in nights if n["bedtime"] >= cutoff]
-    tsts = [n["tst"] for n in recent if n["tst"] is not None]
-    ses = [n["se"] for n in recent if n["se"] is not None]
+    def window_avgs(end):
+        """Trailing 4-week averages as of `end`, over the nights that have the number."""
+        win = [n for n in nights if end - timedelta(days=AVG_WINDOW_DAYS) <= n["bedtime"] <= end]
+        tsts = [n["tst"] for n in win if n["tst"] is not None]
+        ses = [n["se"] for n in win if n["se"] is not None]
+        return tsts, ses
+
+    now = datetime.now().astimezone()
+    tsts, ses = window_avgs(now)
+
+    # One row per week, newest first: the trailing average as of each Sunday night. The
+    # sheet is rebuilt whole on every sync, so this is how the averages keep a past — not
+    # by storing state, but by being recomputable forever from the day files, which are.
+    weekly = []
+    if nights:
+        first = min(n["bedtime"] for n in nights)
+        wk_end = (now + timedelta(days=6 - now.weekday())).replace(
+            hour=23, minute=59, second=59, microsecond=0)
+        while wk_end > first:
+            w_tst, w_se = window_avgs(wk_end)
+            if w_tst or w_se:
+                weekly.append((wk_end, w_tst, w_se))
+            wk_end -= timedelta(days=7)
 
     lines = [
         "# Sleep diary",
@@ -184,6 +203,20 @@ def main():
         f" ({len(tsts)} night{'s' if len(tsts) != 1 else ''} with data)",
         f"- **Average sleep efficiency**: {f'{sum(ses) / len(ses):.0f} %' if ses else '—'}"
         f" ({len(ses)} night{'s' if len(ses) != 1 else ''} with data)",
+        "",
+        "## 4-week averages, week by week",
+        "",
+        "Trailing 28-day window as of each Sunday; recomputed from the raw log every sync,",
+        "so past rows never change unless the underlying nights do.",
+        "",
+        "| Week ending | Avg TST | on | Avg SE | on |",
+        "|---|---|---|---|---|",
+        *[
+            f"| {wk:%Y-%m-%d} "
+            f"| {fmt_min(sum(w_tst) / len(w_tst)) if w_tst else ''} | {len(w_tst) or ''} "
+            f"| {f'{sum(w_se) / len(w_se):.0f} %' if w_se else ''} | {len(w_se) or ''} |"
+            for wk, w_tst, w_se in weekly
+        ],
         "",
         "## Nights",
         "",
