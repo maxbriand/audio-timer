@@ -45,7 +45,7 @@ MAX_BODY = 4 * 1024 * 1024          # a night is ~400 bytes; this is 10k of them
 FIELDS = (
     "id", "started", "ended", "listenedMinutes", "timerMinutes", "timerCancelled",
     "timerAutoArmed", "speed", "fadeInSeconds", "stopReason", "trackStart", "trackEnd",
-    "stopPositionSeconds", "minutesUntouchedBeforeStop",
+    "stopPositionSeconds", "minutesUntouchedBeforeStop", "note",
 )
 
 
