@@ -32,6 +32,7 @@ LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
 # The CSV roll-up lives next to this script, in the audio-timer checkout.
 TO_CSV="${0:A:h}/../tools/sessions-json-to-csv.py"
 
+REPO_DIR="${AUDIO_SYNC_REPO:-$HOME/Projects/audio-timer}"
 STAMP="${AUDIO_SYNC_STAMP:-$HOME/Library/Logs/audio-server-sync.last-ok}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -100,6 +101,10 @@ if (( changed == 0 )); then
 else
   log "pulled $changed file(s) · $days day files · $rows sessions"
 fi
+
+# The sleep diary is derived, like the CSV: rebuilt whole on every pull so it can never
+# drift from the day files. Its rules live in tools/sleep-diary.py.
+python3 "$REPO_DIR/tools/sleep-diary.py" "$DEST_DIR" >/dev/null 2>&1 || log "sleep-diary generation failed (data is safe; diary is derived)"
 
 # Stamped only after a pull that worked — a failed one leaves the run owed, so the next
 # trigger (a login, or tomorrow's 16:00) retries instead of skipping.
