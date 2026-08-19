@@ -1,5 +1,5 @@
 /* Audio Timer service worker — precache the shell so the app opens with no network. */
-const CACHE = 'audio-timer-v9';
+const CACHE = 'audio-timer-v10';
 const SHELL = [
   './',
   './index.html',

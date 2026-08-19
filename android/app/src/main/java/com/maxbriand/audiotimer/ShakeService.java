@@ -25,9 +25,10 @@ import java.util.ArrayDeque;
  * Shake-to-resume, the part that survives the screen turning off.
  *
  * With the screen dark Android suspends the WebView, so the page's own devicemotion listener
- * goes deaf exactly when it is needed. This service is the native stand-in: armed while the
- * sleep timer counts down, then for the first minute after it fires it holds a partial wake
- * lock and watches the accelerometer itself. A shake is reported back to the page
+ * goes deaf exactly when it is needed. This service is the native stand-in: while a selected
+ * track is paused it holds a partial wake lock and watches the accelerometer itself, with no
+ * deadline (the page passes windowMs 0) — the watch is a state owned by the page, closed by
+ * the ✕, by day mode, or by the app going away. A shake is reported back to the page
  * (ShakeWatchPlugin), which resumes playback.
  *
  * Lifecycle is shaped by one Android rule: a foreground service cannot be STARTED from the
@@ -79,7 +80,7 @@ public class ShakeService extends Service implements SensorEventListener {
       long deadline = intent.getLongExtra(EXTRA_DEADLINE, 0);
       stopWatching();
       handler.removeCallbacks(quitR);
-      show("Sleep timer set — shake-to-resume is standing by");
+      show("Shake-to-resume is standing by");
       // The page reports the timer firing itself (it is still running then, since it just
       // faded the audio out). This is only the fallback for a page that got frozen mid-run.
       handler.removeCallbacks(backupOpenR);
@@ -109,10 +110,17 @@ public class ShakeService extends Service implements SensorEventListener {
     PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
     handler.removeCallbacks(dropLockR);
     lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "audiotimer:shake");
-    lock.acquire(windowMs + 60 * 1000);
-    sensors.registerListener(this, acc, SensorManager.SENSOR_DELAY_GAME);
     handler.removeCallbacks(windowOverR);
-    handler.postDelayed(windowOverR, windowMs);
+    if (windowMs > 0){
+      // Timed window (legacy behaviour, still supported if the page asks for one).
+      lock.acquire(windowMs + 60 * 1000);
+      handler.postDelayed(windowOverR, windowMs);
+    } else {
+      // windowMs 0: no deadline — the watch lives until the page says stop (selection
+      // closed, day mode, app closed) or Android kills the task. The page owns the state.
+      lock.acquire();
+    }
+    sensors.registerListener(this, acc, SensorManager.SENSOR_DELAY_GAME);
   }
 
   private void stopWatching(){

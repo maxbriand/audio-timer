@@ -34,15 +34,41 @@
   h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
   #storage{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
   .hright{display:flex;align-items:center;gap:10px}
-  #lognav{
+  #setnav,#lognav,#modenav{
     background:var(--surface-2);border:1px solid var(--line);color:var(--accent);
     width:34px;height:34px;border-radius:10px;font-size:16px;line-height:1;flex:none
   }
-  #lognav:active{background:var(--line)}
+  #setnav:active,#lognav:active,#modenav:active{background:var(--line)}
+  #sunview{display:none}
 
-  #logsheet,#setsheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+  #logsheet,#setsheet,#issuesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
     align-items:flex-end;z-index:10}
-  #logsheet.on,#setsheet.on{display:flex}
+  #logsheet.on,#setsheet.on,#issuesheet.on{display:flex}
+
+  /* day-mode issue tracking */
+  #issuegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .issuebtn{
+    padding:18px 10px;border-radius:14px;background:var(--surface);
+    border:1px solid var(--line);color:var(--text);font-size:15px;font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+  }
+  .issuebtn:active{background:var(--surface-2)}
+  #addissue{
+    width:100%;padding:14px;border-radius:14px;border:1px dashed var(--line);
+    background:transparent;color:var(--muted);font-size:15px;font-weight:550
+  }
+  #addissue:active{background:var(--surface)}
+  #inote{
+    width:100%;min-height:90px;padding:12px;border-radius:12px;background:var(--surface-2);
+    border:1px solid var(--line);color:var(--text);font:15px/1.4 inherit;resize:vertical;
+    -webkit-appearance:none
+  }
+  #inote:focus{outline:0;border-color:var(--accent)}
+  #inote::placeholder{color:var(--muted)}
+  #ithumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  #ithumbs:empty{margin-top:0}
+  #ithumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  #isave{color:var(--accent);border-color:var(--accent-dim)}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
   .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
@@ -70,7 +96,7 @@
   .logsub{opacity:.75}
   .logsub:empty{display:none}
 
-  main{flex:1;overflow-y:auto;padding:12px 12px 8px;-webkit-overflow-scrolling:touch}
+  main{flex:1;overflow-y:auto;padding:12px 12px calc(16px + var(--safe-b));-webkit-overflow-scrolling:touch}
 
   .empty{color:var(--muted);text-align:center;padding:48px 24px;font-size:15px;line-height:1.6}
   .empty b{color:var(--text);font-weight:600}
@@ -82,20 +108,6 @@
   }
   #search:focus{outline:0;border-color:var(--accent)}
   #search::placeholder{color:var(--muted)}
-
-  #continue{
-    display:none;align-items:center;gap:12px;margin-bottom:8px;padding:12px;
-    border-radius:14px;background:var(--surface-2);border:1px solid var(--accent-dim);cursor:pointer
-  }
-  #continue:active{background:var(--line)}
-  .cmeta{flex:1;min-width:0}
-  .cmeta b{display:block;font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;
-    text-overflow:ellipsis}
-  .cmeta span{font-size:12.5px;color:var(--accent);font-variant-numeric:tabular-nums}
-  .cgo{
-    flex:none;width:36px;height:36px;border-radius:50%;background:var(--accent);color:#171205;
-    display:flex;align-items:center;justify-content:center;font-size:14px
-  }
 
   #clipped{display:none;color:var(--muted);font-size:12.5px;text-align:center;padding:14px 8px 4px}
 
@@ -117,7 +129,8 @@
   }
   .del:active{background:var(--surface-2);color:var(--danger)}
 
-  #addwrap{padding:8px 12px calc(12px + var(--safe-b))}
+  /* Lives inside the scrolling list, right under the last track, not pinned to the screen. */
+  #addwrap{padding:10px 0 0}
   #add{
     width:100%;padding:14px;border-radius:14px;border:1px dashed var(--line);
     background:transparent;color:var(--muted);font-size:15px;font-weight:550
@@ -145,7 +158,13 @@
     padding:14px 16px calc(14px + var(--safe-b));display:none
   }
   #player.on{display:block}
-  #ptitle{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #phead{display:flex;align-items:center;gap:8px}
+  #ptitle{flex:1;min-width:0;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #pclose{
+    flex:none;background:none;border:0;color:var(--muted);font-size:20px;line-height:1;
+    padding:6px 8px;border-radius:8px
+  }
+  #pclose:active{background:var(--surface-2);color:var(--danger)}
   #seek{width:100%;margin:12px 0 0;-webkit-appearance:none;background:transparent;height:24px}
   #seek::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--line)}
   #seek::-webkit-slider-thumb{
@@ -225,12 +244,14 @@
   <h1>Audio Timer</h1>
   <div class="hright">
     <span id="storage"></span>
-    <button id="setnav" aria-label="Playback settings">⚙</button>
-    <button id="lognav" aria-label="Listening log">☾</button>
+    <button id="modenav" aria-label="Day / night mode">🌙</button>
+    <button id="setnav" aria-label="Playback settings">⚙️</button>
+    <button id="lognav" aria-label="Listening log">📊</button>
   </div>
 </header>
 
 <main>
+<div id="audioview">
   <div class="empty" id="empty">
     No audio yet.<br>Tap <b>Add audio</b> and pick files from your phone.<br>
     They're stored inside this app — no internet needed.
@@ -238,26 +259,47 @@
   <div id="searchwrap">
     <input type="search" id="search" placeholder="Search…" autocomplete="off" autocapitalize="none" spellcheck="false">
   </div>
-  <div id="continue">
-    <div class="cmeta"><b></b><span></span></div>
-    <div class="cgo">▶</div>
-  </div>
   <ul id="list"></ul>
   <div id="clipped"></div>
+  <div id="addwrap">
+    <button id="add">+ Add audio</button>
+    <input type="file" id="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.flac,.wav" multiple hidden>
+    <div id="progress">
+      <div class="prow"><span id="pfile">Reading files…</span><span id="pcount"></span></div>
+      <div class="pbar" id="pbar"><i></i></div>
+      <div class="phint" id="phint">Keep this screen open until it finishes.</div>
+    </div>
+  </div>
+</div>
+<div id="sunview">
+  <div class="empty" id="issueempty">
+    No issues yet.<br>Tap <b>Add issue</b> to create one (headache, eye pain, …).
+  </div>
+  <div id="issuegrid"></div>
+  <button id="addissue">+ Add issue</button>
+</div>
 </main>
 
-<div id="addwrap">
-  <button id="add">+ Add audio</button>
-  <input type="file" id="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.flac,.wav" multiple hidden>
-  <div id="progress">
-    <div class="prow"><span id="pfile">Reading files…</span><span id="pcount"></span></div>
-    <div class="pbar" id="pbar"><i></i></div>
-    <div class="phint" id="phint">Keep this screen open until it finishes.</div>
+<div id="issuesheet">
+  <div class="sheetbox">
+    <h2 id="ititle"></h2>
+    <p>A note and pictures, saved on this phone with the time.</p>
+    <textarea id="inote" placeholder="What happened? How bad?"></textarea>
+    <div id="ithumbs"></div>
+    <input type="file" id="ipics" accept="image/*" multiple hidden>
+    <div class="sheetfoot">
+      <button id="addpics">+ Pictures</button>
+      <button id="isave">Save</button>
+      <button id="iclose">Close</button>
+    </div>
   </div>
 </div>
 
 <div id="player">
-  <div id="ptitle"></div>
+  <div id="phead">
+    <div id="ptitle"></div>
+    <button id="pclose" aria-label="Close player">✕</button>
+  </div>
   <input type="range" id="seek" min="0" max="1000" value="0" step="1">
   <div class="times"><span id="tcur">0:00</span><span id="tdur">0:00</span></div>
   <div class="controls">
@@ -354,7 +396,7 @@
 'use strict';
 
 /* ---------- storage ---------- */
-const DB_NAME = 'audio-timer', DB_VER = 3;
+const DB_NAME = 'audio-timer', DB_VER = 4;
 let _db;
 function openDB(){
   return new Promise((res, rej) => {
@@ -371,6 +413,10 @@ function openDB(){
       // These rows are a few bytes each and cost ~6 ms. Nothing is migrated into it: an
       // absent row simply falls back to the position already on the track record.
       if (!d.objectStoreNames.contains('positions')) d.createObjectStore('positions');
+      // Day-mode issue tracking: the issue types you created, and one row per logged
+      // occurrence (note + photos as blobs, like the audio).
+      if (!d.objectStoreNames.contains('issues')) d.createObjectStore('issues', {keyPath:'id'});
+      if (!d.objectStoreNames.contains('issuelogs')) d.createObjectStore('issuelogs', {keyPath:'id'});
     };
     // Without this, a second copy of the app (a stray Chrome tab alongside the installed
     // one) holds the old version open and the upgrade blocks forever with no error.
@@ -471,17 +517,6 @@ function paintList(){
   $('#empty').style.display = tracks.length ? 'none' : 'block';
   $('#searchwrap').style.display = tracks.length >= SEARCH_FROM ? 'block' : 'none';
 
-  const last = tracks.reduce((b, t) => (t.lastPlayed > (b ? b.lastPlayed : 0) ? t : b), null);
-  const cont = $('#continue');
-  if (last && last.lastPlayed && (!current || current.id !== last.id)){
-    cont.style.display = 'flex';
-    cont.querySelector('b').textContent = last.name;
-    cont.querySelector('span').textContent = last.position > 5 ? 'resume ' + fmt(last.position) : 'from the start';
-    cont.onclick = () => load(last.id, true);
-  } else {
-    cont.style.display = 'none';
-  }
-
   list.innerHTML = '';
   const frag = document.createDocumentFragment();
   for (const t of shown){
@@ -505,7 +540,8 @@ function paintList(){
       if (current && current.id === t.id) stopAll();
       await delTrack(t.id); await refresh(); showStorage();
     };
-    li.onclick = () => load(t.id, true);
+    // Selecting opens the player idle — audio starts only from the play button (or a shake).
+    li.onclick = () => load(t.id, false);
     frag.appendChild(li);
   }
   list.appendChild(frag);
@@ -758,6 +794,7 @@ async function load(id, autoplay){
   mediaSession();
   paintList();
   if (autoplay) play();
+  else syncShake();   // selected without playing: the shake watch opens now
   return true;
 }
 
@@ -771,7 +808,7 @@ function stopAll(){
   loading = true;
   audio.pause(); audio.removeAttribute('src'); audio.load();
   if (objUrl) URL.revokeObjectURL(objUrl);
-  objUrl = null; current = null; loading = false; cancelTimer(); stopShakeWatch(true);
+  objUrl = null; current = null; loading = false; cancelTimer(); syncShake();
   $('#player').classList.remove('on');
 }
 function skip(sec){
@@ -801,6 +838,8 @@ function drawTimes(){
 }
 
 $('#playpause').onclick = () => audio.paused ? play() : pause();
+// Closing deselects: the position was just saved, so the track's row keeps its resume point.
+$('#pclose').onclick = () => { stopAll(); paintList(); };
 $('#back').onclick = () => skip(-30);
 $('#fwd').onclick  = () => skip(30);
 $('#seek').oninput = () => { seeking = true; };
@@ -812,14 +851,13 @@ $('#seek').onchange = () => {
 
 audio.addEventListener('play',  () => {
   $('#playpause').textContent = '❚❚'; mediaPos(); sessionStart();
-  // Resuming any way closes the shake window. The native service is only shut down when
-  // nothing will want it again: no timer still counting, and no auto-arm about to set one.
-  stopShakeWatch(!deadline && !settings.autoArm);
+  syncShake();    // playing: web listener off, native service to idle standby
 });
 audio.addEventListener('pause', () => {
   $('#playpause').textContent = '▶'; savePos(true); paintList();
   // A source swap also fires pause; that is a handover, not the end of a listening run.
   if (!loading){ sessionEnd(pendingStop || 'manual'); pendingStop = ''; }
+  syncShake();      // paused with a track selected: the shake watch opens, screen on or off
 });
 audio.addEventListener('timeupdate', () => {
   drawTimes(); tickTimer(); savePos(false); mediaPos(); sessionTick();
@@ -853,6 +891,7 @@ audio.addEventListener('ended', async () => {
 
 $('#search').addEventListener('input', paintList);
 document.addEventListener('visibilitychange', () => {
+  syncShake();    // visibility flips which detector is on duty
   // Backgrounding is the last reliable moment on mobile — pagehide often never runs before
   // the OS reclaims the app, so snapshot the run here while it can still be written.
   if (!document.hidden) return;
@@ -933,14 +972,13 @@ function startTimer(min){
   }
   setMeta('lastTimer', min);
   // Arm the native shake watcher now, while the app is visible and allowed to start it.
-  if (nativeShake) nativeShake.arm({deadline: deadline, windowMs: SHAKE_WINDOW_MS}).catch(() => {});
+  syncShake();    // playing → service standby with the deadline; paused → watching already
   renderTimer(); mediaSession(); closeSheet();
   toast('Stops in ' + min + ' min');
-  if (audio.paused && current) play();
 }
 function cancelTimer(){
   deadline = 0; abortFade(); renderTimer(); mediaSession();
-  if (nativeShake) nativeShake.stop().catch(() => {});
+  syncShake();    // the watch follows the selection, not the timer — only re-sync it
   // Clear the armed value too, or the next untimed run inherits it and is logged as timed.
   timerSetTo = null;
   if (session && session.timerMinutes) session.timerCancelled = true;
@@ -993,23 +1031,27 @@ function finish(){
   deadline = 0;
   savePos(true);
   renderTimer(); mediaSession(); paintList();
-  startShakeWatch();
+  syncShake();      // audio just paused with a track selected: the watch opens
   toast('Stopped at ' + fmt(at) + ' — saved');
 }
 setInterval(tickTimer, 500);
 
-/* ---------- shake to restart ----------
-   The timer ran out but you are still awake: shaking the phone starts the audio again from
-   where it stopped, without having to find the screen in the dark. The window only stays
-   open for the first minute after the timer fired — still awake, you notice the silence
-   within moments; past that, a shake is just the phone being handled later, and must not
-   start audio in a hand or a pocket.
-   Two detectors share this logic. In a plain browser the page listens to devicemotion
-   itself, which works while the screen is lit. In the APK the native ShakeService listens
-   instead — it keeps the CPU up and hears the accelerometer with the screen off, and its
-   detection thresholds mirror the ones below. The service must be STARTED while the app is
-   still visible (Android refuses cold foreground-service starts from the background), so it
-   is armed the moment a timer is set, and merely poked awake when the timer fires. */
+/* ---------- shake to start ----------
+   The shake window is a STATE, not a timer: as long as the app session is open, a track is
+   selected, and the app is in night mode, a shake starts the paused audio — no matter how
+   long ago it stopped. The window closes only when the selection is closed (the ✕ on the
+   player), when the moon is tapped into day mode, or when the app itself is closed. Timed
+   windows (1 min, then 30 min) both proved wrong in practice — a shake after any wakeful
+   stretch must work. The 3-strong-peaks detection is what guards against a pocket or a
+   picked-up phone starting audio by accident.
+   Two detectors cover the two situations. The page listens to devicemotion itself while it
+   is on screen — that is the whole story in a plain browser. In the APK the native
+   ShakeService covers the screen-off case: while a selected track is paused it holds a
+   partial wake lock and watches the accelerometer (thresholds mirror the ones below);
+   while the track plays it stays alive but idle. Keeping it alive matters because Android
+   refuses cold foreground-service starts from the background — but a RUNNING service may
+   be talked to freely, so a pause from the lock screen can still open the watch. The page
+   re-decides what the service should be doing at every state change (syncShake). */
 const nativeShake = (() => {
   const C = window.Capacitor;
   const p = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.ShakeWatch;
@@ -1018,16 +1060,41 @@ const nativeShake = (() => {
   return p;
 })();
 
-const SHAKE_WINDOW_MS = 60 * 1000;
 const SHAKE_FORCE = 18;         // m/s² of gravity-free acceleration — a deliberate shake, not a nudge
 const SHAKE_PEAKS = 3;          // distinct strong movements required…
 const SHAKE_PEAK_GAP_MS = 150;  // …each its own, not one jolt seen at sensor rate
 const SHAKE_SPAN_MS = 1200;     // …all within this
-let shakeUntil = 0, shakePeakTimes = [], shakeWatching = false;
+let shakePeakTimes = [], shakeWatching = false;
+
+// The one condition for a shake to start audio, re-checked live on every motion event so a
+// state change never leaves a stale listener acting on old conditions.
+const shakeEligible = () => !!(current && audio.src && audio.paused && view === 'audio');
+
+function webShakeWanted(){
+  if (!('DeviceMotionEvent' in window)) return false;
+  return shakeEligible() && !document.hidden;
+}
+function syncShakeListener(){
+  const want = webShakeWanted();
+  if (want === shakeWatching) return;
+  if (want) addEventListener('devicemotion', onShakeMotion);
+  else removeEventListener('devicemotion', onShakeMotion);
+  shakeWatching = want;
+}
+/* What should the native service be doing right now? Called at every state change. While a
+   track is selected in night mode the service stays alive for the whole session: watching
+   the sensor when paused, idle when playing. windowMs 0 = watch with no deadline. */
+function syncNativeShake(){
+  if (!nativeShake) return;
+  if (!current || !audio.src || view !== 'audio'){ nativeShake.stop().catch(() => {}); return; }
+  if (audio.paused){ nativeShake.open({windowMs: 0}).catch(() => {}); return; }
+  nativeShake.arm(deadline ? {deadline: deadline, windowMs: 0} : {}).catch(() => {});
+}
+function syncShake(){ syncShakeListener(); syncNativeShake(); }
 
 function onShakeMotion(e){
   const now = Date.now();
-  if (now > shakeUntil){ stopShakeWatch(true); return; }
+  if (!webShakeWanted()){ syncShakeListener(); return; }
   // Gravity-free acceleration when the device reports it; otherwise strip ~1 g off the raw one.
   const a = e.acceleration, g = e.accelerationIncludingGravity;
   let force;
@@ -1043,30 +1110,12 @@ function onShakeMotion(e){
 }
 
 function shakeRestart(){
-  // The native service goes idle by itself after reporting a shake; auto-arm will either
-  // re-claim it seconds from now or the play handler below will shut it down.
-  stopShakeWatch(false);
-  if (!current || !audio.src || !audio.paused) return;
+  shakePeakTimes = [];
+  if (!shakeEligible()) return;
   // The same re-entry courtesy as any other resume: back up a few seconds for context.
   audio.currentTime = Math.max(0, audio.currentTime - (Number(settings.rewind) || 0));
-  play();       // the play handler opens a fresh run, so fade-in and auto-arm apply as usual
+  play();       // the play handler re-syncs the service to idle, and reopens a session run
   toast('Shake — resuming');
-}
-
-function startShakeWatch(){
-  shakeUntil = Date.now() + SHAKE_WINDOW_MS;
-  shakePeakTimes = [];
-  if (nativeShake){ nativeShake.open({windowMs: SHAKE_WINDOW_MS}).catch(() => {}); return; }
-  if (!('DeviceMotionEvent' in window)) return;
-  if (!shakeWatching){ addEventListener('devicemotion', onShakeMotion); shakeWatching = true; }
-}
-// stopNative distinguishes "this window is truly over" from "the service should live on":
-// while a timer is still counting down, or auto-arm is about to set one, killing the service
-// would be fatal — Android will not let it start again from the background.
-function stopShakeWatch(stopNative){
-  shakeUntil = 0; shakePeakTimes = [];
-  if (stopNative && nativeShake) nativeShake.stop().catch(() => {});
-  if (shakeWatching){ removeEventListener('devicemotion', onShakeMotion); shakeWatching = false; }
 }
 
 /* sheet */
@@ -1801,6 +1850,120 @@ $('#setnav').onclick = () => {
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
 $('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
 
+/* moon/sun screens — moon is night mode (the audio screen); sun is day mode, an empty
+   screen for now. Both directions ask for confirmation, and cancelling stays put.
+   Going night → day is the "I'm awake" gesture, so a confirmed switch logs the wake-up
+   time as its own row in the Nights log — it rides the same sync/upload pipeline as the
+   listening runs. The bottom player belongs to night mode, so it hides with it and comes
+   back (if a track is still selected) when night mode returns. */
+let view = 'audio';
+function showView(v){
+  view = v;
+  $('#audioview').style.display = v === 'audio' ? '' : 'none';
+  $('#sunview').style.display   = v === 'sun'   ? 'block' : 'none';
+  $('#player').classList.toggle('on', v === 'audio' && !!current);
+  // One toggle button, wearing the icon of the mode you are IN.
+  $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
+  if (v === 'sun') paintIssues();
+  // The mode survives an app restart: closed in day mode, it reopens in day mode.
+  setMeta('view', v).catch(() => {});
+  syncShake();    // day mode closes the shake watch; night mode reopens it if eligible
+}
+async function logWakeUp(){
+  const now = Date.now();
+  await putSession({
+    id: uid(), startedAt: now, endedAt: now, trackStart: '', trackEnd: '',
+    timerMinutes: null, timerArmedAt: null, autoArmed: false, fadeInSeconds: 0,
+    speed: 1, stopReason: 'wake-up', stopPosition: 0, listenedSeconds: 0,
+    lastInteraction: now
+  });
+  toast('Wake-up logged — ' + fmtClock(now));
+  syncSoon(); uploadSoon();
+}
+/* ---------- day-mode issue tracking ----------
+   Issue types are created once (headache, eye pain, …); logging an occurrence is one tap
+   on the type's button, then a note plus any number of pictures in the popup. Everything
+   stays in IndexedDB on the phone — photos are stored as blobs, like the audio itself. */
+const allIssues   = async () => req((await os('issues','readonly')).getAll());
+const putIssue    = async i => req((await os('issues','readwrite')).put(i));
+const putIssueLog = async l => req((await os('issuelogs','readwrite')).put(l));
+
+let issues = [], logIssue = null, logPhotos = [];
+
+async function paintIssues(){
+  issues = (await allIssues()).sort((a, b) => a.name.localeCompare(b.name));
+  $('#issueempty').style.display = issues.length ? 'none' : 'block';
+  const grid = $('#issuegrid');
+  grid.innerHTML = '';
+  for (const i of issues){
+    const b = document.createElement('button');
+    b.className = 'issuebtn';
+    b.textContent = i.name;
+    b.onclick = () => openIssueSheet(i);
+    grid.appendChild(b);
+  }
+}
+$('#addissue').onclick = async () => {
+  const name = (prompt('New issue name (e.g. headache, eye pain):') || '').trim();
+  if (!name) return;
+  if (issues.some(i => i.name.toLowerCase() === name.toLowerCase()))
+    return toast('"' + name + '" already exists');
+  await putIssue({id: uid(), name: name, createdAt: Date.now()});
+  await paintIssues();
+  toast('"' + name + '" added');
+};
+
+function openIssueSheet(i){
+  logIssue = i; logPhotos = [];
+  $('#ititle').textContent = i.name;
+  $('#inote').value = '';
+  $('#ithumbs').innerHTML = '';
+  $('#issuesheet').classList.add('on');
+}
+function closeIssueSheet(){
+  for (const im of $('#ithumbs').querySelectorAll('img')) URL.revokeObjectURL(im.src);
+  $('#issuesheet').classList.remove('on');
+  logIssue = null; logPhotos = [];
+}
+$('#addpics').onclick = () => $('#ipics').click();
+$('#ipics').onchange = async e => {
+  // Same reasoning as the audio import: read each picked file once, into memory, so the
+  // stored blob does not stay tied to a content:// handle that may expire.
+  for (const f of [...e.target.files]){
+    try {
+      const buf = await f.arrayBuffer();
+      const blob = new Blob([buf], {type: f.type || 'image/jpeg'});
+      logPhotos.push(blob);
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(blob);
+      $('#ithumbs').appendChild(img);
+    } catch(_){ toast('Could not read a picture — skipped'); }
+  }
+  e.target.value = '';
+};
+$('#isave').onclick = async () => {
+  if (!logIssue) return;
+  await putIssueLog({
+    id: uid(), issueId: logIssue.id, issue: logIssue.name, at: Date.now(),
+    note: $('#inote').value.trim(), photos: logPhotos
+  });
+  toast(logIssue.name + ' logged — ' + fmtClock(Date.now()));
+  closeIssueSheet();
+};
+$('#iclose').onclick = closeIssueSheet;
+$('#issuesheet').onclick = e => { if (e.target.id === 'issuesheet') closeIssueSheet(); };
+
+$('#modenav').onclick = () => {
+  if (view === 'audio'){
+    if (!confirm('Switch to day mode? Your wake-up time will be logged.')) return;
+    logWakeUp();
+    showView('sun');
+  } else {
+    if (!confirm('Switch to night mode?')) return;
+    showView('audio');
+  }
+};
+
 $('#lognav').onclick = openLog;
 $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
 $('#logsheet').onclick = e => { if (e.target.id === 'logsheet') e.currentTarget.classList.remove('on'); };
@@ -1820,6 +1983,9 @@ $('#posfile').onchange = async e => {
   await render();
   showStorage();
   renderTimer();
+  // Reopen in the mode the app was closed in. Restoring is not a switch: no confirmation,
+  // and no wake-up row — those belong to the deliberate tap on the toggle.
+  if ((await getMeta('view')) === 'sun') showView('sun');
   const last = await getMeta('lastTimer');
   if (last) $('#custom').placeholder = 'Custom minutes (last: ' + last + ')';
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
