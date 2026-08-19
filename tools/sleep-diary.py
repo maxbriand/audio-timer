@@ -20,16 +20,16 @@ The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
                   (a 20-minute play -> onset 10 minutes in).
   SOL             sleep onset - bedtime.
   blocks          every play of the night clustered the same way (<20 min gap).
-  rise time       the last wake-up marker after sleep onset — the recorded moment,
-                  raw. Without a marker, the end of the last block (the moment the
-                  morning audio was stopped) stands in.
-  final wake      with a marker: the marker, unless a play block ends within 30
-                  minutes of it — then that block is the morning listen and its
-                  START is the final wake. Without a marker: start of the last
-                  block, which only exists if the night has at least two.
-  awakenings      play blocks between sleep onset and the final wake. (Without a
-                  marker that is blocks minus the initial one minus the morning
-                  one — never negative.)
+  final wake      start of the last block, which requires at least TWO blocks —
+                  only a morning play proves when sleep ended. A marker is not a
+                  wake time.
+  rise time       the last wake-up marker after sleep onset — the recorded moment
+                  of getting out of bed, raw. Only the marker records it; a night
+                  without one has no rise, whatever else it has.
+  awakenings      play blocks between the initial one and the morning one.
+  Nothing is ever stood in for: every value has exactly one source, and a night
+  missing the source leaves the cell blank. TIB needs rise; TST needs final wake;
+  SE needs both.
   WASO            over those same awakening blocks: (block end - block start)
                   minus minutes actually played. Near zero by construction for
                   single-play blocks; kept to confirm exactly that.
@@ -54,7 +54,6 @@ from pathlib import Path
 GAP_BLOCK_MIN = 20          # chaining threshold within a night
 GAP_NIGHT_H = 12            # a longer silence than this starts a new night
 MIN_PLAY_MIN = 1.0          # anything shorter is a stray tap, not a listen
-MORNING_ATTACH_MIN = 30     # a block ending this close to the marker is the morning listen
 AVG_WINDOW_DAYS = 28
 
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else ".").expanduser()
@@ -120,32 +119,26 @@ def night_metrics(rows):
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
          "note": ""}
 
+    # Rise and final wake are different facts, each with exactly one source, and neither
+    # ever gets a stand-in (Maxime, 2026-08-19): blank always means unknown, never guessed.
     markers = [r for r in rows if r["kind"] == "marker" and r["start"] > onset]
-    marker = markers[-1] if markers else None
+    if markers:
+        n["rise"] = markers[-1]["start"]      # out of bed: only the marker records it
+        n["note"] = markers[-1]["note"]
+        n["tib"] = mins(n["rise"] - bedtime)
 
-    if marker:
-        n["rise"] = marker["start"]
-        n["note"] = marker["note"]
-        last = blocks[-1]
-        morning = (len(blocks) >= 2
-                   and mins(marker["start"] - last[-1]["end"]) <= MORNING_ATTACH_MIN)
-        n["final_wake"] = last[0]["start"] if morning else marker["start"]
-        awakening_blocks = blocks[1:-1] if morning else blocks[1:]
-    elif len(blocks) >= 2:
-        n["rise"] = blocks[-1][-1]["end"]     # morning audio stopped: best available
+    if len(blocks) >= 2:                      # woke and played: only a block proves it
         n["final_wake"] = blocks[-1][0]["start"]
         awakening_blocks = blocks[1:-1]
-    else:
-        return n                              # single block, no marker: morning unknown
+        n["awakenings"] = len(awakening_blocks)
+        n["waso"] = sum(
+            mins(b[-1]["end"] - b[0]["start"]) - sum(s["played"] for s in b)
+            for b in awakening_blocks
+        )
+        n["tst"] = mins(n["final_wake"] - onset) - n["waso"]
 
-    n["awakenings"] = len(awakening_blocks)
-    n["waso"] = sum(
-        mins(b[-1]["end"] - b[0]["start"]) - sum(s["played"] for s in b)
-        for b in awakening_blocks
-    )
-    n["tib"] = mins(n["rise"] - bedtime)
-    n["tst"] = mins(n["final_wake"] - onset) - n["waso"]
-    n["se"] = n["tst"] / n["tib"] * 100 if n["tib"] > 0 else None
+    if n["tst"] is not None and n["tib"]:
+        n["se"] = n["tst"] / n["tib"] * 100
     return n
 
 
