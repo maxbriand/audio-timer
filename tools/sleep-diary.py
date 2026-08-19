@@ -50,6 +50,7 @@ tap) and are dropped; markers are zero-length by design and always kept.
 """
 
 import json
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -62,10 +63,26 @@ AVG_WINDOW_DAYS = 28
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else ".").expanduser()
 OUT = SRC / "sleep-diary.md"
 
+# Hand-written corrections, one file beside the day files (the sync never deletes local
+# extras). The raw log is never edited — a wrong value is marked here and the diary stops
+# deriving from it. Shape: {"YYYY-MM-DD": {"no_morning_block": true}} — that night's last
+# block is NOT a morning wake (final wake and TST become unknown; the block counts as an
+# awakening like any other middle one).
+OVERRIDES_FILE = SRC / "diary-overrides.json"
+
+
+def load_overrides():
+    try:
+        return json.loads(OVERRIDES_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
 
 def load_rows():
     rows = []
-    for f in sorted(SRC.glob("*.json")):
+    day_files = [f for f in sorted(SRC.glob("*.json"))
+                 if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f.name)]
+    for f in day_files:
         try:
             data = json.loads(f.read_text())
         except ValueError:
@@ -107,7 +124,7 @@ def mins(td):
     return td.total_seconds() / 60
 
 
-def night_metrics(rows):
+def night_metrics(rows, overrides):
     plays = [r for r in rows if r["kind"] == "play"]
     if not plays:
         return None                           # a lone marker is not a night
@@ -130,17 +147,21 @@ def night_metrics(rows):
         n["note"] = markers[-1]["note"]
         n["tib"] = mins(n["rise"] - bedtime)
 
+    # A marked night is one whose last block LOOKS like a morning wake but is known not
+    # to be one — it demotes to an ordinary awakening and the morning stays unknown.
+    no_morning = overrides.get(n["date"], {}).get("no_morning_block", False)
+
     # Awakenings and WASO come from the middle blocks, and an absent middle block IS the
     # record: waking at night always means playing audio, so no block means no awakening —
     # zero, not unknown (Maxime, 2026-08-19).
-    awakening_blocks = blocks[1:-1]
+    awakening_blocks = blocks[1:] if no_morning else blocks[1:-1]
     n["awakenings"] = len(awakening_blocks)
     n["waso"] = sum(
         mins(b[-1]["end"] - b[0]["start"]) - sum(s["played"] for s in b)
         for b in awakening_blocks
     )
 
-    if len(blocks) >= 2:                      # woke and played: only a block proves it
+    if len(blocks) >= 2 and not no_morning:   # woke and played: only a block proves it
         n["final_wake"] = blocks[-1][0]["start"]
         n["tst"] = mins(n["final_wake"] - onset) - n["waso"]
 
@@ -162,8 +183,9 @@ def fmt_min(m):
 
 def main():
     rows = load_rows()
+    overrides = load_overrides()
     nights = [n for g in cluster(rows, timedelta(hours=GAP_NIGHT_H))
-              if (n := night_metrics(g))]
+              if (n := night_metrics(g, overrides))]
     nights.reverse()                          # newest first, like the app's own log
 
     def window_avgs(end):
@@ -173,9 +195,6 @@ def main():
         ses = [n["se"] for n in win if n["se"] is not None]
         return tsts, ses
 
-    now = datetime.now().astimezone()
-    tsts, ses = window_avgs(now)
-
 
 
     lines = [
@@ -184,13 +203,6 @@ def main():
         "Derived from the audio-timer Nights log — the player as sleep proxy, the day-mode",
         "switch as the rise-time marker. Regenerated on every sync; do not edit by hand.",
         "Empty cells mean the night gave no way to compute the value, not that it is zero.",
-        "",
-        "## Last 4 weeks",
-        "",
-        f"- **Average total sleep time**: {fmt_min(sum(tsts) / len(tsts)) if tsts else '—'}"
-        f" ({len(tsts)} night{'s' if len(tsts) != 1 else ''} with data)",
-        f"- **Average sleep efficiency**: {f'{sum(ses) / len(ses):.0f} %' if ses else '—'}"
-        f" ({len(ses)} night{'s' if len(ses) != 1 else ''} with data)",
         "",
         "## Nights",
         "",
@@ -214,7 +226,7 @@ def main():
         )
     lines.append("")
     OUT.write_text("\n".join(lines))
-    print(f"sleep-diary.md — {len(nights)} nights, {len(tsts)} with full data")
+    print(f"sleep-diary.md — {len(nights)} nights")
 
 
 if __name__ == "__main__":
