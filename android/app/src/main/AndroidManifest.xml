@@ -86,6 +86,12 @@
     <!-- The fatigue alarm. USE_EXACT_ALARM (13+) is the alarm-clock permission — granted by
          install, not revocable, which is what "exactly like the classic alarm" requires;
          SCHEDULE_EXACT_ALARM covers 12/12L, where USE_EXACT_ALARM does not exist yet. -->
+    <!-- Doze ignores app wake locks, so the shake watch dies on a phone lying still with
+         the screen off; the exemption (asked once, when a timer is armed) is what keeps
+         the sensor alive through the night. Sideloaded app: Play's policy on this
+         permission does not apply. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
