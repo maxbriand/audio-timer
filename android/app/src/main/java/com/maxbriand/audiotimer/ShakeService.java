@@ -101,7 +101,16 @@ public class ShakeService extends Service implements SensorEventListener {
     handler.removeCallbacks(quitR);
     if (watching) return;
     sensors = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-    Sensor acc = sensors == null ? null : sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+    // The wake-up variant is served by the sensor hub and keeps reporting through CPU
+    // suspend — the plain accelerometer goes silent once the phone has lain still with
+    // the screen off for a while (doze ignores app wake locks), which is the one moment
+    // this watch exists for. Not every device has the variant; the plain one is the
+    // fallback, kept alive by the wake lock below for as long as doze honours it.
+    Sensor acc = null;
+    if (sensors != null){
+      acc = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true);
+      if (acc == null) acc = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+    }
     if (acc == null){ quit(); return; }
     watching = true;
     peaks.clear(); lastPeak = 0;

@@ -1,6 +1,11 @@
 package com.maxbriand.audiotimer;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.PowerManager;
+import android.provider.Settings;
 
 import androidx.core.content.ContextCompat;
 
@@ -46,7 +51,29 @@ public class ShakeWatchPlugin extends Plugin {
     call.resolve();
   }
 
-  @PluginMethod public void arm(PluginCall call){ send(ShakeService.ACTION_ARM, call); }
+  /* Doze ignores app wake locks, which is how the shake watch went deaf on a phone lying
+     still with the screen off. The system exemption dialog is the documented way out, and
+     arming a timer — the app visible, the feature being engaged — is the honest moment to
+     ask. Once: a refusal is an answer, and nagging every night is worse than the bug. */
+  private void askDozeExemptionOnce(){
+    try {
+      Context c = getContext();
+      PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
+      if (pm.isIgnoringBatteryOptimizations(c.getPackageName())) return;
+      SharedPreferences p = c.getSharedPreferences("shakewatch", Context.MODE_PRIVATE);
+      if (p.getBoolean("askedDoze", false)) return;
+      p.edit().putBoolean("askedDoze", true).apply();
+      Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + c.getPackageName()));
+      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      c.startActivity(i);
+    } catch (Exception ignored) {}
+  }
+
+  @PluginMethod public void arm(PluginCall call){
+    askDozeExemptionOnce();
+    send(ShakeService.ACTION_ARM, call);
+  }
   @PluginMethod public void open(PluginCall call){ send(ShakeService.ACTION_OPEN, call); }
 
   @PluginMethod
