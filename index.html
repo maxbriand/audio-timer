@@ -929,7 +929,7 @@ document.addEventListener('visibilitychange', () => {
   savePos(true);
   if (session){
     session.lastInteraction = Date.now();
-    if (current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+    sessionMarkStop();
     lastSessionSave = Date.now();
     putSession(session).catch(() => {});
   }
@@ -1180,6 +1180,13 @@ const RESUMABLE_STOPS = ['manual', 'app stopped', 'app closed'];
 const SESSION_SAVE_MS = 15 * 1000;       // how often an in-flight run is flushed to disk
 let session = null, lastTick = 0, pendingStop = '', timerSetTo = null, lastSessionSave = 0;
 
+// Where the run is right now. Stamped onto the row before every write, so a session flushed
+// mid-night — by the periodic tick, by backgrounding, or by its own end — still records the
+// track that was playing and how far into it the audio had got.
+function sessionMarkStop(){
+  if (session && current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+}
+
 async function sessionStart(){
   if (session) return;
   const all = (await allSessions()).sort((a,b) => b.startedAt - a.startedAt);
@@ -1222,7 +1229,7 @@ async function sessionEnd(reason){
   if (!session) return;
   session.endedAt = Date.now();
   session.stopReason = reason;
-  if (current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+  sessionMarkStop();
   if (timerSetTo) session.timerMinutes = timerSetTo;
   const s = session;
   session = null; lastTick = 0;
@@ -1241,7 +1248,7 @@ function sessionTick(){
   // the row would otherwise be stuck at the zero seconds it was created with.
   if (now - lastSessionSave > SESSION_SAVE_MS){
     lastSessionSave = now;
-    if (current){ session.trackEnd = current.name; session.stopPosition = audio.currentTime; }
+    sessionMarkStop();
     putSession(session).catch(() => {});
   }
 }
@@ -1299,10 +1306,14 @@ function dayKey(ms){
 const sessionRev = s => s.updatedAt || s.endedAt || s.startedAt || 0;
 const needsSync  = s => !!s.endedAt && (!s.syncedAt || s.syncedAt < sessionRev(s));
 
+// How long a run played on untouched before it stopped: the gap between the last interaction
+// and the end. Reported by the log, the CSV, and the JSON that leaves the phone.
+const quietBeforeStop = s => s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+
 /* What actually leaves the phone. Explicit, so adding an internal field to a session row
    never starts uploading it by accident. */
 function exportSession(s){
-  const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+  const quiet = quietBeforeStop(s);
   return {
     id: s.id,
     started: new Date(s.startedAt).toISOString(),
@@ -1762,7 +1773,7 @@ async function openLog(){
                         ' · ' + fmt(total) + ' listened in total';
     box.innerHTML = '';
     for (const s of rows){
-      const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+      const quiet = quietBeforeStop(s);
       const el = document.createElement('div');
       el.className = 'logrow';
       el.innerHTML =
@@ -1806,7 +1817,7 @@ async function exportCSV(){
                 'timer_auto_armed','speed','fade_in_seconds','stop_reason',
                 'track_start','track_end','stop_position_seconds','minutes_untouched_before_stop'];
   const csv = [head.join(',')].concat(rows.map(s => {
-    const quiet = s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
+    const quiet = quietBeforeStop(s);
     return [
       new Date(s.startedAt).toISOString(),
       s.endedAt ? new Date(s.endedAt).toISOString() : '',
