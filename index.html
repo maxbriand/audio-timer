@@ -41,36 +41,36 @@
   #setnav:active,#lognav:active,#modenav:active{background:var(--line)}
   #sunview{display:none}
 
-  #logsheet,#setsheet,#issuesheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
+  #logsheet,#setsheet,#eventsheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
     display:none;align-items:flex-end;z-index:10}
-  #logsheet.on,#setsheet.on,#issuesheet.on,#wakesheet.on{display:flex}
+  #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on{display:flex}
 
-  /* day-mode issue tracking */
-  #issuegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-  .issuebtn{
+  /* day-mode event tracking */
+  #eventgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .eventbtn{
     padding:18px 10px;border-radius:14px;background:var(--surface);
     border:1px solid var(--line);color:var(--text);font-size:15px;font-weight:600;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis
   }
-  .issuebtn:active{background:var(--surface-2)}
-  #addissue{
+  .eventbtn:active{background:var(--surface-2)}
+  #addevent{
     width:100%;padding:14px;border-radius:14px;border:1px dashed var(--line);
     background:transparent;color:var(--muted);font-size:15px;font-weight:550
   }
-  #addissue:active{background:var(--surface)}
-  #inote,#wakenote{
+  #addevent:active{background:var(--surface)}
+  #evnote,#wakenote{
     width:100%;min-height:90px;padding:12px;border-radius:12px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--text);font:15px/1.4 inherit;resize:vertical;
     -webkit-appearance:none
   }
-  #inote:focus,#wakenote:focus{outline:0;border-color:var(--accent)}
-  #inote::placeholder,#wakenote::placeholder{color:var(--muted)}
-  #ithumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-  #ithumbs:empty{margin-top:0}
-  #ithumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
-  #isave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
-  #wakeline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
-  #wakeline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+  #evnote:focus,#wakenote:focus{outline:0;border-color:var(--accent)}
+  #evnote::placeholder,#wakenote::placeholder{color:var(--muted)}
+  #evthumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  #evthumbs:empty{margin-top:0}
+  #evthumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  #evsave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
+  #wakeline,#lightline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
+  #wakeline b,#lightline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
   .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
@@ -275,11 +275,12 @@
 </div>
 <div id="sunview">
   <div id="wakeline"></div>
-  <div class="empty" id="issueempty">
-    No issues yet.<br>Tap <b>Add issue</b> to create one (headache, eye pain, …).
+  <div id="lightline"></div>
+  <div class="empty" id="eventempty">
+    No events yet.<br>Tap <b>Add event</b> to create one (morning walk, headache, …).
   </div>
-  <div id="issuegrid"></div>
-  <button id="addissue">+ Add issue</button>
+  <div id="eventgrid"></div>
+  <button id="addevent">+ Add event</button>
 </div>
 </main>
 
@@ -295,17 +296,17 @@
   </div>
 </div>
 
-<div id="issuesheet">
+<div id="eventsheet">
   <div class="sheetbox">
-    <h2 id="ititle"></h2>
-    <p>A note and pictures, saved on this phone with the time.</p>
-    <textarea id="inote" placeholder="What happened? How bad?"></textarea>
-    <div id="ithumbs"></div>
-    <input type="file" id="ipics" accept="image/*" multiple hidden>
+    <h2 id="evtitle"></h2>
+    <p>Saved with the moment you tapped it — add a note and pictures if useful.</p>
+    <textarea id="evnote" placeholder="A note about it (optional)"></textarea>
+    <div id="evthumbs"></div>
+    <input type="file" id="evpics" accept="image/*" multiple hidden>
     <div class="sheetfoot">
-      <button id="addpics">+ Pictures</button>
-      <button id="isave">Save</button>
-      <button id="iclose">Close</button>
+      <button id="evaddpics">+ Pictures</button>
+      <button id="evsave">Save</button>
+      <button id="evclose">Close</button>
     </div>
   </div>
 </div>
@@ -349,6 +350,7 @@
     <div class="setrow"><label>Fade in when a session starts</label><div class="chips sm" id="ch-fadeIn"></div></div>
     <div class="setrow"><label>Speed</label><div class="chips sm" id="ch-speed"></div></div>
     <div class="setrow"><label>Arm the last timer automatically</label><div class="chips sm" id="ch-autoArm"></div></div>
+    <div class="setrow"><label>Morning walk — pins a ☀️ Morning walk event at the top of the day screen</label><div class="chips sm" id="ch-morningWalk"></div></div>
 
     <div class="setsplit">
       <div class="setrow">
@@ -441,8 +443,9 @@ function openDB(){
       // These rows are a few bytes each and cost ~6 ms. Nothing is migrated into it: an
       // absent row simply falls back to the position already on the track record.
       if (!d.objectStoreNames.contains('positions')) d.createObjectStore('positions');
-      // Day-mode issue tracking: the issue types you created, and one row per logged
-      // occurrence (note + photos as blobs, like the audio).
+      // Day-mode event tracking: the event types you created, and one row per logged
+      // occurrence (note + photos as blobs, like the audio). The stores keep the names
+      // they were born with — "issues" — because renaming a store means migrating data.
       if (!d.objectStoreNames.contains('issues')) d.createObjectStore('issues', {keyPath:'id'});
       if (!d.objectStoreNames.contains('issuelogs')) d.createObjectStore('issuelogs', {keyPath:'id'});
     };
@@ -750,7 +753,7 @@ audio.preload = 'metadata';
 let current = null, objUrl = null, seeking = false, lastSave = 0, loading = false;
 
 /* ---------- settings ---------- */
-const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1};
+const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, morningWalk: false};
 let settings = Object.assign({}, DEFAULTS);
 const TARGET_VOL = 1;
 
@@ -1852,7 +1855,8 @@ const SETTING_CHOICES = {
   rewind:  {values: [0, 5, 10, 30],       labels: ['off', '5s', '10s', '30s']},
   fadeIn:  {values: [0, 10, 15, 30],      labels: ['off', '10s', '15s', '30s']},
   speed:   {values: [0.8, 1, 1.25, 1.5],  labels: ['0.8×', '1×', '1.25×', '1.5×']},
-  autoArm: {values: [false, true],        labels: ['off', 'on']}
+  autoArm: {values: [false, true],        labels: ['off', 'on']},
+  morningWalk: {values: [false, true],    labels: ['off', 'on']}
 };
 function buildSettings(){
   for (const key of Object.keys(SETTING_CHOICES)){
@@ -1868,6 +1872,8 @@ function buildSettings(){
         await saveSettings();
         applySettings();
         buildSettings();
+        // The morning-walk toggle changes what the day screen shows behind the sheet.
+        if (view === 'sun') paintEvents();
       };
       box.appendChild(b);
     });
@@ -1941,7 +1947,7 @@ function showView(v){
   $('#player').classList.toggle('on', v === 'audio' && !!current);
   // One toggle button, wearing the icon of the mode you are IN.
   $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
-  if (v === 'sun'){ paintIssues(); paintSun(); }
+  if (v === 'sun'){ paintEvents(); paintSun(); }
   // The mode survives an app restart: closed in day mode, it reopens in day mode.
   setMeta('view', v).catch(() => {});
   syncShake();    // day mode closes the shake watch; night mode reopens it if eligible
@@ -1967,66 +1973,88 @@ async function logWakeUp(note){
 }
 
 /* Today's wake-up (the latest one), shown at the top of the day screen with its note —
-   the visible proof that the note written at the switch was saved. */
+   the visible proof that the note written at the switch was saved. Below it, today's
+   daylight: the walk IS the daylight log, so the line shows the first morning-walk
+   marker of the day (the diary reads the same rows for its Morning light column). */
 async function paintSun(){
-  const el = $('#wakeline');
   const today = dayKey(Date.now());
-  const w = (await allSessions())
+  const all = await allSessions();
+  const el = $('#wakeline');
+  const w = all
     .filter(s => s.stopReason === 'wake-up' && dayKey(s.startedAt) === today)
     .sort((a, b) => b.startedAt - a.startedAt)[0];
-  if (!w){ el.style.display = 'none'; el.textContent = ''; return; }
-  el.innerHTML = '☀️ Woke at <b></b>';
-  el.querySelector('b').textContent = fmtClock(w.startedAt);
-  if (w.note) el.append(' — ' + w.note);
-  el.style.display = 'block';
+  if (w){
+    el.innerHTML = '☀️ Woke at <b></b>';
+    el.querySelector('b').textContent = fmtClock(w.startedAt);
+    if (w.note) el.append(' — ' + w.note);
+    el.style.display = 'block';
+  } else { el.style.display = 'none'; el.textContent = ''; }
+  const ll = $('#lightline');
+  const d = all
+    .filter(s => s.stopReason === 'morning-walk' && dayKey(s.startedAt) === today)
+    .sort((a, b) => a.startedAt - b.startedAt)[0];
+  if (d){
+    ll.innerHTML = '🌞 Daylight since <b></b>';
+    ll.querySelector('b').textContent = fmtClock(d.startedAt);
+    ll.style.display = 'block';
+  } else { ll.style.display = 'none'; ll.textContent = ''; }
 }
-/* ---------- day-mode issue tracking ----------
-   Issue types are created once (headache, eye pain, …); logging an occurrence is one tap
-   on the type's button, then a note plus any number of pictures in the popup. Everything
-   stays in IndexedDB on the phone — photos are stored as blobs, like the audio itself. */
-const allIssues   = async () => req((await os('issues','readonly')).getAll());
-const putIssue    = async i => req((await os('issues','readwrite')).put(i));
-const putIssueLog = async l => req((await os('issuelogs','readwrite')).put(l));
+/* ---------- day-mode event tracking ----------
+   Event types are created once (morning walk, headache, …); logging an occurrence is one
+   tap on the type's button, then a note plus any number of pictures in the popup. The
+   moment saved is the TAP — the event's start — not the later press on Save, so writing a
+   long note never shifts the recorded time. Everything stays in IndexedDB on the phone —
+   photos are stored as blobs, like the audio itself. (The stores and log fields keep their
+   historical names, issues/issuelogs/issueId: renaming them means migrating user data for
+   zero benefit — "event" is the concept, not the storage key.) */
+const allEvents   = async () => req((await os('issues','readonly')).getAll());
+const putEvent    = async ev => req((await os('issues','readwrite')).put(ev));
+const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
 
-let issues = [], logIssue = null, logPhotos = [];
+/* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
+   toggling it off just stops painting the button — walks already logged stay logged. */
+const MORNING_WALK = {id: 'morning-walk', name: '☀️ Morning walk'};
 
-async function paintIssues(){
-  issues = (await allIssues()).sort((a, b) => a.name.localeCompare(b.name));
-  $('#issueempty').style.display = issues.length ? 'none' : 'block';
-  const grid = $('#issuegrid');
+let events = [], logEvent = null, logAt = 0, logPhotos = [];
+
+async function paintEvents(){
+  events = (await allEvents()).sort((a, b) => a.name.localeCompare(b.name));
+  if (settings.morningWalk) events.unshift(MORNING_WALK);
+  $('#eventempty').style.display = events.length ? 'none' : 'block';
+  const grid = $('#eventgrid');
   grid.innerHTML = '';
-  for (const i of issues){
+  for (const ev of events){
     const b = document.createElement('button');
-    b.className = 'issuebtn';
-    b.textContent = i.name;
-    b.onclick = () => openIssueSheet(i);
+    b.className = 'eventbtn';
+    b.textContent = ev.name;
+    b.onclick = () => openEventSheet(ev);
     grid.appendChild(b);
   }
 }
-$('#addissue').onclick = async () => {
-  const name = (prompt('New issue name (e.g. headache, eye pain):') || '').trim();
+$('#addevent').onclick = async () => {
+  const name = (prompt('New event name (e.g. morning walk, headache):') || '').trim();
   if (!name) return;
-  if (issues.some(i => i.name.toLowerCase() === name.toLowerCase()))
+  if (events.some(ev => ev.name.toLowerCase() === name.toLowerCase()))
     return toast('"' + name + '" already exists');
-  await putIssue({id: uid(), name: name, createdAt: Date.now()});
-  await paintIssues();
+  await putEvent({id: uid(), name: name, createdAt: Date.now()});
+  await paintEvents();
   toast('"' + name + '" added');
 };
 
-function openIssueSheet(i){
-  logIssue = i; logPhotos = [];
-  $('#ititle').textContent = i.name;
-  $('#inote').value = '';
-  $('#ithumbs').innerHTML = '';
-  $('#issuesheet').classList.add('on');
+function openEventSheet(ev){
+  logEvent = ev; logAt = Date.now(); logPhotos = [];   // the tap is the start
+  $('#evtitle').textContent = ev.name;
+  $('#evnote').value = '';
+  $('#evthumbs').innerHTML = '';
+  $('#eventsheet').classList.add('on');
 }
-function closeIssueSheet(){
-  for (const im of $('#ithumbs').querySelectorAll('img')) URL.revokeObjectURL(im.src);
-  $('#issuesheet').classList.remove('on');
-  logIssue = null; logPhotos = [];
+function closeEventSheet(){
+  for (const im of $('#evthumbs').querySelectorAll('img')) URL.revokeObjectURL(im.src);
+  $('#eventsheet').classList.remove('on');
+  logEvent = null; logPhotos = [];
 }
-$('#addpics').onclick = () => $('#ipics').click();
-$('#ipics').onchange = async e => {
+$('#evaddpics').onclick = () => $('#evpics').click();
+$('#evpics').onchange = async e => {
   // Same reasoning as the audio import: read each picked file once, into memory, so the
   // stored blob does not stay tied to a content:// handle that may expire.
   for (const f of [...e.target.files]){
@@ -2036,22 +2064,37 @@ $('#ipics').onchange = async e => {
       logPhotos.push(blob);
       const img = document.createElement('img');
       img.src = URL.createObjectURL(blob);
-      $('#ithumbs').appendChild(img);
+      $('#evthumbs').appendChild(img);
     } catch(_){ toast('Could not read a picture — skipped'); }
   }
   e.target.value = '';
 };
-$('#isave').onclick = async () => {
-  if (!logIssue) return;
-  await putIssueLog({
-    id: uid(), issueId: logIssue.id, issue: logIssue.name, at: Date.now(),
-    note: $('#inote').value.trim(), photos: logPhotos
+$('#evsave').onclick = async () => {
+  if (!logEvent) return;
+  const note = $('#evnote').value.trim();
+  await putEventLog({
+    id: uid(), issueId: logEvent.id, issue: logEvent.name, at: logAt,
+    note: note, photos: logPhotos
   });
-  toast(logIssue.name + ' logged — ' + fmtClock(Date.now()));
-  closeIssueSheet();
+  /* The morning walk also leaves the phone: a zero-length marker row, stamped with the
+     tap time, rides the sync/upload pipeline like the wake-up. The walk IS the daylight
+     log — the diary reads this row for its Morning light column. Other events (and the
+     photos, always) stay local. */
+  if (logEvent.id === MORNING_WALK.id){
+    await putSession({
+      id: uid(), startedAt: logAt, endedAt: logAt, trackStart: '', trackEnd: '',
+      timerMinutes: null, timerArmedAt: null, autoArmed: false, fadeInSeconds: 0,
+      speed: 1, stopReason: 'morning-walk', stopPosition: 0, listenedSeconds: 0,
+      lastInteraction: logAt, note: note
+    });
+    paintSun();               // the daylight line at the top of the day screen
+    syncSoon(); uploadSoon();
+  }
+  toast(logEvent.name + ' logged — ' + fmtClock(logAt));
+  closeEventSheet();
 };
-$('#iclose').onclick = closeIssueSheet;
-$('#issuesheet').onclick = e => { if (e.target.id === 'issuesheet') closeIssueSheet(); };
+$('#evclose').onclick = closeEventSheet;
+$('#eventsheet').onclick = e => { if (e.target.id === 'eventsheet') closeEventSheet(); };
 
 $('#modenav').onclick = () => {
   if (view === 'audio'){
