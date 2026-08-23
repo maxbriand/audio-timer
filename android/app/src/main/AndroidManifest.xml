@@ -20,16 +20,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Watches the accelerometer for the hour after the sleep timer fires, so a shake
-             can resume playback with the screen off. Android 14+ demands a declared type;
-             none of the named ones fit a bedside sensor, hence specialUse. -->
+        <!-- Watches the accelerometer while a track is selected, so a shake can act with the
+             screen off: resume when the audio is paused, or skip to the next chapter while it
+             plays. Android 14+ demands a declared type; none of the named ones fit a bedside
+             sensor, hence specialUse. -->
         <service
             android:name=".ShakeService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Listens to the accelerometer after the sleep timer ends so shaking the phone can resume playback" />
+                android:value="Listens to the accelerometer while audio is selected so shaking the phone can resume playback or skip to the next track" />
         </service>
 
         <!-- The fatigue check, 45 minutes after the day-mode switch. The receiver fires the
