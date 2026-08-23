@@ -38,8 +38,10 @@ public class ShakeWatchPlugin extends Plugin {
     i.setAction(action);
     Double deadline = call.getDouble("deadline");
     Double window = call.getDouble("windowMs");
+    String label = call.getString("label");
     if (deadline != null) i.putExtra(ShakeService.EXTRA_DEADLINE, deadline.longValue());
     if (window != null) i.putExtra(ShakeService.EXTRA_WINDOW, window.longValue());
+    if (label != null) i.putExtra(ShakeService.EXTRA_LABEL, label);
     return i;
   }
 

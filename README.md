@@ -20,8 +20,18 @@ that saves the exact moment it stops.
   before it stopped. The full history is shown, not just recent nights. Exports to CSV.
 - **Back up / restore positions** as JSON, keyed by filename so a backup still applies after
   the audio is re-imported with new ids.
+- **Shake the phone** to act without finding a button in the dark. Paused — including
+  stopped by the sleep timer — a shake resumes, backing up by the rewind setting first;
+  this is always on, and in the APK it works with the screen off (a foreground service
+  watches the accelerometer, since the WebView is suspended by then). Playing, a shake
+  skips to the next chapter instead, and that half is a ⚙ toggle, off by default: a phone
+  that changed chapter every time you rolled over would be worse than no feature at all.
+  Three distinct strong movements inside 1.2 s count as a shake — a pocket or a picked-up
+  phone does not — and one shake is one action, so a long rattle cannot walk three chapters
+  down the library. A skipped chapter keeps its position, unlike one that ran to its end.
 - Playback settings (the ⚙ button, saved on the device): rewind on resume, fade-in at the
-  start of a session, speed, and auto-arming the last sleep timer when you press play.
+  start of a session, speed, auto-arming the last sleep timer when you press play, and
+  shake-to-skip.
 - **Private sync** (also under ⚙): finished runs are pushed automatically to a *private*
   GitHub repo of your own, one JSON file per night, and a LaunchAgent on the Mac pulls them
   into the Body asset every 30 minutes. Set up once — see [SETUP.md](SETUP.md).

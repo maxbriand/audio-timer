@@ -350,6 +350,7 @@
     <div class="setrow"><label>Fade in when a session starts</label><div class="chips sm" id="ch-fadeIn"></div></div>
     <div class="setrow"><label>Speed</label><div class="chips sm" id="ch-speed"></div></div>
     <div class="setrow"><label>Arm the last timer automatically</label><div class="chips sm" id="ch-autoArm"></div></div>
+    <div class="setrow"><label>Shake to skip — while audio is playing, a shake jumps to the next chapter. A shake on paused audio always resumes, toggle or not.</label><div class="chips sm" id="ch-shakeSkip"></div></div>
     <div class="setrow"><label>Morning walk — pins a ☀️ Morning walk event at the top of the day screen</label><div class="chips sm" id="ch-morningWalk"></div></div>
 
     <div class="setsplit">
@@ -753,7 +754,7 @@ audio.preload = 'metadata';
 let current = null, objUrl = null, seeking = false, lastSave = 0, loading = false;
 
 /* ---------- settings ---------- */
-const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, morningWalk: false};
+const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, shakeSkip: false, morningWalk: false};
 let settings = Object.assign({}, DEFAULTS);
 const TARGET_VOL = 1;
 
@@ -765,6 +766,9 @@ async function loadSettings(){
 const saveSettings = () => setMeta('settings', settings);
 function applySettings(){
   audio.playbackRate = settings.speed || 1;
+  // Turning shake-to-skip on or off changes what the two detectors should be doing right
+  // now — mid-playback, that is the difference between a live sensor and an idle service.
+  syncShake();
 }
 
 async function load(id, autoplay){
@@ -1067,7 +1071,12 @@ function finish(){
 }
 setInterval(tickTimer, 500);
 
-/* ---------- shake to start ----------
+/* ---------- shake ----------
+   A shake means one of two things, decided by what the audio is doing at that instant.
+   Paused — including stopped by the sleep timer — it resumes, which is the original
+   behaviour and is always on. Playing, it skips to the next chapter, but only when the ⚙
+   toggle is on: a phone that changed chapter every time its owner rolled over would be
+   worse than no feature at all.
    The shake window is a STATE, not a timer: as long as the app session is open, a track is
    selected, and the app is in night mode, a shake starts the paused audio — no matter how
    long ago it stopped. The window closes only when the selection is closed (the ✕ on the
@@ -1087,7 +1096,7 @@ const nativeShake = (() => {
   const C = window.Capacitor;
   const p = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.ShakeWatch;
   if (!p) return null;
-  p.addListener('shake', () => shakeRestart());
+  p.addListener('shake', () => shakeAct());
   return p;
 })();
 
@@ -1095,11 +1104,19 @@ const SHAKE_FORCE = 18;         // m/s² of gravity-free acceleration — a deli
 const SHAKE_PEAKS = 3;          // distinct strong movements required…
 const SHAKE_PEAK_GAP_MS = 150;  // …each its own, not one jolt seen at sensor rate
 const SHAKE_SPAN_MS = 1200;     // …all within this
-let shakePeakTimes = [], shakeWatching = false;
+const SHAKE_COOLDOWN_MS = 2000; // one shake is one action — a long rattle must not skip three
+// What the foreground-service notification says while it is listening, so the phone tells
+// you which of the two meanings is live rather than always claiming "resume".
+const SHAKE_RESUME_LABEL = 'Shake the phone to resume playback';
+const SHAKE_SKIP_LABEL   = 'Shake the phone to skip to the next track';
+let shakePeakTimes = [], shakeWatching = false, lastShakeAt = 0;
 
-// The one condition for a shake to start audio, re-checked live on every motion event so a
+// The conditions for a shake to do anything, re-checked live on every motion event so a
 // state change never leaves a stale listener acting on old conditions.
-const shakeEligible = () => !!(current && audio.src && audio.paused && view === 'audio');
+const shakeResumeOK = () => !!(current && audio.src && audio.paused && view === 'audio');
+const shakeSkipOK   = () => !!(settings.shakeSkip && current && audio.src && !audio.paused
+                               && view === 'audio');
+const shakeEligible = () => shakeResumeOK() || shakeSkipOK();
 
 function webShakeWanted(){
   if (!('DeviceMotionEvent' in window)) return false;
@@ -1118,7 +1135,10 @@ function syncShakeListener(){
 function syncNativeShake(){
   if (!nativeShake) return;
   if (!current || !audio.src || view !== 'audio'){ nativeShake.stop().catch(() => {}); return; }
-  if (audio.paused){ nativeShake.open({windowMs: 0}).catch(() => {}); return; }
+  if (audio.paused){ nativeShake.open({windowMs: 0, label: SHAKE_RESUME_LABEL}).catch(() => {}); return; }
+  // Playing: the service listens only when a shake would actually do something — that is,
+  // when skip is on. Otherwise it stays alive but idle, ready for the pause that follows.
+  if (shakeSkipOK()){ nativeShake.open({windowMs: 0, label: SHAKE_SKIP_LABEL}).catch(() => {}); return; }
   nativeShake.arm(deadline ? {deadline: deadline, windowMs: 0} : {}).catch(() => {});
 }
 function syncShake(){ syncShakeListener(); syncNativeShake(); }
@@ -1137,16 +1157,38 @@ function onShakeMotion(e){
   if (last && now - last < SHAKE_PEAK_GAP_MS) return;
   shakePeakTimes = shakePeakTimes.filter(t => now - t < SHAKE_SPAN_MS);
   shakePeakTimes.push(now);
-  if (shakePeakTimes.length >= SHAKE_PEAKS) shakeRestart();
+  if (shakePeakTimes.length >= SHAKE_PEAKS) shakeAct();
 }
 
-function shakeRestart(){
+function shakeAct(){
   shakePeakTimes = [];
-  if (!shakeEligible()) return;
+  // A source swap takes as long as the file takes to open, which can outlast the cooldown;
+  // acting again mid-swap would leave two loads racing for the same audio element.
+  if (loading) return;
+  // Both detectors can see the same shake, and a vigorous one goes on past the third peak.
+  // Without this, one rattle would walk several chapters down the library.
+  const now = Date.now();
+  if (now - lastShakeAt < SHAKE_COOLDOWN_MS) return;
+  lastShakeAt = now;
+  if (shakeSkipOK()){ shakeSkipNext(); return; }
+  if (!shakeResumeOK()) return;
   // The same re-entry courtesy as any other resume: back up a few seconds for context.
   audio.currentTime = Math.max(0, audio.currentTime - (Number(settings.rewind) || 0));
   play();       // the play handler re-syncs the service to idle, and reopens a session run
   toast('Shake — resuming');
+}
+
+/* Skipping is not finishing: the chapter being left keeps its position — load() writes it
+   out on the way past — so it can be picked up later, unlike a track that ran to its end.
+   The sleep timer and the open run ride across the handover exactly as they do when a
+   track ends on its own, and bad files are stepped over for the same reason. */
+async function shakeSkipNext(){
+  let candidate = nextTrack(current);
+  for (let tries = 0; candidate && tries < 5; tries++){
+    if (await load(candidate.id, true)){ toast('Shake — ' + candidate.name); return; }
+    candidate = nextTrack(candidate);
+  }
+  toast('Shake — nothing after this one');
 }
 
 /* sheet */
@@ -1867,6 +1909,7 @@ const SETTING_CHOICES = {
   fadeIn:  {values: [0, 10, 15, 30],      labels: ['off', '10s', '15s', '30s']},
   speed:   {values: [0.8, 1, 1.25, 1.5],  labels: ['0.8×', '1×', '1.25×', '1.5×']},
   autoArm: {values: [false, true],        labels: ['off', 'on']},
+  shakeSkip: {values: [false, true],      labels: ['off', 'on']},
   morningWalk: {values: [false, true],    labels: ['off', 'on']}
 };
 function buildSettings(){

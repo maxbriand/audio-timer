@@ -22,14 +22,16 @@ import androidx.core.app.NotificationCompat;
 import java.util.ArrayDeque;
 
 /*
- * Shake-to-resume, the part that survives the screen turning off.
+ * The shake watch, the part that survives the screen turning off.
  *
  * With the screen dark Android suspends the WebView, so the page's own devicemotion listener
- * goes deaf exactly when it is needed. This service is the native stand-in: while a selected
- * track is paused it holds a partial wake lock and watches the accelerometer itself, with no
- * deadline (the page passes windowMs 0) — the watch is a state owned by the page, closed by
- * the ✕, by day mode, or by the app going away. A shake is reported back to the page
- * (ShakeWatchPlugin), which resumes playback.
+ * goes deaf exactly when it is needed. This service is the native stand-in: it holds a partial
+ * wake lock and watches the accelerometer itself, with no deadline (the page passes windowMs 0)
+ * — the watch is a state owned by the page, closed by the ✕, by day mode, or by the app
+ * going away. A shake is reported back to the page (ShakeWatchPlugin), which decides what it
+ * meant: resume when the audio was paused, skip to the next chapter when it was playing and
+ * the ⚙ toggle is on. The service itself stays out of that decision and only says, on the
+ * notification, which meaning is currently live — the page passes the wording in.
  *
  * Lifecycle is shaped by one Android rule: a foreground service cannot be STARTED from the
  * background (Android 12+), but a RUNNING one may be talked to freely. So the page starts the
@@ -44,6 +46,7 @@ public class ShakeService extends Service implements SensorEventListener {
   static final String ACTION_STOP = "stop";   // nothing left to wait for
   static final String EXTRA_DEADLINE = "deadline";   // epoch ms of the timer's end
   static final String EXTRA_WINDOW   = "window";     // how long the shake window stays open, ms
+  static final String EXTRA_LABEL    = "label";      // what the notification says while watching
 
   private static final String CHANNEL = "shake";
   private static final int NOTIF_ID = 7;
@@ -67,6 +70,8 @@ public class ShakeService extends Service implements SensorEventListener {
   // The page passes the real window with arm()/open(); this only covers a missing extra.
   private long windowMs = 60 * 1000;
   private boolean watching = false;
+  // Overwritten by every open(); the default only covers a call that predates the extra.
+  private String watchLabel = "Shake the phone to resume playback";
   private final ArrayDeque<Long> peaks = new ArrayDeque<>();
   private long lastPeak = 0;
 
@@ -89,7 +94,12 @@ public class ShakeService extends Service implements SensorEventListener {
       }
     } else if (ACTION_OPEN.equals(action)){
       windowMs = intent.getLongExtra(EXTRA_WINDOW, windowMs);
-      startWatching();
+      String label = intent.getStringExtra(EXTRA_LABEL);
+      if (label != null && !label.isEmpty()) watchLabel = label;
+      // Play → pause flips the meaning without interrupting the watch, so an open() that
+      // arrives while already listening must still repaint the notification.
+      if (watching) show(watchLabel);
+      else startWatching();
     } else {
       quit();
     }
@@ -114,7 +124,7 @@ public class ShakeService extends Service implements SensorEventListener {
     if (acc == null){ quit(); return; }
     watching = true;
     peaks.clear(); lastPeak = 0;
-    show("Shake the phone to resume playback");
+    show(watchLabel);
     // The accelerometer keeps reporting with the screen off only while the CPU is up.
     PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
     handler.removeCallbacks(dropLockR);
@@ -155,7 +165,7 @@ public class ShakeService extends Service implements SensorEventListener {
 
   private void shaken(){
     stopWatching();
-    show("Resuming…");
+    show("Shake detected…");
     ShakeWatchPlugin.onShake();
     // Hold the CPU a few seconds longer so the page can actually start the audio; once it
     // plays, the audio pipeline keeps things awake on its own.
