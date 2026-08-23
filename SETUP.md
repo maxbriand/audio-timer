@@ -293,9 +293,11 @@ which matters once the phone starts clearing uploaded nights after 14 days. The 
 off just means the phone's WorkManager retries later — same contract as ever.
 
 The daily 16:00 job below remains, but its job is now only the derived views: it rebuilds
-`sessions.csv` and the sleep diary from the day files. Asleep at 16:00, launchd runs the
-missed job on wake; powered off, it catches up at the next login (the script knows whether a
-16:00 run is still owed). Run it by hand any time with `--force`.
+`sessions.csv` next to the day files, and the sleep diary into
+`~/Documents/Assets/Body/sources/sleep/` — the diary is filed with the other sleep records,
+not with the raw log. Asleep at 16:00, launchd runs the missed job on wake; powered off, it
+catches up at the next login (the script knows whether a 16:00 run is still owed). Run it by
+hand any time with `--force`.
 
 ```bash
 sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.audio-server-sync.plist > ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist

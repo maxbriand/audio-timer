@@ -15,7 +15,12 @@ at the moment of getting up, optionally carrying a note. Markers are the recorde
 rise time — raw, never derived — and their note is the diary's Note column. A row
 whose stopReason is "fatigue" is the answer to the alarm that rings 45 minutes
 after the rise: a 1–10 self-score (10 = maximum fatigue), zero-length like the
-marker; the night's Fatigue column is the last score after its onset.
+marker; the night's Fatigue column is the last score after its onset. A row whose
+stopReason is "morning-walk" is the daylight marker: the ☀️ Morning walk event on
+the day screen, stamped with the tap that logged it — the walk IS the daylight
+log. The night's Morning light column is the FIRST such marker after its onset:
+first exposure is the fact that matters, later taps say nothing new. ("daylight"
+rows, from the short-lived dedicated button, are read the same way.)
 
 The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
 
@@ -43,9 +48,14 @@ The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
   Nothing is ever stood in for: every value has exactly one source, and a night
   missing the source leaves the cell blank. TIB needs rise; TST needs final wake;
   SE needs both.
-  WASO            over those same awakening blocks: (block end - block start)
-                  minus minutes actually played. Near zero by construction for
-                  single-play blocks; kept to confirm exactly that.
+  WASO            over those same awakening blocks, read exactly as the initial
+                  block is read: awake runs from the block's start to the MIDPOINT
+                  of its last play, because falling back asleep happens during that
+                  play. Audio running means awake — the same reading that gives SOL
+                  its minutes — so a 20-minute night listen is 10 minutes of WASO,
+                  never zero. It is a lower bound: the minutes spent lying awake
+                  before reaching for the phone are nowhere in the log, and are not
+                  stood in for.
   TIB             rise time - bedtime.
   TST             final wake - sleep onset - WASO.
   SE              TST / TIB * 100.
@@ -72,8 +82,17 @@ MIN_PLAY_MIN = 1.0          # anything shorter is a stray tap, not a listen
 AVG_WINDOW_DAYS = 28
 
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else ".").expanduser()
-OUT = SRC / "sleep-diary.md"
-OUT_CSV = SRC / "sleep-diary.csv"
+
+# The day files are the raw log; the diary is a sleep record, so it is written with the
+# other sleep documents (sources/sleep/) rather than in the log folder next to them. A
+# second argument names the destination outright; without one, the sibling "sleep" folder
+# is used when it exists and the source folder otherwise, so a checkout with no Body asset
+# beside it still produces the diary somewhere sensible.
+OUT_DIR = (Path(sys.argv[2]).expanduser() if len(sys.argv) > 2
+           else SRC.parent / "sleep" if (SRC.parent / "sleep").is_dir()
+           else SRC)
+OUT = OUT_DIR / "sleep-diary.md"
+OUT_CSV = OUT_DIR / "sleep-diary.csv"
 
 # Hand-written corrections, one file beside the day files (the sync never deletes local
 # extras). The raw log is never edited — a wrong value is marked here and the diary stops
@@ -106,6 +125,9 @@ def load_rows():
             if s.get("stopReason") == "wake-up":
                 rows.append({"kind": "marker", "start": start, "end": start,
                              "note": (s.get("note") or "").strip()})
+                continue
+            if s.get("stopReason") in ("morning-walk", "daylight"):
+                rows.append({"kind": "daylight", "start": start, "end": start})
                 continue
             if s.get("stopReason") == "fatigue":
                 score = s.get("fatigueScore")
@@ -155,12 +177,18 @@ def night_metrics(rows, overrides):
     n = {"date": bedtime.strftime("%Y-%m-%d"), "bedtime": bedtime,
          "sol": mins(onset - bedtime), "awakenings": None, "waso": None,
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
-         "fatigue": None, "note": ""}
+         "fatigue": None, "light": None, "note": ""}
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
     scores = [r for r in rows if r["kind"] == "fatigue" and r["start"] > onset]
     if scores:
         n["fatigue"] = scores[-1]["score"]
+
+    # Morning light: the FIRST daylight marker after onset — the start of exposure,
+    # which is the start of the morning walk. Later taps say nothing new.
+    lights = [r for r in rows if r["kind"] == "daylight" and r["start"] > onset]
+    if lights:
+        n["light"] = lights[0]["start"]
 
     # Rise and final wake are different facts, each with exactly one source, and neither
     # ever gets a stand-in (Maxime, 2026-08-19): blank always means unknown, never guessed.
@@ -184,8 +212,13 @@ def night_metrics(rows, overrides):
     # zero, not unknown (Maxime, 2026-08-19).
     awakening_blocks = blocks[1:] if no_morning else blocks[1:-1]
     n["awakenings"] = len(awakening_blocks)
+    # Each awakening ends the way the night began: asleep again somewhere inside the last
+    # play of the block, so its midpoint is the moment. Subtracting the played minutes
+    # instead (as this did until 2026-08-22) measured the SILENCE between chained plays,
+    # which is zero for a single-play awakening — it read the very same audio as "awake"
+    # at bedtime and as "asleep" at 04:00, and handed those minutes to TST as sleep.
     n["waso"] = sum(
-        mins(b[-1]["end"] - b[0]["start"]) - sum(s["played"] for s in b)
+        mins((b[-1]["start"] + (b[-1]["end"] - b[-1]["start"]) / 2) - b[0]["start"])
         for b in awakening_blocks
     )
 
@@ -237,8 +270,8 @@ def main():
         "The 4wk columns are the trailing 28-day averages as of that night — the running",
         "record the therapy tracks, recomputed from the raw log on every sync.",
         "",
-        "| Night | Bedtime | SOL | Awakenings | WASO | Final wake | Rise | TIB | TST | SE | Fatigue | 4wk TST | 4wk SE | Note |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Night | Bedtime | SOL | Awakenings | WASO | Final wake | Rise | TIB | TST | SE | Fatigue | Morning light | 4wk TST | 4wk SE | Note |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for n in nights:
         se = f"{n['se']:.0f} %" if n["se"] is not None else ""
@@ -251,7 +284,8 @@ def main():
         lines.append(
             f"| {n['date']} | {fmt_clock(n['bedtime'])} | {fmt_min(n['sol'])} | {aw}"
             f" | {fmt_min(n['waso'])} | {fmt_clock(n['final_wake'])} | {fmt_clock(n['rise'])}"
-            f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {fat} | {avg_tst} | {avg_se} | {note} |"
+            f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {fat} | {fmt_clock(n['light'])}"
+            f" | {avg_tst} | {avg_se} | {note} |"
         )
     lines.append("")
     OUT.write_text("\n".join(lines))
@@ -269,19 +303,19 @@ def main():
         w = csv.writer(f)
         w.writerow(["night", "bedtime", "sol_min", "awakenings", "waso_min",
                     "final_wake", "rise", "tib_min", "tst_min", "se_pct", "fatigue_1to10",
-                    "avg4w_tst_min", "avg4w_se_pct", "note"])
+                    "morning_light", "avg4w_tst_min", "avg4w_se_pct", "note"])
         for n in nights:
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
                 n["date"], iso(n["bedtime"]), num(n["sol"]), num(n["awakenings"]),
                 num(n["waso"]), iso(n["final_wake"]), iso(n["rise"]), num(n["tib"]),
-                num(n["tst"]), num(n["se"]), num(n["fatigue"]),
+                num(n["tst"]), num(n["se"]), num(n["fatigue"]), iso(n["light"]),
                 num(sum(w_tst) / len(w_tst)) if w_tst else "",
                 num(sum(w_se) / len(w_se)) if w_se else "",
                 n["note"],
             ])
 
-    print(f"sleep-diary.md + sleep-diary.csv — {len(nights)} nights")
+    print(f"sleep-diary.md + sleep-diary.csv — {len(nights)} nights → {OUT_DIR}")
 
 
 if __name__ == "__main__":

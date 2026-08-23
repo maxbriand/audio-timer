@@ -10,6 +10,8 @@
 #   Day files    ~/Documents/Assets/Body/sources/audio-sessions/YYYY-MM-DD.json
 #                (written live by log-receiver.py as the phone uploads)
 #   Derived      sessions.csv next to them, and the sleep diary (tools/sleep-diary.py)
+#                one folder over, in ~/Documents/Assets/Body/sources/sleep/ — the diary is
+#                a sleep record, filed with the PSGs and the ordonnances, not with the log
 #
 # Run by ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist. Safe to run by hand
 # at any time; it is idempotent and takes a lock, so two copies can never fight.
@@ -27,6 +29,7 @@ set -u
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 DEST_DIR="${AUDIO_SYNC_DEST:-$HOME/Documents/Assets/Body/sources/audio-sessions}"
+DIARY_DIR="${AUDIO_SYNC_DIARY_DEST:-$HOME/Documents/Assets/Body/sources/sleep}"
 LOG_FILE="${AUDIO_SYNC_LOG:-$HOME/Library/Logs/audio-server-sync.log}"
 LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
 # The CSV roll-up lives next to this script, in the audio-timer checkout.
@@ -82,8 +85,10 @@ fi
 log "rebuilt · $days day files · $rows sessions"
 
 # The sleep diary is derived, like the CSV: rebuilt whole on every run so it can never
-# drift from the day files. Its rules live in tools/sleep-diary.py.
-python3 "$REPO_DIR/tools/sleep-diary.py" "$DEST_DIR" >/dev/null 2>&1 || log "sleep-diary generation failed (data is safe; diary is derived)"
+# drift from the day files. Its rules live in tools/sleep-diary.py. Read from the day
+# files, written into the sleep folder.
+mkdir -p "$DIARY_DIR"
+python3 "$REPO_DIR/tools/sleep-diary.py" "$DEST_DIR" "$DIARY_DIR" >/dev/null 2>&1 || log "sleep-diary generation failed (data is safe; diary is derived)"
 
 # Stamped only after a run that worked — a failed one leaves the run owed, so the next
 # trigger (a login, or tomorrow's 16:00) retries instead of skipping.

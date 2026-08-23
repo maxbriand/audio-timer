@@ -34,6 +34,12 @@ that saves the exact moment it stops.
   for a 1–10 fatigue score (10 = maximum). The answer rides the upload pipeline like any
   other row and becomes the diary's Fatigue column; dismissing it leaves the cell blank.
   Going back to night mode before it rings withdraws it.
+- **Morning walk = the daylight log** (⚙ toggle): pins a ☀️ Morning walk event first on
+  the day screen's event list. Logging it records the tap moment like any event, and also
+  sends a marker row through the upload pipeline that becomes the diary's Morning light
+  column — the walk is how daylight exposure starts, so one tap records both facts. First
+  tap after sleep onset counts; a day without one leaves the cell blank. The note rides
+  along; pictures, like all event photos, stay on the phone.
 - **Melatonin reminder** (APK only): set your bedtime in ⚙ and every day, 5 hours before
   it — the chronobiotic timing for the 0.5 mg dose — an alarm rings that only "Taken ✓"
   can close: it snoozes in 10-minute steps, its notification cannot be swiped away, and
