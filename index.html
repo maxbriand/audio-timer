@@ -351,6 +351,7 @@
     <div class="setrow"><label>Speed</label><div class="chips sm" id="ch-speed"></div></div>
     <div class="setrow"><label>Arm the last timer automatically</label><div class="chips sm" id="ch-autoArm"></div></div>
     <div class="setrow"><label>Shake to skip — while audio is playing, a shake jumps to the next chapter. A shake on paused audio always resumes, toggle or not.</label><div class="chips sm" id="ch-shakeSkip"></div></div>
+    <div class="setrow" id="shakehealthrow" style="display:none"><label>Night shake watch — whether the screen-off watch can survive the phone going idle</label><div class="chips sm"><button class="chip sm" id="shakehealth"></button></div></div>
     <div class="setrow"><label>Morning walk — pins a ☀️ Morning walk event at the top of the day screen</label><div class="chips sm" id="ch-morningWalk"></div></div>
 
     <div class="setsplit">
@@ -1143,6 +1144,38 @@ function syncNativeShake(){
 }
 function syncShake(){ syncShakeListener(); syncNativeShake(); }
 
+/* The ⚙ health row: is the night watch actually able to work? Two things decide it and both
+   are invisible until 3 a.m. — the battery exemption (doze silences the watch without it) and
+   the wake-up accelerometer (without it the sensor sleeps with the CPU). Shown only in the
+   APK; tapping the row when limited re-opens the system dialog, which the plugin's once-only
+   rule would otherwise never show again. */
+async function paintShakeHealth(){
+  const row = $('#shakehealthrow');
+  if (!nativeShake || !nativeShake.status){ row.style.display = 'none'; return; }
+  row.style.display = '';
+  const b = $('#shakehealth');
+  let st = null;
+  try { st = await nativeShake.status(); } catch(_){}
+  if (!st){ b.textContent = '…'; b.onclick = null; return; }
+  if (!st.exempt){
+    b.textContent = 'limited — tap to allow';
+    b.classList.add('on');
+    b.onclick = () => {
+      nativeShake.askExemption().catch(() => {});
+      // The system dialog takes as long as it takes; keep looking until the answer shows.
+      let tries = 0;
+      const iv = setInterval(async () => {
+        const now = await nativeShake.status().catch(() => null);
+        if ((now && now.exempt) || ++tries > 20){ clearInterval(iv); paintShakeHealth(); }
+      }, 1500);
+    };
+  } else {
+    b.textContent = st.wakeSensor ? 'OK — low-power sensor' : 'OK — wake lock only';
+    b.classList.remove('on');
+    b.onclick = null;
+  }
+}
+
 function onShakeMotion(e){
   const now = Date.now();
   if (!webShakeWanted()){ syncShakeListener(); return; }
@@ -1934,7 +1967,7 @@ function buildSettings(){
   }
 }
 $('#setnav').onclick = () => {
-  buildSettings(); paintSync(); paintUpload(); paintBedtime();
+  buildSettings(); paintSync(); paintUpload(); paintBedtime(); paintShakeHealth();
   $('#setsheet').classList.add('on');
 };
 

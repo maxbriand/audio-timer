@@ -3,6 +3,8 @@ package com.maxbriand.audiotimer;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.hardware.Sensor;
+import android.hardware.SensorManager;
 import android.net.Uri;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -77,6 +79,34 @@ public class ShakeWatchPlugin extends Plugin {
     send(ShakeService.ACTION_ARM, call);
   }
   @PluginMethod public void open(PluginCall call){ send(ShakeService.ACTION_OPEN, call); }
+
+  /* What the night watch is actually working with, for the ⚙ health row: whether doze can
+     silence it (no battery exemption) and whether the hardware has the wake-up accelerometer
+     that keeps reporting through CPU suspend. Diagnosis, not control — reading it changes
+     nothing. */
+  @PluginMethod
+  public void status(PluginCall call){
+    Context c = getContext();
+    JSObject r = new JSObject();
+    PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
+    r.put("exempt", pm != null && pm.isIgnoringBatteryOptimizations(c.getPackageName()));
+    SensorManager sm = (SensorManager) c.getSystemService(Context.SENSOR_SERVICE);
+    r.put("wakeSensor", sm != null && sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true) != null);
+    call.resolve(r);
+  }
+
+  /* The once-only rule above is for unprompted nagging; a tap on the ⚙ health row is the
+     user asking, so the dialog may be shown again. */
+  @PluginMethod
+  public void askExemption(PluginCall call){
+    try {
+      Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + getContext().getPackageName()));
+      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      getContext().startActivity(i);
+    } catch (Exception ignored) {}
+    call.resolve();
+  }
 
   @PluginMethod
   public void stop(PluginCall call){

@@ -29,6 +29,11 @@ that saves the exact moment it stops.
   Three distinct strong movements inside 1.2 s count as a shake — a pocket or a picked-up
   phone does not — and one shake is one action, so a long rattle cannot walk three chapters
   down the library. A skipped chapter keeps its position, unlike one that ran to its end.
+  After ~30 min dark Android freezes the page, so a detected shake could sit undelivered
+  until morning; if the page stays silent for 4 s after a shake, the service raises the app
+  over the lock screen (the alarm mechanism), which thaws it and lets the shake land. The
+  ⚙ **Night shake watch** row shows whether the watch can survive the phone going idle —
+  battery exemption and low-power sensor — and re-opens the system dialog when it cannot.
 - Playback settings (the ⚙ button, saved on the device): rewind on resume, fade-in at the
   start of a session, speed, auto-arming the last sleep timer when you press play, and
   shake-to-skip.

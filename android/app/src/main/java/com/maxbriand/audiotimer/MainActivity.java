@@ -1,6 +1,7 @@
 package com.maxbriand.audiotimer;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -8,8 +9,28 @@ import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+  // Set by ShakeService's full-screen intent: this launch exists to thaw a frozen WebView
+  // so a queued night-time shake can land, so it must show over the keyguard. Every other
+  // launch clears the flags again — the app has no business over the lock screen otherwise.
+  static final String EXTRA_WAKE_FOR_SHAKE = "wakeForShake";
+
+  private void applyWakeFlags(Intent intent){
+    boolean wake = intent != null && intent.getBooleanExtra(EXTRA_WAKE_FOR_SHAKE, false);
+    if (Build.VERSION.SDK_INT >= 27){
+      setShowWhenLocked(wake);
+      setTurnScreenOn(wake);
+    }
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent){
+    super.onNewIntent(intent);
+    applyWakeFlags(intent);
+  }
+
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    applyWakeFlags(getIntent());
     registerPlugin(ShakeWatchPlugin.class);
     registerPlugin(LogUploadPlugin.class);
     registerPlugin(FatigueAlarmPlugin.class);

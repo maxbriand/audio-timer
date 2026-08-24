@@ -39,6 +39,14 @@ import java.util.ArrayDeque;
  * service is only ever updated or stopped, never restarted cold at night. For the same reason
  * a shake or a resume sends it back to idle with a short grace period instead of killing it:
  * the auto-armed next timer re-uses it seconds later, which a fresh start could not do.
+ *
+ * Detecting the shake is not delivering it: after half an hour dark, Android freezes the
+ * WebView renderer, so the event this service reports sits queued until the phone is
+ * unlocked — the shake "does nothing" all night and fires at dawn. The page answering a
+ * delivered shake always talks back within a moment (its play() re-syncs this service), so
+ * silence past a few seconds means frozen, and the full-screen intent — the one sanctioned
+ * way for a service to raise an activity — lights MainActivity over the lock screen, which
+ * unfreezes the renderer and lets the queued shake land.
  */
 public class ShakeService extends Service implements SensorEventListener {
   static final String ACTION_ARM  = "arm";    // timer set: stand by until the deadline
@@ -49,7 +57,10 @@ public class ShakeService extends Service implements SensorEventListener {
   static final String EXTRA_LABEL    = "label";      // what the notification says while watching
 
   private static final String CHANNEL = "shake";
+  private static final String WAKE_CHANNEL = "shakewake";
   private static final int NOTIF_ID = 7;
+  private static final int WAKE_NOTIF_ID = 8;
+  private static final long ACK_WINDOW_MS = 4 * 1000;   // page silence past this = frozen
   private static final long GRACE_MS = 2 * 60 * 1000;   // idle lifetime before giving up
   private static final long LOCK_TAIL_MS = 5 * 1000;    // CPU kept up after a shake, for the page
 
@@ -64,6 +75,7 @@ public class ShakeService extends Service implements SensorEventListener {
   private final Runnable windowOverR = this::quit;
   private final Runnable quitR = this::quit;
   private final Runnable dropLockR = this::dropLock;
+  private final Runnable wakePageR = this::wakePage;
 
   private SensorManager sensors;
   private PowerManager.WakeLock lock;
@@ -79,6 +91,9 @@ public class ShakeService extends Service implements SensorEventListener {
 
   @Override
   public int onStartCommand(Intent intent, int flags, int startId){
+    // Any command is the page speaking, which is the acknowledgement the fallback waits on.
+    handler.removeCallbacks(wakePageR);
+    ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).cancel(WAKE_NOTIF_ID);
     String action = intent == null ? ACTION_STOP : intent.getAction();
     if (ACTION_ARM.equals(action)){
       windowMs = intent.getLongExtra(EXTRA_WINDOW, windowMs);
@@ -175,6 +190,38 @@ public class ShakeService extends Service implements SensorEventListener {
     // a background start could not replace. If nothing claims it, it goes away quietly.
     handler.removeCallbacks(quitR);
     handler.postDelayed(quitR, GRACE_MS);
+    // If the page stays silent, it is frozen and never saw the shake — wake it (see header).
+    handler.removeCallbacks(wakePageR);
+    handler.postDelayed(wakePageR, ACK_WINDOW_MS);
+  }
+
+  /* The same full-screen-intent mechanics as the fatigue alarm, aimed at MainActivity: the
+     system turns the screen on and shows the activity over the keyguard, the renderer thaws,
+     the retained shake event lands, and the page's answer cancels WAKE_NOTIF_ID above. */
+  private void wakePage(){
+    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(WAKE_CHANNEL) == null){
+      NotificationChannel ch = new NotificationChannel(WAKE_CHANNEL, "Shake wake-up",
+                                                       NotificationManager.IMPORTANCE_HIGH);
+      ch.setShowBadge(false);
+      nm.createNotificationChannel(ch);
+    }
+    Intent i = new Intent(this, MainActivity.class)
+        .putExtra(MainActivity.EXTRA_WAKE_FOR_SHAKE, true)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    PendingIntent full = PendingIntent.getActivity(this, 1, i,
+        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+    android.app.Notification n = new NotificationCompat.Builder(this, WAKE_CHANNEL)
+        .setContentTitle("Audio Timer")
+        .setContentText("Resuming…")
+        .setSmallIcon(R.mipmap.ic_launcher)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setPriority(NotificationCompat.PRIORITY_MAX)
+        .setContentIntent(full)
+        .setAutoCancel(true)
+        .setFullScreenIntent(full, true)
+        .build();
+    nm.notify(WAKE_NOTIF_ID, n);
   }
 
   private void dropLock(){
