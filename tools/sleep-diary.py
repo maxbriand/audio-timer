@@ -88,7 +88,12 @@ after the DAY it follows — the local date read 12 hours before bedtime — so 
 whole row speaks of one day: the morning's light, the evening's dose, the night
 they produced (Maxime, 2026-08-26: the night beginning 01:47 on the 26th is the
 night OF the 25th). A bedtime before midnight names the night after that same
-day. Override keys in diary-overrides.json follow this naming. Plays under a minute are noise (a stray
+day. Override keys in diary-overrides.json follow this naming. A day whose
+inputs are already logged but whose night is not yet — today, before tonight —
+appears as an inputs-only row: light and dose shown, every night cell blank
+until the night has been slept (same reading as always: blank means the night
+gave no data, not zero). The same shape covers a day whose night was never
+recorded at all. Plays under a minute are noise (a stray
 tap) and are dropped; markers are zero-length by design and always kept.
 """
 
@@ -205,6 +210,31 @@ def attach_day_inputs(nights, doses, lights):
         n["light"] = walked[0]["start"] if walked else None
 
 
+def pending_day_rows(nights, doses, lights):
+    """Days whose inputs exist but whose night does not (yet): any dose or daylight
+    marker no night claimed becomes an inputs-only row named after the event's own
+    local date. Tonight's row-to-be is the usual case — it fills in tomorrow."""
+    used = {n["melatonin"] for n in nights} | {n["light"] for n in nights}
+    days = {}
+    for kind, events in (("melatonin", doses), ("light", lights)):
+        for e in events:
+            if e["start"] in used:
+                continue
+            d = days.setdefault(e["start"].strftime("%Y-%m-%d"), {})
+            # First light (first exposure), last dose (the one nearest the night).
+            if kind == "light":
+                d.setdefault("light", e["start"])
+            else:
+                d["melatonin"] = e["start"]
+    rows = []
+    for date, got in sorted(days.items(), reverse=True):
+        rows.append({"date": date, "bedtime": None, "sol": None, "awakenings": None,
+                     "waso": None, "final_wake": None, "rise": None, "tib": None,
+                     "tst": None, "se": None, "fatigue": None, "note": "",
+                     "melatonin": got.get("melatonin"), "light": got.get("light")})
+    return rows
+
+
 def night_metrics(rows, overrides):
     plays = [r for r in rows if r["kind"] == "play"]
     if not plays:
@@ -311,11 +341,16 @@ def main():
     nights = [n for g in cluster(rows, timedelta(hours=GAP_NIGHT_H))
               if (n := night_metrics(g, overrides))]
     attach_day_inputs(nights, doses, lights)
+    pending = pending_day_rows(nights, doses, lights)
     nights.reverse()                          # newest first, like the app's own log
+    nights = pending + nights                 # the day in progress sits on top
 
     def window_avgs(end):
         """Trailing 4-week averages as of `end`, over the nights that have the number."""
-        win = [n for n in nights if end - timedelta(days=AVG_WINDOW_DAYS) <= n["bedtime"] <= end]
+        if end is None:
+            return [], []                     # a day still in progress has no night to average
+        win = [n for n in nights
+               if n["bedtime"] and end - timedelta(days=AVG_WINDOW_DAYS) <= n["bedtime"] <= end]
         tsts = [n["tst"] for n in win if n["tst"] is not None]
         ses = [n["se"] for n in win if n["se"] is not None]
         return tsts, ses
