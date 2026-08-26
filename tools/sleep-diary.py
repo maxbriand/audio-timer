@@ -99,6 +99,7 @@ tap) and are dropped; markers are zero-length by design and always kept.
 
 import csv
 import json
+import os
 import re
 import sys
 from datetime import datetime, timedelta
@@ -129,6 +130,12 @@ OUT_CSV = OUT_DIR / "sleep-diary.csv"
 # block is NOT a morning wake (final wake and TST become unknown; the block counts as an
 # awakening like any other middle one).
 OVERRIDES_FILE = SRC / "diary-overrides.json"
+
+# The cardio day files zone-alarm pushes (receiver route /cardio), filed beside the
+# audio log. The Cardio column shows each session's local start time on its calendar
+# day — a day input like light and melatonin, read as cause before the night.
+_cardio_env = os.environ.get("AUDIO_TIMER_CARDIO_DIR")
+CARDIO_SRC = Path(_cardio_env).expanduser() if _cardio_env else SRC.parent / "cardio-sessions"
 
 
 def load_overrides():
@@ -332,6 +339,27 @@ def fmt_min(m):
     return f"{m // 60}h{m % 60:02d}" if m >= 60 else f"{m} min"
 
 
+def load_cardio():
+    """Session start times by local day, from the zone-alarm day files."""
+    by_day = {}
+    for f in (sorted(CARDIO_SRC.glob("*.json")) if CARDIO_SRC.is_dir() else []):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for sess in data.get("sessions", []):
+            if not isinstance(sess, dict):
+                continue
+            try:
+                dt = datetime.fromisoformat(
+                    str(sess.get("started", "")).replace("Z", "+00:00")).astimezone()
+            except ValueError:
+                continue
+            day = sess.get("localDay") or dt.strftime("%Y-%m-%d")
+            by_day.setdefault(day, []).append(dt)
+    return {d: sorted(ts) for d, ts in by_day.items()}
+
+
 def main():
     rows = load_rows()
     doses = [r for r in rows if r["kind"] == "melatonin"]
@@ -369,9 +397,10 @@ def main():
         "The 4wk columns are the trailing 28-day averages as of that night — the running",
         "record the therapy tracks, recomputed from the raw log on every sync.",
         "",
-        "| Night | Morning light | Melatonin | Bedtime | SOL | Wakes | WASO | Final wake | Rise | TIB | TST | SE | Fatigue | 4wk TST | 4wk SE | Note |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Night | Morning light | Cardio | Melatonin | Bedtime | SOL | Wakes | WASO | Final wake | Rise | TIB | TST | SE | Fatigue | 4wk TST | 4wk SE | Note |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
+    cardio = load_cardio()
     for n in nights:
         se = f"{n['se']:.0f} %" if n["se"] is not None else ""
         aw = "" if n["awakenings"] is None else str(n["awakenings"])
@@ -381,7 +410,7 @@ def main():
         avg_se = f"{sum(w_se) / len(w_se):.0f} %" if w_se else ""
         fat = f"{n['fatigue']:.0f}/10" if n["fatigue"] is not None else ""
         lines.append(
-            f"| {n['date']} | {fmt_clock(n['light'])} | {fmt_clock(n['melatonin'])} | {fmt_clock(n['bedtime'])} | {fmt_min(n['sol'])} | {aw}"
+            f"| {n['date']} | {fmt_clock(n['light'])} | {', '.join(fmt_clock(t) for t in cardio.get(n['date'], []))} | {fmt_clock(n['melatonin'])} | {fmt_clock(n['bedtime'])} | {fmt_min(n['sol'])} | {aw}"
             f" | {fmt_min(n['waso'])} | {fmt_clock(n['final_wake'])} | {fmt_clock(n['rise'])}"
             f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {fat}"
             f" | {avg_tst} | {avg_se} | {note} |"
@@ -400,13 +429,15 @@ def main():
 
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["night", "morning_light", "melatonin", "bedtime", "sol_min",
+        w.writerow(["night", "morning_light", "cardio", "melatonin", "bedtime", "sol_min",
                     "awakenings", "waso_min", "final_wake", "rise", "tib_min", "tst_min",
                     "se_pct", "fatigue_1to10", "avg4w_tst_min", "avg4w_se_pct", "note"])
         for n in nights:
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
-                n["date"], iso(n["light"]), iso(n["melatonin"]), iso(n["bedtime"]),
+                n["date"], iso(n["light"]),
+                ";".join(iso(t) for t in cardio.get(n["date"], [])),
+                iso(n["melatonin"]), iso(n["bedtime"]),
                 num(n["sol"]), num(n["awakenings"]), num(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), num(n["tib"]), num(n["tst"]), num(n["se"]), num(n["fatigue"]),
                 num(sum(w_tst) / len(w_tst)) if w_tst else "",

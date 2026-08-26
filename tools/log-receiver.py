@@ -48,6 +48,16 @@ FIELDS = (
     "stopPositionSeconds", "minutesUntouchedBeforeStop", "note", "fatigueScore",
 )
 
+# POST /cardio files zone-alarm's sessions in their own folder with their own whitelist —
+# the sleep extraction reads every session in an audio day file, so a cardio row landing
+# there would be read as a play block and corrupt the night.
+_cardio_env = os.environ.get("AUDIO_TIMER_CARDIO_DIR")
+CARDIO_ROOT = Path(_cardio_env).expanduser() if _cardio_env else ROOT.parent / "cardio-sessions"
+CARDIO_FIELDS = (
+    "id", "started", "ended", "localDay", "minBpm", "maxBpm",
+    "inRangeSeconds", "parts", "peakBpm",
+)
+
 
 def day_key(session: dict) -> str:
     """Which day file a night belongs in.
@@ -93,12 +103,15 @@ def write_atomic(path: Path, payload: dict) -> None:
         raise
 
 
-def store(device: str, sessions: list) -> list:
+def store(device: str, sessions: list, root: Path = None, fields: tuple = None,
+          app: str = "audio-timer") -> list:
     """Upsert every session, and return the ids that are now on disk.
 
     Grouped by day so one request costs one write per day it touches, and so a day that a
     later run reopens is rewritten in place instead of gaining a second row.
     """
+    root = ROOT if root is None else root
+    fields = FIELDS if fields is None else fields
     by_day = {}
     for s in sessions:
         if not isinstance(s, dict):
@@ -110,7 +123,7 @@ def store(device: str, sessions: list) -> list:
 
     accepted = []
     for day, rows in by_day.items():
-        path = ROOT / f"{day}.json"
+        path = root / f"{day}.json"
         prev = load(path)
         merged = {
             r["id"]: r
@@ -118,11 +131,11 @@ def store(device: str, sessions: list) -> list:
             if isinstance(r, dict) and isinstance(r.get("id"), str)
         }
         for s in rows:
-            kept = {k: s[k] for k in FIELDS if k in s}
+            kept = {k: s[k] for k in fields if k in s}
             kept["device"] = device
             merged[s["id"]] = kept
         payload = {
-            "app": "audio-timer",
+            "app": app,
             "date": day,
             "sessions": sorted(merged.values(), key=lambda r: str(r.get("started", ""))),
         }
@@ -194,14 +207,16 @@ class Handler(BaseHTTPRequestHandler):
         device = body.get("device")
         device = device if isinstance(device, str) else ""
 
+        cardio = self.path.rstrip("/") == "/cardio"
         try:
-            accepted = store(device, sessions)
+            accepted = (store(device, sessions, CARDIO_ROOT, CARDIO_FIELDS, "zone-alarm")
+                        if cardio else store(device, sessions))
         except Exception as e:  # noqa: BLE001 — a 5xx is what keeps the night on the phone
             print(f"! {e}", file=sys.stderr, flush=True)
             return self.reply(500, {"error": "could not store"})
 
         print(f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} "
-              f"{len(accepted)}/{len(sessions)} stored", flush=True)
+              f"{len(accepted)}/{len(sessions)} stored{' (cardio)' if cardio else ''}", flush=True)
         self.reply(200, {"accepted": accepted})
 
     def log_message(self, *args) -> None:
