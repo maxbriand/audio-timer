@@ -15,7 +15,8 @@ at the moment of getting up, optionally carrying a note. Markers are the recorde
 rise time — raw, never derived — and their note is the diary's Note column. A row
 whose stopReason is "fatigue" is the answer to the alarm that rings 45 minutes
 after the rise: a 1–10 self-score (10 = maximum fatigue), zero-length like the
-marker; the night's Fatigue column is the last score after its onset. A row whose
+marker; the night's Fatigue column is the FIRST score after its onset — the
+morning's answer; a second ring after an evening mode switch belongs to the day. A row whose
 stopReason is "morning-walk" is the daylight marker: the ☀️ Morning walk event on
 the day screen, stamped with the tap that logged it — the walk IS the daylight
 log. The Morning light column is the FIRST such marker in the 24 hours before the
@@ -47,8 +48,13 @@ The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
   final wake      start of the last block, which requires at least TWO blocks —
                   only a morning play proves when sleep ended. A marker is not a
                   wake time.
-  rise time       the last wake-up marker after sleep onset — the recorded moment
-                  of getting out of bed, raw. Only the marker records it; a night
+  rise time       the first wake-up marker after sleep onset — the recorded moment
+                  of getting out of bed, raw. A LATER marker replaces it only when a
+                  block that could hold sleep (the untouched test again) lies between
+                  the two: going back to bed and re-rising is real, an afternoon
+                  test or an evening mode toggle is the day, not the night (Maxime,
+                  2026-08-26 — a 20:14 switch after 1-minute afternoon tests must
+                  not become the rise). Only the marker records the rise; a night
                   without one has no rise, whatever else it has. Plays that start
                   after the rise belong to the day, not the night: they are not
                   blocks, not awakenings, and never the final wake (this is what
@@ -78,7 +84,11 @@ everything past SOL stays empty - never guessed. The averages at the top cover t
 last 28 days and only the nights that actually have the number.
 
 Nights are split where the gap between rows exceeds 12 hours; a night is named
-after the local date on which it starts. Plays under a minute are noise (a stray
+after the DAY it follows — the local date read 12 hours before bedtime — so the
+whole row speaks of one day: the morning's light, the evening's dose, the night
+they produced (Maxime, 2026-08-26: the night beginning 01:47 on the 26th is the
+night OF the 25th). A bedtime before midnight names the night after that same
+day. Override keys in diary-overrides.json follow this naming. Plays under a minute are noise (a stray
 tap) and are dropped; markers are zero-length by design and always kept.
 """
 
@@ -218,22 +228,34 @@ def night_metrics(rows, overrides):
     base = blocks[0][-1]                      # last play of the initial block
     onset = base["start"] + (base["end"] - base["start"]) / 2
 
-    n = {"date": bedtime.strftime("%Y-%m-%d"), "bedtime": bedtime,
+    n = {"date": (bedtime - timedelta(hours=12)).strftime("%Y-%m-%d"), "bedtime": bedtime,
          "sol": mins(onset - bedtime), "awakenings": None, "waso": None,
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
          "fatigue": None, "light": None, "note": ""}
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
+    # The FIRST score after onset: the morning's answer. A second alarm the same
+    # evening (day-mode toggled again) speaks of the day, not this night.
     scores = [r for r in rows if r["kind"] == "fatigue" and r["start"] > onset]
     if scores:
-        n["fatigue"] = scores[-1]["score"]
+        n["fatigue"] = scores[0]["score"]
 
     # Rise and final wake are different facts, each with exactly one source, and neither
     # ever gets a stand-in (Maxime, 2026-08-19): blank always means unknown, never guessed.
     markers = [r for r in rows if r["kind"] == "marker" and r["start"] > onset]
     if markers:
-        n["rise"] = markers[-1]["start"]      # out of bed: only the marker records it
-        n["note"] = markers[-1]["note"]
+        # Out of bed: only the marker records it. The first one after the night is the
+        # rise; a later marker re-rises the night ONLY if a block that could hold sleep
+        # lies between the two — back to bed and up again is real, an afternoon test or
+        # an evening toggle is the day folding back onto the night and is ignored.
+        rise = markers[0]
+        for m in markers[1:]:
+            between = [b for b in blocks
+                       if b[0]["start"] > rise["start"] and b[-1]["end"] < m["start"]]
+            if any(holds_sleep(b) for b in between):
+                rise = m
+        n["rise"] = rise["start"]
+        n["note"] = rise["note"]
         n["tib"] = mins(n["rise"] - bedtime)
         # Out of bed means the night is over: whatever plays after the rise is daytime
         # listening, not a block of this night. Without this cut a late-morning play
