@@ -18,13 +18,17 @@ after the rise: a 1–10 self-score (10 = maximum fatigue), zero-length like the
 marker; the night's Fatigue column is the last score after its onset. A row whose
 stopReason is "morning-walk" is the daylight marker: the ☀️ Morning walk event on
 the day screen, stamped with the tap that logged it — the walk IS the daylight
-log. The night's Morning light column is the FIRST such marker after its onset:
-first exposure is the fact that matters, later taps say nothing new. ("daylight"
-rows, from the short-lived dedicated button, are read the same way.) A row whose
+log. The Morning light column is the FIRST such marker in the 24 hours before the
+night's bedtime — the walk of the day the night follows, not the morning after it.
+Light and melatonin are the day's two zeitgebers, so a row reads left to right as
+cause then effect: the day's inputs, then the night they produced (Maxime,
+2026-08-26 — row 2026-08-26 carries the light and dose of the 25th). First
+exposure is the fact that matters, later taps say nothing new. ("daylight" rows,
+from the short-lived dedicated button, are read the same way.) A row whose
 stopReason is "melatonin" is the dose marker, stamped when "Taken ✓" closes the
 reminder; the night's Melatonin column is the last dose in the 12 hours before its
-bedtime. The dose belongs to the night it precedes and must never glue two nights
-together, so it rides outside the night clustering.
+bedtime. Doses and daylight markers belong to the night they precede and must
+never glue two nights together, so both ride outside the night clustering.
 
 The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
 
@@ -178,13 +182,17 @@ def mins(td):
     return td.total_seconds() / 60
 
 
-def attach_melatonin(nights, doses):
-    """The last dose in the 12 h before bedtime. Doses stay out of the night clustering:
-    an evening dose sits mid-gap between two nights and would bridge them into one."""
+def attach_day_inputs(nights, doses, lights):
+    """The preceding day's zeitgebers: the last dose in the 12 h before bedtime, the
+    first daylight marker in the 24 h before it. Both stay out of the night clustering:
+    they sit mid-gap between two nights and would bridge them into one."""
     for n in nights:
         prior = [d for d in doses
                  if n["bedtime"] - timedelta(hours=12) <= d["start"] <= n["bedtime"]]
         n["melatonin"] = prior[-1]["start"] if prior else None
+        walked = [l for l in lights
+                  if n["bedtime"] - timedelta(hours=24) <= l["start"] <= n["bedtime"]]
+        n["light"] = walked[0]["start"] if walked else None
 
 
 def night_metrics(rows, overrides):
@@ -219,12 +227,6 @@ def night_metrics(rows, overrides):
     scores = [r for r in rows if r["kind"] == "fatigue" and r["start"] > onset]
     if scores:
         n["fatigue"] = scores[-1]["score"]
-
-    # Morning light: the FIRST daylight marker after onset — the start of exposure,
-    # which is the start of the morning walk. Later taps say nothing new.
-    lights = [r for r in rows if r["kind"] == "daylight" and r["start"] > onset]
-    if lights:
-        n["light"] = lights[0]["start"]
 
     # Rise and final wake are different facts, each with exactly one source, and neither
     # ever gets a stand-in (Maxime, 2026-08-19): blank always means unknown, never guessed.
@@ -281,11 +283,12 @@ def fmt_min(m):
 def main():
     rows = load_rows()
     doses = [r for r in rows if r["kind"] == "melatonin"]
-    rows = [r for r in rows if r["kind"] != "melatonin"]
+    lights = [r for r in rows if r["kind"] == "daylight"]
+    rows = [r for r in rows if r["kind"] not in ("melatonin", "daylight")]
     overrides = load_overrides()
     nights = [n for g in cluster(rows, timedelta(hours=GAP_NIGHT_H))
               if (n := night_metrics(g, overrides))]
-    attach_melatonin(nights, doses)
+    attach_day_inputs(nights, doses, lights)
     nights.reverse()                          # newest first, like the app's own log
 
     def window_avgs(end):
@@ -309,7 +312,7 @@ def main():
         "The 4wk columns are the trailing 28-day averages as of that night — the running",
         "record the therapy tracks, recomputed from the raw log on every sync.",
         "",
-        "| Night | Melatonin | Bedtime | SOL | Wakes | WASO | Final wake | Rise | TIB | TST | SE | Fatigue | Morning light | 4wk TST | 4wk SE | Note |",
+        "| Night | Morning light | Melatonin | Bedtime | SOL | Wakes | WASO | Final wake | Rise | TIB | TST | SE | Fatigue | 4wk TST | 4wk SE | Note |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for n in nights:
@@ -321,9 +324,9 @@ def main():
         avg_se = f"{sum(w_se) / len(w_se):.0f} %" if w_se else ""
         fat = f"{n['fatigue']:.0f}/10" if n["fatigue"] is not None else ""
         lines.append(
-            f"| {n['date']} | {fmt_clock(n['melatonin'])} | {fmt_clock(n['bedtime'])} | {fmt_min(n['sol'])} | {aw}"
+            f"| {n['date']} | {fmt_clock(n['light'])} | {fmt_clock(n['melatonin'])} | {fmt_clock(n['bedtime'])} | {fmt_min(n['sol'])} | {aw}"
             f" | {fmt_min(n['waso'])} | {fmt_clock(n['final_wake'])} | {fmt_clock(n['rise'])}"
-            f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {fat} | {fmt_clock(n['light'])}"
+            f" | {fmt_min(n['tib'])} | {fmt_min(n['tst'])} | {se} | {fat}"
             f" | {avg_tst} | {avg_se} | {note} |"
         )
     lines.append("")
@@ -340,15 +343,15 @@ def main():
 
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["night", "melatonin", "bedtime", "sol_min", "awakenings", "waso_min",
-                    "final_wake", "rise", "tib_min", "tst_min", "se_pct", "fatigue_1to10",
-                    "morning_light", "avg4w_tst_min", "avg4w_se_pct", "note"])
+        w.writerow(["night", "morning_light", "melatonin", "bedtime", "sol_min",
+                    "awakenings", "waso_min", "final_wake", "rise", "tib_min", "tst_min",
+                    "se_pct", "fatigue_1to10", "avg4w_tst_min", "avg4w_se_pct", "note"])
         for n in nights:
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
-                n["date"], iso(n["melatonin"]), iso(n["bedtime"]), num(n["sol"]), num(n["awakenings"]),
-                num(n["waso"]), iso(n["final_wake"]), iso(n["rise"]), num(n["tib"]),
-                num(n["tst"]), num(n["se"]), num(n["fatigue"]), iso(n["light"]),
+                n["date"], iso(n["light"]), iso(n["melatonin"]), iso(n["bedtime"]),
+                num(n["sol"]), num(n["awakenings"]), num(n["waso"]), iso(n["final_wake"]),
+                iso(n["rise"]), num(n["tib"]), num(n["tst"]), num(n["se"]), num(n["fatigue"]),
                 num(sum(w_tst) / len(w_tst)) if w_tst else "",
                 num(sum(w_se) / len(w_se)) if w_se else "",
                 n["note"],
