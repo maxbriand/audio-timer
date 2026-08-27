@@ -59,8 +59,8 @@ async function cacheFirst(req){
 
 self.addEventListener('fetch', e => {
   const r = e.request;
-  // Cross-origin requests are left entirely alone — the private-sync calls to api.github.com
-  // must never be answered from, or written into, this cache.
+  // Cross-origin requests are left entirely alone — the upload calls to the receiver must
+  // never be answered from, or written into, this cache.
   if (r.method !== 'GET' || new URL(r.url).origin !== self.location.origin) return;
   const isPage = r.mode === 'navigate' || r.destination === 'document';
   e.respondWith(isPage ? networkFirst(r) : cacheFirst(r));
