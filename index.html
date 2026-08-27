@@ -46,18 +46,22 @@
   #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on{display:flex}
 
   /* day-mode event tracking */
-  #eventgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .evcat{margin:16px 2px 8px;font-size:12px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted)}
+  .eventgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
   .eventbtn{
-    padding:18px 10px;border-radius:14px;background:var(--surface);
+    position:relative;padding:18px 22px 18px 10px;border-radius:14px;background:var(--surface);
     border:1px solid var(--line);color:var(--text);font-size:15px;font-weight:600;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis
   }
   .eventbtn:active{background:var(--surface-2)}
-  #addevent{
+  .evdel{position:absolute;top:4px;right:8px;font-size:11px;font-weight:400;
+    color:var(--muted);padding:4px}
+  .addevent{
     width:100%;padding:14px;border-radius:14px;border:1px dashed var(--line);
     background:transparent;color:var(--muted);font-size:15px;font-weight:550
   }
-  #addevent:active{background:var(--surface)}
+  .addevent:active{background:var(--surface)}
   #evnote,#wakenote{
     width:100%;min-height:90px;padding:12px;border-radius:12px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--text);font:15px/1.4 inherit;resize:vertical;
@@ -276,11 +280,12 @@
 <div id="sunview">
   <div id="wakeline"></div>
   <div id="lightline"></div>
-  <div class="empty" id="eventempty">
-    No events yet.<br>Tap <b>Add event</b> to create one (morning walk, headache, …).
-  </div>
-  <div id="eventgrid"></div>
-  <button id="addevent">+ Add event</button>
+  <h3 class="evcat">Habits</h3>
+  <div class="eventgrid" id="habitgrid"></div>
+  <button class="addevent" id="addhabit">+ Add habit</button>
+  <h3 class="evcat">Issues</h3>
+  <div class="eventgrid" id="issuegrid"></div>
+  <button class="addevent" id="addissue">+ Add issue</button>
 </div>
 </main>
 
@@ -2090,12 +2095,17 @@ async function paintSun(){
    Event types are created once (morning walk, headache, …); logging an occurrence is one
    tap on the type's button, then a note plus any number of pictures in the popup. The
    moment saved is the TAP — the event's start — not the later press on Save, so writing a
-   long note never shifts the recorded time. Everything stays in IndexedDB on the phone —
+   long note never shifts the recorded time. Types come in two categories, habits (things
+   done — walk, stretching) and issues (things suffered — headache); rows without a cat
+   predate the split and read as issues, which is what they all were. Deleting a type
+   removes only the button: entries already logged are records of days that happened and
+   are kept, the same rule as the walk toggle. Everything stays in IndexedDB on the phone —
    photos are stored as blobs, like the audio itself. (The stores and log fields keep their
    historical names, issues/issuelogs/issueId: renaming them means migrating user data for
    zero benefit — "event" is the concept, not the storage key.) */
 const allEvents   = async () => req((await os('issues','readonly')).getAll());
 const putEvent    = async ev => req((await os('issues','readwrite')).put(ev));
+const delEvent    = async id => req((await os('issues','readwrite')).delete(id));
 const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
 
 /* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
@@ -2106,27 +2116,49 @@ let events = [], logEvent = null, logAt = 0, logPhotos = [];
 
 async function paintEvents(){
   events = (await allEvents()).sort((a, b) => a.name.localeCompare(b.name));
-  if (settings.morningWalk) events.unshift(MORNING_WALK);
-  $('#eventempty').style.display = events.length ? 'none' : 'block';
-  const grid = $('#eventgrid');
+  const habits = events.filter(ev => ev.cat === 'habit');
+  const others = events.filter(ev => ev.cat !== 'habit');
+  if (settings.morningWalk) habits.unshift(MORNING_WALK);
+  fillEventGrid($('#habitgrid'), habits);
+  fillEventGrid($('#issuegrid'), others);
+}
+function fillEventGrid(grid, list){
   grid.innerHTML = '';
-  for (const ev of events){
+  for (const ev of list){
     const b = document.createElement('button');
     b.className = 'eventbtn';
     b.textContent = ev.name;
     b.onclick = () => openEventSheet(ev);
+    // The walk is painted by its ⚙ toggle, not stored here — nothing to delete.
+    if (ev.id !== MORNING_WALK.id){
+      const x = document.createElement('span');
+      x.className = 'evdel';
+      x.textContent = '✕';
+      x.onclick = e => { e.stopPropagation(); deleteEventType(ev); };
+      b.appendChild(x);
+    }
     grid.appendChild(b);
   }
 }
-$('#addevent').onclick = async () => {
-  const name = (prompt('New event name (e.g. morning walk, headache):') || '').trim();
+async function deleteEventType(ev){
+  if (!confirm('Delete "' + ev.name + '"? Entries already logged are kept.')) return;
+  await delEvent(ev.id);
+  await paintEvents();
+  toast('"' + ev.name + '" deleted');
+}
+const addEventType = cat => async () => {
+  const name = (prompt(cat === 'habit'
+    ? 'New habit name (e.g. stretching, reading outside):'
+    : 'New issue name (e.g. headache, back pain):') || '').trim();
   if (!name) return;
   if (events.some(ev => ev.name.toLowerCase() === name.toLowerCase()))
     return toast('"' + name + '" already exists');
-  await putEvent({id: uid(), name: name, createdAt: Date.now()});
+  await putEvent({id: uid(), name: name, cat: cat, createdAt: Date.now()});
   await paintEvents();
   toast('"' + name + '" added');
 };
+$('#addhabit').onclick = addEventType('habit');
+$('#addissue').onclick = addEventType('issue');
 
 function openEventSheet(ev){
   logEvent = ev; logAt = Date.now(); logPhotos = [];   // the tap is the start
