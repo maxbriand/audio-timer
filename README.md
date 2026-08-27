@@ -49,8 +49,13 @@ that saves the exact moment it stops.
   for a 1–10 fatigue score (10 = maximum). The answer rides the upload pipeline like any
   other row and becomes the diary's Fatigue column; dismissing it leaves the cell blank.
   Going back to night mode before it rings withdraws it.
+- **Day-mode logging** in two categories — **Habits** (things done: walk, stretching) and
+  **Issues** (things suffered: headache, back pain). Create a type once, log an occurrence
+  with one tap plus an optional note and photos; the recorded moment is the tap, not the
+  save. A type's ✕ deletes the button only — entries already logged are kept. All of it
+  stays on the phone except the morning walk (below).
 - **Morning walk = the daylight log** (⚙ toggle): pins a ☀️ Morning walk event first on
-  the day screen's event list. Logging it records the tap moment like any event, and also
+  the day screen's habit list. Logging it records the tap moment like any event, and also
   sends a marker row through the upload pipeline that becomes the diary's Morning light
   column — the walk is how daylight exposure starts, so one tap records both facts. First
   tap after sleep onset counts; a day without one leaves the cell blank. The note rides
