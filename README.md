@@ -37,10 +37,7 @@ that saves the exact moment it stops.
 - Playback settings (the ⚙ button, saved on the device): rewind on resume, fade-in at the
   start of a session, speed, auto-arming the last sleep timer when you press play, and
   shake-to-skip.
-- **Private sync** (also under ⚙): finished runs are pushed automatically to a *private*
-  GitHub repo of your own, one JSON file per night, and a LaunchAgent on the Mac pulls them
-  into the Body asset every 30 minutes. Set up once — see [SETUP.md](SETUP.md).
-- **Server upload** (also under ⚙): each finished night is sent to a server of your own the
+- **Server upload** (under ⚙): each finished night is sent to a server of your own the
   next time the phone has internet — **with the app closed**, which is what makes it work on
   a phone whose SIM comes out at night — and is then cleared from the phone once the server
   has confirmed it and two weeks have passed. Also in [SETUP.md](SETUP.md).
@@ -76,13 +73,11 @@ asleep well before it stopped. Treat that as a rough sleep-onset proxy, not a me
 
 | File | Role |
 |---|---|
-| `index.html` | The whole app — UI, IndexedDB storage, player, sleep timer, private sync |
+| `index.html` | The whole app — UI, IndexedDB storage, player, sleep timer, server upload |
 | `sw.js` | Service worker, precaches the shell so it opens offline |
 | `manifest.webmanifest` | Makes it installable as a standalone app |
 | `icon-*.png` | Launcher icons (generated, see below) |
-| `SETUP.md` | One-time setup for the private sync, phone and Mac |
-| `mac/body-data-sync.sh` | Pulls the private repo into the Body asset (run by launchd) |
-| `mac/com.maxbriand.body-data-sync.plist` | LaunchAgent template, every 30 min |
+| `SETUP.md` | One-time setup for the server upload, phone and Mac |
 | `tools/sessions-json-to-csv.py` | Flattens the pushed day files into one CSV |
 | `tools/log-receiver.py` | The server end of the upload — files each night by day, stdlib only |
 | `android/…/LogUploadPlugin.java` | The page's handle on the outbox: stage a night, ask what landed |
@@ -206,23 +201,20 @@ python3 make-icons.py
 - The sync token lives only in IndexedDB and is never written back into the DOM — reopening
   the ⚙ sheet leaves the field blank, and blank on save means "keep the stored one".
 - `putSession()` stamps `updatedAt` on every ordinary write; `putSessionRaw()` deliberately
-  does not. The sync layer stamps `syncedAt` with the exact revision it pushed via the raw
-  put, so marking a run as synced cannot itself make the run look modified again.
-- A run is only stamped after its day file actually lands, so a failed push simply retries.
-  In-flight runs (no `endedAt`) are never pushed.
-- The service worker ignores cross-origin requests entirely, so the `api.github.com` calls
-  are never cached or served from cache.
-- Base64 for the GitHub API goes through `TextEncoder`, not `btoa` directly — `btoa` only
-  speaks latin-1 and would corrupt every accented chapter name.
-- The server upload cannot be a page-level `online` listener, which is what the GitHub sync
-  is. The SIM comes out at night — while the app is open and recording — and goes back in
-  during the day with the app closed, so the page is never running at the moment connectivity
-  returns. The page only stages nights into a native outbox; `UploadWorker` sends them under
-  a WorkManager network constraint, app closed, surviving reboots.
+  does not. The upload layer stamps what it delivered via the raw put, so marking a run as
+  uploaded cannot itself make the run look modified again. In-flight runs (no `endedAt`)
+  are never staged.
+- The service worker ignores cross-origin requests entirely, so the upload calls to the
+  receiver are never cached or served from cache.
+- The server upload cannot be a page-level `online` listener. The SIM comes out at night —
+  while the app is open and recording — and goes back in during the day with the app closed,
+  so the page is never running at the moment connectivity returns. The page only stages
+  nights into a native outbox; `UploadWorker` sends them under a WorkManager network
+  constraint, app closed, surviving reboots.
 - A night is deleted locally on the strength of the server's answer, never of having sent it.
   The receiver replies with the ids it wrote and only those are stamped; the row then has to
-  outlive `UPLOAD_KEEP_DAYS` **and** have reached every other configured destination before
-  the sweep touches it. A 2xx that accepts nothing leaves everything queued, on purpose.
+  outlive `UPLOAD_KEEP_DAYS` before the sweep touches it. A 2xx that accepts nothing leaves
+  everything queued, on purpose.
 - `stampUploaded()` stamps the revision that was *staged*, and skips a row that changed while
   it sat in the outbox. Stamping the current revision instead would mark a stale copy as
   delivered, and the sweep would eventually delete the run the server never received.
@@ -235,9 +227,10 @@ python3 make-icons.py
 
 ## Getting the sessions into the Body asset
 
-**Automatically** — the private sync. The phone pushes each finished night to a private repo
-and a LaunchAgent pulls it into `~/Documents/Assets/Body/sources/audio-sessions/` every 30
-minutes. Nothing to run. [SETUP.md](SETUP.md) covers the one-time setup.
+**Automatically** — the server upload. The phone posts each finished night to the receiver
+running on the Mac (reached through the VPS relay), which writes it straight into
+`~/Documents/Assets/Body/sources/audio-sessions/`. Nothing to run. [SETUP.md](SETUP.md)
+covers the one-time setup.
 
 **By hand**, still there for a phone that is not set up:
 

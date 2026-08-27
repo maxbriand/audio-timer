@@ -87,8 +87,8 @@
   }
   .syncin:focus{outline:0;border-color:var(--accent)}
   .syncin::placeholder{color:var(--muted)}
-  #syncstatus,#upstatus,#bedstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
-  #syncstatus.bad,#upstatus.bad{color:var(--danger)}
+  #upstatus,#bedstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
@@ -361,22 +361,6 @@
 
     <div class="setsplit">
       <div class="setrow">
-        <label>Private sync — pushes the Nights log to your own private GitHub repo</label>
-        <input class="syncin" type="text" id="syncrepo" placeholder="owner/private-repo"
-               autocomplete="off" autocapitalize="none" spellcheck="false">
-        <input class="syncin" type="password" id="synctoken" placeholder="Fine-grained token"
-               autocomplete="off" autocapitalize="none" spellcheck="false">
-        <div id="syncstatus"></div>
-      </div>
-      <div class="sheetfoot">
-        <button id="syncsave">Save</button>
-        <button id="syncnow">Sync now</button>
-        <button id="syncforget">Forget</button>
-      </div>
-    </div>
-
-    <div class="setsplit">
-      <div class="setrow">
         <label>Server upload — sends each finished night to your own server the next time the
                phone has internet, even with the app closed, and clears it here afterwards</label>
         <input class="syncin" type="url" id="upurl" placeholder="https://your-server/audio-timer"
@@ -506,7 +490,7 @@ const allSessions = async () => req((await os('sessions','readonly')).getAll());
 const putSessionRaw = async s => req((await os('sessions','readwrite')).put(s));
 // Every ordinary write stamps a revision, so the sync layer can tell a run it already pushed
 // from one that changed afterwards (a night reopened within the 10-minute gap, say).
-// putSessionRaw skips the stamp — the sync layer uses it to record what it pushed without
+// putSessionRaw skips the stamp — the upload layer uses it to record what it pushed without
 // making the row look modified again.
 const putSession = async s => { s.updatedAt = Date.now(); return putSessionRaw(s); };
 const delSession = async id => req((await os('sessions','readwrite')).delete(id));
@@ -1314,8 +1298,8 @@ async function sessionEnd(reason){
   const s = session;
   session = null; lastTick = 0;
   await putSession(s);
-  syncSoon();          // silent; if the app dies first, the next open picks the run back up
-  uploadSoon();        // stages the night for the outbox — the sending itself waits for a network
+  uploadSoon();        // stages the night for the outbox — the sending itself waits for a
+                       // network; if the app dies first, the next open picks the run back up
 }
 
 function sessionTick(){
@@ -1338,40 +1322,11 @@ document.addEventListener('pointerdown', () => {
   session.lastInteraction = Date.now();
 }, {passive: true});
 
-/* ---------- private sync ----------
-   Pushes finished runs to a PRIVATE GitHub repo of your own, one JSON file per day, using
-   the Contents API. This app's own repo is public, so nothing about your nights may ever go
-   there — the destination repo and the token are typed in once and live only in IndexedDB
-   on this phone.
-
-   The unit of sync is the day file, not the individual run: each push reads the day's file,
-   merges the runs it already contains by id, and writes it back. That way a run reopened
-   later (or edited by a second device) updates in place instead of duplicating, and a day
-   whose content did not actually change costs no commit at all. */
-const GH_API = 'https://api.github.com';
-const SYNC_DIR = 'audio-sessions';
-const SYNC_DEBOUNCE_MS = 4000;
-
-let syncCfg = null;                 // {repo:'owner/name', token:'…'} or null
-let syncing = false, syncQueued = false, syncTimer = null;
-
-const loadSyncCfg = async () => { syncCfg = (await getMeta('sync')) || null; };
-const syncReady = () => !!(syncCfg && syncCfg.repo && syncCfg.token);
-
-// btoa() only speaks latin-1, and chapter names are full of accents and em dashes — go
-// through UTF-8 bytes explicitly or the push silently corrupts every non-ASCII title.
-function b64(str){
-  const bytes = new TextEncoder().encode(str);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-function unb64(s){
-  const bin = atob(String(s).replace(/\s/g, ''));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
+/* ---------- what leaves the phone ----------
+   Shared by the server upload below and by the CSV export: which day a run belongs to,
+   the revision stamp, and the explicit allowlist of exported fields. (The private GitHub
+   sync that used to live here was removed 2026-08-27 — the receiver on the Mac has been
+   the one destination since the VPS stopped storing, and nothing read the repo any more.) */
 
 // Local date, not UTC: a night that starts at 23:40 belongs to that evening's file, which is
 // how you would look for it. toISOString() would file it under the next day in most zones.
@@ -1381,10 +1336,9 @@ function dayKey(ms){
                          + '-' + String(d.getDate()).padStart(2,'0');
 }
 
-// The revision of a row: what the last ordinary write stamped. Rows recorded before sync
-// existed have no stamp, so fall back to something stable rather than re-pushing forever.
+// The revision of a row: what the last ordinary write stamped. Rows recorded before the
+// stamps existed have none, so fall back to something stable rather than re-pushing forever.
 const sessionRev = s => s.updatedAt || s.endedAt || s.startedAt || 0;
-const needsSync  = s => !!s.endedAt && (!s.syncedAt || s.syncedAt < sessionRev(s));
 
 // How long a run played on untouched before it stopped: the gap between the last interaction
 // and the end. Reported by the log, the CSV, and the JSON that leaves the phone.
@@ -1412,167 +1366,6 @@ function exportSession(s){
     minutesUntouchedBeforeStop: Number((quiet / 60000).toFixed(1))
   };
 }
-
-function ghMessage(status){
-  if (status === 401) return 'token rejected';
-  if (status === 403) return 'token lacks Contents write';
-  if (status === 404) return 'repo not found';
-  if (status === 409) return 'conflict';
-  if (status === 422) return 'rejected by GitHub';
-  return 'HTTP ' + status;
-}
-async function gh(path, init){
-  const res = await fetch(GH_API + path, Object.assign({cache:'no-store'}, init, {
-    headers: Object.assign({
-      'Authorization': 'Bearer ' + syncCfg.token,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28'
-    }, init && init.headers)
-  }));
-  return res;
-}
-async function ghRead(path){
-  const res = await gh('/repos/' + syncCfg.repo + '/contents/' + path);
-  if (res.status === 404) return null;                    // no file for this day yet
-  if (!res.ok) throw new Error(ghMessage(res.status));
-  const j = await res.json();
-  return {sha: j.sha, text: j.content ? unb64(j.content) : ''};
-}
-async function ghWrite(path, text, sha, message){
-  const body = {message: message, content: b64(text)};
-  if (sha) body.sha = sha;
-  const res = await gh('/repos/' + syncCfg.repo + '/contents/' + path, {
-    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
-  });
-  if (!res.ok){
-    const err = new Error(ghMessage(res.status));
-    err.status = res.status;
-    throw err;
-  }
-}
-
-async function pushDay(day, rows, retry){
-  const path = SYNC_DIR + '/' + day + '.json';
-  const remote = await ghRead(path);
-  const merged = new Map();
-  if (remote && remote.text){
-    try {
-      const prev = JSON.parse(remote.text);
-      for (const r of (prev.sessions || [])) if (r && r.id) merged.set(r.id, r);
-    } catch(_){}                                          // unreadable file: rewrite it
-  }
-  for (const s of rows) merged.set(s.id, exportSession(s));
-  const out = {
-    app: 'audio-timer',
-    date: day,
-    sessions: [...merged.values()].sort((a, b) => String(a.started).localeCompare(String(b.started)))
-  };
-  const text = JSON.stringify(out, null, 1) + '\n';
-  if (remote && remote.text === text) return;             // nothing new — do not make a commit
-  try {
-    await ghWrite(path, text, remote && remote.sha,
-                  'audio-timer: ' + day + ' (' + out.sessions.length + ')');
-  } catch(err){
-    // Someone (another device, or a half-finished earlier push) moved the file underneath us.
-    if (err.status === 409 && !retry) return pushDay(day, rows, true);
-    throw err;
-  }
-}
-
-function setSyncStatus(text, bad){
-  const el = $('#syncstatus');
-  if (!el) return;
-  el.textContent = text;
-  el.classList.toggle('bad', !!bad);
-}
-
-async function syncStatusLine(){
-  if (!syncReady()) return setSyncStatus('Not set up — enter a private repo and a token.');
-  const all = await allSessions();
-  const waiting = all.filter(needsSync).length;
-  const done = all.filter(s => s.syncedAt).length;
-  setSyncStatus(syncCfg.repo + ' · ' + done + ' synced'
-                + (waiting ? ' · ' + waiting + ' waiting' : ''));
-}
-
-async function syncNow(manual){
-  if (!syncReady()){ if (manual) toast('Enter the repo and token first'); return; }
-  if (syncing){ syncQueued = true; return; }
-  if (!navigator.onLine){
-    if (manual) setSyncStatus('Offline — it will retry on its own.', true);
-    return;
-  }
-  syncing = true;
-  try {
-    const due = (await allSessions()).filter(needsSync);
-    if (!due.length){ await syncStatusLine(); if (manual) toast('Already up to date'); return; }
-
-    const byDay = new Map();
-    for (const s of due){
-      const k = dayKey(s.startedAt);
-      if (!byDay.has(k)) byDay.set(k, []);
-      byDay.get(k).push(s);
-    }
-
-    let pushed = 0;
-    for (const day of [...byDay.keys()].sort()){
-      const rows = byDay.get(day);
-      await pushDay(day, rows);
-      // Only stamp after the day landed, and stamp the exact revision that was pushed —
-      // a run that changes again later goes back into the queue on its own.
-      for (const s of rows){ s.syncedAt = sessionRev(s); await putSessionRaw(s); }
-      pushed += rows.length;
-    }
-    await syncStatusLine();
-    if (manual) toast(pushed + (pushed === 1 ? ' night synced' : ' nights synced'));
-  } catch(err){
-    // Nothing is stamped on failure, so the same runs are simply retried next time.
-    setSyncStatus('Last try failed: ' + (err && err.message || 'error') + ' — will retry.', true);
-    if (manual) toast('Sync failed: ' + (err && err.message || 'error'));
-  } finally {
-    syncing = false;
-    if (syncQueued){ syncQueued = false; syncSoon(1000); }
-  }
-}
-
-/* Debounced, silent, and never awaited by anything on the playback path. */
-function syncSoon(delay){
-  if (!syncReady()) return;
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => syncNow(false), delay == null ? SYNC_DEBOUNCE_MS : delay);
-}
-addEventListener('online', () => syncSoon(2000));
-
-/* The token is never written back into the DOM — the field stays empty and a blank one on
-   save means "keep what is stored", so the sheet can be opened without exposing it. */
-function paintSync(){
-  $('#syncrepo').value = syncCfg && syncCfg.repo || '';
-  $('#synctoken').value = '';
-  $('#synctoken').placeholder = syncCfg && syncCfg.token ? 'Token saved — leave blank to keep'
-                                                         : 'Fine-grained token';
-  syncStatusLine();
-}
-$('#syncsave').onclick = async () => {
-  const repo = $('#syncrepo').value.trim().replace(/^https?:\/\/github\.com\//i, '')
-                                          .replace(/\.git$/i, '').replace(/^\/|\/$/g, '');
-  const typed = $('#synctoken').value.trim();
-  const token = typed || (syncCfg && syncCfg.token) || '';
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast('Repo must look like owner/name');
-  if (!token) return toast('Paste the token');
-  syncCfg = {repo: repo, token: token};
-  await setMeta('sync', syncCfg);
-  paintSync();
-  toast('Sync set up');
-  syncNow(true);
-};
-$('#syncnow').onclick = () => syncNow(true);
-$('#syncforget').onclick = async () => {
-  if (!confirm('Forget the token and repo? Nothing already pushed is deleted.')) return;
-  syncCfg = null;
-  await setMeta('sync', null);
-  paintSync();
-  toast('Sync settings cleared');
-};
 
 /* ---------- server upload ----------
    Sends each finished night to a server of your own, and clears it from the phone once the
@@ -1647,13 +1440,11 @@ function setUpStatus(text, bad){
   el.classList.toggle('bad', !!bad);
 }
 
-/* A run may be dropped from the phone only when every destination in use has it and the
-   grace period is up. If the GitHub sync is configured but stuck, nothing is cleared — the
-   local copy is the last one standing and it stays. */
+/* A run may be dropped from the phone only when the server has confirmed this exact
+   revision of it and the grace period is up. */
 function clearable(s, now){
   if (!s.endedAt || !s.uploadedAt || s.uploadedAt < sessionRev(s)) return false;
   if (now - s.endedAt < UPLOAD_KEEP_DAYS * 86400000) return false;
-  if (syncReady() && !(s.syncedAt && s.syncedAt >= sessionRev(s))) return false;
   return true;
 }
 
@@ -1782,7 +1573,7 @@ async function uploadNow(manual){
   }
 }
 
-/* Debounced and silent, exactly like syncSoon — never awaited from the playback path. */
+/* Debounced and silent — never awaited from the playback path. */
 function uploadSoon(delay){
   if (!upReady()) return;
   clearTimeout(upTimer);
@@ -1972,7 +1763,7 @@ function buildSettings(){
   }
 }
 $('#setnav').onclick = () => {
-  buildSettings(); paintSync(); paintUpload(); paintBedtime(); paintShakeHealth();
+  buildSettings(); paintUpload(); paintBedtime(); paintShakeHealth();
   $('#setsheet').classList.add('on');
 };
 
@@ -2061,7 +1852,7 @@ async function logWakeUp(note){
     const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
     if (FA) await FA.schedule({minutes: 45, nightDay: dayKey(now)});
   } catch(_){}
-  syncSoon(); uploadSoon();
+  uploadSoon();
 }
 
 /* Today's wake-up (the latest one), shown at the top of the day screen with its note —
@@ -2207,7 +1998,7 @@ $('#evsave').onclick = async () => {
       lastInteraction: logAt, note: note
     });
     paintSun();               // the daylight line at the top of the day screen
-    syncSoon(); uploadSoon();
+    uploadSoon();
   }
   toast(logEvent.name + ' logged — ' + fmtClock(logAt));
   closeEventSheet();
@@ -2254,7 +2045,6 @@ $('#posfile').onchange = async e => {
 /* ---------- boot ---------- */
 (async () => {
   await loadSettings();
-  await loadSyncCfg();
   await loadUpCfg();
   await loadBedtime();
   await render();
@@ -2266,12 +2056,12 @@ $('#posfile').onchange = async e => {
   const last = await getMeta('lastTimer');
   if (last) $('#custom').placeholder = 'Custom minutes (last: ' + last + ')';
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
-  // Anything the phone could not push last night — the app is usually killed before the
-  // final push finishes — goes out now, once the UI is already up.
-  syncSoon(2500);
-  // And the other direction: collect what the outbox managed to send while the app was shut,
-  // stamp those runs, then clear the ones that are old enough. This is the only moment the
-  // page learns anything about an upload it was not present for.
+  // The private GitHub sync is gone (2026-08-27): the Mac's receiver is the one
+  // destination. A repo token may still sit in this store from before — clear it for good.
+  setMeta('sync', null).catch(() => {});
+  // Collect what the outbox managed to send while the app was shut, stamp those runs, then
+  // clear the ones that are old enough — and push anything last night left behind. This is
+  // the only moment the page learns anything about an upload it was not present for.
   uploadSoon(3000);
 })();
 </script>
