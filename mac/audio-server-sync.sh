@@ -67,6 +67,20 @@ mkdir -p "$DEST_DIR"
 
 days=$(ls -1 "$DEST_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
 
+# Surface a silent upload outage the day it happens, not weeks later (Sep 1-3 2026 the
+# tunnel's remote port was stuck and nobody noticed until the diary looked empty). If no
+# day file has been written for 36 h the phone is not reaching the receiver — log it AND
+# raise a notification. 36 h tolerates one quiet day-file boundary; two nights never pass
+# without a write. curl https://audio.maximebriand.com/ answering 501 means the path is up.
+newest=$(ls -t "$DEST_DIR" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$' | head -1)
+if [[ -n "$newest" ]]; then
+  age_h=$(( ($(date +%s) - $(stat -f %m "$DEST_DIR/$newest")) / 3600 ))
+  if (( age_h > 36 )); then
+    log "STALE: newest day file ($newest) is ${age_h}h old — uploads are not arriving; check the tunnel (curl https://audio.maximebriand.com/ should return 501)"
+    osascript -e "display notification \"Newest day file is ${age_h}h old — check the tunnel.\" with title \"Audio-timer uploads stale\"" 2>/dev/null || true
+  fi
+fi
+
 # One flat CSV alongside the JSON, so the sessions can be read without parsing 200 files.
 # Keep its stderr out of the count — it warns there about day files it had to skip, and
 # folding that into stdout would put prose where the number goes.
