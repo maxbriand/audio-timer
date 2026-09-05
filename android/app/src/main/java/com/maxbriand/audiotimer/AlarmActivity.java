@@ -18,6 +18,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -52,6 +53,7 @@ public class AlarmActivity extends Activity {
 
   private MediaPlayer player;
   private Vibrator vibrator;
+  private EditText note;
 
   @Override
   protected void onCreate(Bundle savedInstanceState){
@@ -123,6 +125,27 @@ public class AlarmActivity extends Activity {
     grid.setLayoutParams(glp);
     root.addView(grid);
 
+    /* The night note lives here (moved from the wake-up sheet, 2026-09-05): the fatigue
+       check is the morning's one question, so the free-text observation about the night
+       rides the same answer. Optional — an empty field stays an empty diary cell. */
+    note = new EditText(this);
+    note.setHint("A note about the night (optional)");
+    note.setHintTextColor(MUTED);
+    note.setTextColor(TEXT);
+    note.setTextSize(15);
+    GradientDrawable nbg = new GradientDrawable();
+    nbg.setColor(SURFACE);
+    nbg.setCornerRadius(dp(14));
+    note.setBackground(nbg);
+    note.setPadding(dp(14), dp(12), dp(14), dp(12));
+    note.setMaxLines(3);
+    LinearLayout.LayoutParams nlp =
+      new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT);
+    nlp.setMargins(0, dp(24), 0, 0);
+    note.setLayoutParams(nlp);
+    root.addView(note);
+
     Button skip = new Button(this);
     skip.setText("Not now");
     skip.setTextColor(MUTED);
@@ -181,7 +204,8 @@ public class AlarmActivity extends Activity {
   private void answer(int score){
     quiet();
     try {
-      stageRow(score);
+      String n = note != null && note.getText() != null ? note.getText().toString().trim() : "";
+      stageRow(score, n);
       UploadWorker.schedule(this);
     } catch (Exception ignored){}    // staging failed: better a lost score than a stuck alarm
     finish();
@@ -195,7 +219,7 @@ public class AlarmActivity extends Activity {
   /* The same shape the page's uploadBody() sends, so the receiver files it like any other
      row — plus the one new field. localDay is the wake-up's own day, carried through prefs
      from the moment of scheduling, so the score lands in the same day file as its night. */
-  private void stageRow(int score) throws Exception {
+  private void stageRow(int score, String noteText) throws Exception {
     SimpleDateFormat iso = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
     iso.setTimeZone(TimeZone.getTimeZone("UTC"));
     String now = iso.format(new Date());
@@ -219,7 +243,7 @@ public class AlarmActivity extends Activity {
     o.put("trackStart", "");
     o.put("trackEnd", "");
     o.put("stopPositionSeconds", 0);
-    o.put("note", "");
+    o.put("note", noteText == null ? "" : noteText);
     o.put("minutesUntouchedBeforeStop", 0);
     o.put("fatigueScore", score);
     Outbox.put(this, id, o.toString());
