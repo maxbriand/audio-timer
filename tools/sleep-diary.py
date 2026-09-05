@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Derive a CBT-I sleep diary from the audio-timer day files.
 
-Reads the YYYY-MM-DD.json files the receiver writes and produces sleep-diary.csv —
+Reads the YYYY-MM-DD.json files the receiver writes and produces daily.csv —
 one record for both reading and computing: durations as zero-padded HH:MM (readable
 at a glance, sorts correctly as text, parsed as a duration by any spreadsheet),
 clocks as ISO local timestamps (the date half is information — a rise lands on the
@@ -13,7 +13,9 @@ caught by taking the midpoint of the last pre-sleep play as the onset moment.
 Three kinds of rows arrive from the phone. Plays are real listening. A row whose
 stopReason is "wake-up" is a marker: zero-length, written by the day-mode switch
 at the moment of getting up, optionally carrying a note. Markers are the recorded
-rise time — raw, never derived — and their note is the diary's Note column. A row
+rise time — raw, never derived. The diary's Note column reads the fatigue answer's
+note (where the free text lives since 2026-09-05), falling back to the rise
+marker's note for the earlier era, when the wake-up sheet carried the field. A row
 whose stopReason is "fatigue" is the answer to the alarm that rings 45 minutes
 after the rise: a 1–10 self-score (10 = maximum fatigue), zero-length like the
 marker; the night's Fatigue column is the FIRST score after its onset — the
@@ -122,18 +124,18 @@ AVG_WINDOW_DAYS = 28
 
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else ".").expanduser()
 
-# The day files are the raw log; the diary is a sleep record, so it is written with the
-# other sleep documents (sources/sleep/) rather than in the log folder next to them. A
-# second argument names the destination outright; without one, the sibling "sleep" folder
-# is used when it exists and the source folder otherwise, so a checkout with no Body asset
-# beside it still produces the diary somewhere sensible.
-OUT_DIR = (Path(sys.argv[2]).expanduser() if len(sys.argv) > 2
-           else SRC.parent / "sleep" if (SRC.parent / "sleep").is_dir()
-           else SRC)
-OUT_CSV = OUT_DIR / "sleep-diary.csv"
-# The diary used to be written twice, sleep-diary.md beside the CSV; the markdown twin
-# was retired (2026-08-29) and any leftover copy is removed so it cannot linger stale.
-OUT_MD_RETIRED = OUT_DIR / "sleep-diary.md"
+# The day files are the raw log; the diary row spans the whole day (light, cardio,
+# melatonin, then the night), so the record lives as daily.csv at the ROOT of the folder
+# holding the day-file folders (~/.../sources/), above the per-domain subfolders. A
+# second argument names the destination outright; without one, the day-file folder's
+# parent is used.
+OUT_DIR = Path(sys.argv[2]).expanduser() if len(sys.argv) > 2 else SRC.parent
+OUT_CSV = OUT_DIR / "daily.csv"
+# Retired outputs, removed on every run so they cannot linger stale: the markdown twin
+# (2026-08-29), and the pre-2026-09-05 home — sleep-diary.csv in the sleep/ subfolder,
+# from when the record was filed as a sleep document rather than the day record.
+RETIRED = [OUT_DIR / "sleep-diary.md", OUT_DIR / "sleep-diary.csv",
+           OUT_DIR / "sleep" / "sleep-diary.md", OUT_DIR / "sleep" / "sleep-diary.csv"]
 
 # Hand-written corrections, one file beside the day files (the sync never deletes local
 # extras). The raw log is never edited — a wrong value is marked here and the diary stops
@@ -183,7 +185,8 @@ def load_rows():
                 score = s.get("fatigueScore")
                 if isinstance(score, (int, float)):
                     rows.append({"kind": "fatigue", "start": start, "end": start,
-                                 "score": float(score)})
+                                 "score": float(score),
+                                 "note": (s.get("note") or "").strip()})
                 continue
             if not s.get("ended"):
                 continue                      # an unfinished run says nothing about sleep
@@ -283,10 +286,12 @@ def night_metrics(rows, overrides):
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
     # The FIRST score after onset: the morning's answer. A second alarm the same
-    # evening (day-mode toggled again) speaks of the day, not this night.
+    # evening (day-mode toggled again) speaks of the day, not this night. The night
+    # note rides this answer too (moved off the wake-up sheet, 2026-09-05).
     scores = [r for r in rows if r["kind"] == "fatigue" and r["start"] > onset]
     if scores:
         n["fatigue"] = scores[0]["score"]
+        n["note"] = scores[0].get("note", "")
 
     # Rise and final wake are different facts, each with exactly one source, and neither
     # ever gets a stand-in (Maxime, 2026-08-19): blank always means unknown, never guessed.
@@ -307,7 +312,9 @@ def night_metrics(rows, overrides):
                    for b in between):
                 rise = m
         n["rise"] = rise["start"]
-        n["note"] = rise["note"]
+        # Note: the fatigue answer's text wins; marker notes are the pre-2026-09-05 era
+        # (the wake-up sheet carried the field then) and still read for those nights.
+        n["note"] = n["note"] or rise["note"]
         n["tib"] = mins(n["rise"] - bedtime)
         # Out of bed means the night is over: whatever plays after the rise is daytime
         # listening, not a block of this night. Without this cut a late-morning play
@@ -439,9 +446,10 @@ def main():
                 n["note"],
             ])
 
-    OUT_MD_RETIRED.unlink(missing_ok=True)
+    for old in RETIRED:
+        old.unlink(missing_ok=True)
 
-    print(f"sleep-diary.csv — {len(nights)} nights → {OUT_DIR}")
+    print(f"daily.csv — {len(nights)} nights → {OUT_DIR}")
 
 
 if __name__ == "__main__":

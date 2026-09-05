@@ -62,13 +62,13 @@
     background:transparent;color:var(--muted);font-size:15px;font-weight:550
   }
   .addevent:active{background:var(--surface)}
-  #evnote,#wakenote{
+  #evnote{
     width:100%;min-height:90px;padding:12px;border-radius:12px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--text);font:15px/1.4 inherit;resize:vertical;
     -webkit-appearance:none
   }
-  #evnote:focus,#wakenote:focus{outline:0;border-color:var(--accent)}
-  #evnote::placeholder,#wakenote::placeholder{color:var(--muted)}
+  #evnote:focus{outline:0;border-color:var(--accent)}
+  #evnote::placeholder{color:var(--muted)}
   #evthumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   #evthumbs:empty{margin-top:0}
   #evthumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
@@ -294,8 +294,7 @@
 <div id="wakesheet">
   <div class="sheetbox">
     <h2>Switch to day mode?</h2>
-    <p>Your wake-up time will be logged.</p>
-    <textarea id="wakenote" placeholder="A note about the night or the morning (optional)"></textarea>
+    <p>Your wake-up time will be logged. The night note moved to the fatigue check — it asks 45 minutes from now.</p>
     <div class="sheetfoot">
       <button id="wakego">Log wake-up</button>
       <button id="wakecancel">Cancel</button>
@@ -2045,8 +2044,7 @@ $('#eventsheet').onclick = e => { if (e.target.id === 'eventsheet') closeEventSh
 
 $('#modenav').onclick = () => {
   if (view === 'audio'){
-    // The confirmation is the sheet itself: write the note (optional), then log & switch.
-    $('#wakenote').value = '';
+    // The confirmation is the sheet itself; the night note now rides the fatigue answer.
     $('#wakesheet').classList.add('on');
   } else {
     if (!confirm('Switch to night mode?')) return;
@@ -2062,7 +2060,7 @@ $('#modenav').onclick = () => {
 };
 $('#wakego').onclick = async () => {
   $('#wakesheet').classList.remove('on');
-  await logWakeUp($('#wakenote').value.trim());
+  await logWakeUp('');
   showView('sun');
 };
 $('#wakecancel').onclick = () => $('#wakesheet').classList.remove('on');
