@@ -1811,6 +1811,7 @@ $('#bedsave').onclick = async () => {
     try { await nativeMelatonin.configure({bedtime: v}); } catch(_){}
   }
   paintBedtime();
+  paintModenav();                     // a new bedtime moves the 🌙 window with it
   toast('Melatonin alarm set — ' + reminderClock(v));
 };
 $('#bedoff').onclick = async () => {
@@ -1820,6 +1821,7 @@ $('#bedoff').onclick = async () => {
     try { await nativeMelatonin.configure({bedtime: ''}); } catch(_){}
   }
   paintBedtime();
+  paintModenav();                     // no bedtime, no gate — the button is back all day
   toast('Melatonin alarm off');
 };
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
@@ -1832,6 +1834,23 @@ $('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.
    listening runs. The bottom player belongs to night mode, so it hides with it and comes
    back (if a track is still selected) when night mode returns. */
 let view = 'audio';
+/* The enter-night toggle only exists in the night half of the day: from the melatonin
+   hour (bedtime − 5 h) until 12 h later — with a 01:00 bedtime, 20:00 to 08:00. A
+   daytime tap on it is always a misclick (one once wrote a phantom wake-up into the
+   diary), so the button is simply not there to be tapped. Late bedtimes and an
+   early-morning return to bed stay inside the window; leaving night mode is never
+   gated, and without a bedtime configured there is no melatonin hour, hence no gate. */
+function nightAllowed(){
+  if (!bedtimeCfg) return true;
+  const [h, m] = bedtimeCfg.split(':').map(Number);
+  const remind = ((h * 60 + m) - 300 + 1440) % 1440;
+  const now = new Date();
+  return ((now.getHours() * 60 + now.getMinutes() - remind + 1440) % 1440) < 720;
+}
+function paintModenav(){
+  $('#modenav').style.display = (view === 'sun' && !nightAllowed()) ? 'none' : '';
+}
+setInterval(paintModenav, 60000);   // the window opens/closes while the app sits open
 function showView(v){
   view = v;
   $('#audioview').style.display = v === 'audio' ? '' : 'none';
@@ -1839,6 +1858,7 @@ function showView(v){
   $('#player').classList.toggle('on', v === 'audio' && !!current);
   // One toggle button, wearing the icon of the mode you are IN.
   $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
+  paintModenav();
   if (v === 'sun'){ paintEvents(); paintSun(); }
   // The mode survives an app restart: closed in day mode, it reopens in day mode.
   setMeta('view', v).catch(() => {});
