@@ -31,6 +31,7 @@ final class MelatoninAlarm {
   private static final String PREFS = "melatonin";
   private static final String KEY_BEDTIME = "bedtime";   // "HH:MM", empty = off
   private static final String KEY_NEXT = "nextAt";       // epoch ms of the armed fire
+  private static final String KEY_SHOWN = "shownAt";     // epoch ms of the last actual ring
   static final long LEAD_MIN = 5 * 60;                   // reminder sits 5 h before bed
   static final long SNOOZE_MS = 10 * 60 * 1000L;
 
@@ -42,6 +43,20 @@ final class MelatoninAlarm {
 
   static String bedtime(Context c){ return prefs(c).getString(KEY_BEDTIME, ""); }
   static long nextAt(Context c){ return prefs(c).getLong(KEY_NEXT, 0); }
+
+  /* The receiver stamps every ring it actually shows; a fire time that passed without a
+     stamp is a ring the system swallowed (MIUI force-stop clearing the alarm, autostart
+     off blocking the receiver) — invisible by nature, so the page asks on every boot and
+     warns the user instead of letting the silence pass for another day. */
+  static void markShown(Context c){
+    prefs(c).edit().putLong(KEY_SHOWN, System.currentTimeMillis()).apply();
+  }
+
+  static long missedFire(Context c){
+    long next = nextAt(c);
+    if (next == 0 || next > System.currentTimeMillis()) return 0;
+    return prefs(c).getLong(KEY_SHOWN, 0) >= next ? 0 : next;
+  }
 
   private static PendingIntent ring(Context c){
     Intent i = new Intent(c, MelatoninReceiver.class);
