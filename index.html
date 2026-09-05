@@ -74,6 +74,7 @@
   #evthumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
   #evsave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
   #wakeline,#lightline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
+  #melamiss{display:none;font-size:13.5px;color:var(--danger);padding:2px 2px 12px;line-height:1.5}
   #wakeline b,#lightline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
@@ -278,6 +279,7 @@
   </div>
 </div>
 <div id="sunview">
+  <div id="melamiss"></div>
   <div id="wakeline"></div>
   <div id="lightline"></div>
   <h3 class="evcat">Habits</h3>
@@ -1776,10 +1778,17 @@ const nativeMelatonin = (() => {
   return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.MelatoninAlarm) || null;
 })();
 let bedtimeCfg = '';
+let melatoninMissedAt = 0;   // an armed ring the system swallowed — see the day screen line
 async function loadBedtime(){
   bedtimeCfg = (await getMeta('bedtime')) || '';
   if (nativeMelatonin){
-    try { await nativeMelatonin.configure({bedtime: bedtimeCfg}); } catch(_){}
+    try {
+      const r = await nativeMelatonin.configure({bedtime: bedtimeCfg});
+      if (r && r.missedAt){
+        melatoninMissedAt = r.missedAt;
+        toast('⚠️ Melatonin reminder never rang — check MIUI autostart & battery');
+      }
+    } catch(_){}
   }
 }
 function reminderClock(t){
@@ -1860,6 +1869,14 @@ async function logWakeUp(note){
    daylight: the walk IS the daylight log, so the line shows the first morning-walk
    marker of the day (the diary reads the same rows for its Morning light column). */
 async function paintSun(){
+  /* A swallowed ring is invisible by nature, so the day screen says it out loud: the
+     reminder was armed, its moment passed, and the receiver never got to show it. */
+  const mm = $('#melamiss');
+  if (melatoninMissedAt){
+    mm.textContent = '⚠️ Melatonin reminder never rang (was set for '
+      + fmtClock(melatoninMissedAt) + ') — check MIUI autostart & battery settings.';
+    mm.style.display = 'block';
+  } else { mm.style.display = 'none'; mm.textContent = ''; }
   const today = dayKey(Date.now());
   const all = await allSessions();
   const el = $('#wakeline');

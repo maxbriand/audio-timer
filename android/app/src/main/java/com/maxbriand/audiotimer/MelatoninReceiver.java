@@ -43,6 +43,7 @@ public class MelatoninReceiver extends BroadcastReceiver {
   }
 
   static void show(Context c){
+    MelatoninAlarm.markShown(c);              // this ring happened — it was not swallowed
     NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
     if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null){
       NotificationChannel ch = new NotificationChannel(CHANNEL, "Melatonin reminder",
