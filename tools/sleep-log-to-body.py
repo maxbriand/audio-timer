@@ -4,7 +4,7 @@
 The app's ☾ sheet exports `audio-timer-sessions.csv`. This appends the rows that are not
 already recorded to:
 
-    ~/Documents/Assets/Body/sources/sleep/audio-sessions.csv
+    ~/Documents/Body/sources/sleep/audio-sessions.csv
 
 De-duplicates on the `started` timestamp, so running it repeatedly on overlapping exports
 is safe. Prints a summary and changes nothing unless --write is passed.
@@ -23,7 +23,7 @@ import csv
 import os
 import sys
 
-DEST = os.path.expanduser('~/Documents/Assets/Body/sources/sleep/audio-sessions.csv')
+DEST = os.path.expanduser('~/Documents/Body/sources/sleep/audio-sessions.csv')
 DEFAULT_SRC = os.path.expanduser('~/Downloads/audio-timer-sessions.csv')
 
 FIELDS = ['started', 'ended', 'listened_minutes', 'timer_minutes', 'stop_reason',

@@ -31,8 +31,14 @@ exposure is the fact that matters, later taps say nothing new. ("daylight" rows,
 from the short-lived dedicated button, are read the same way.) A row whose
 stopReason is "melatonin" is the dose marker, stamped when "Taken ✓" closes the
 reminder; the night's Melatonin column is the last dose in the 12 hours before its
-bedtime. Doses and daylight markers belong to the night they precede and must
-never glue two nights together, so both ride outside the night clustering.
+bedtime. A row whose stopReason is "screens-off" is the blue-light cutoff: the
+📵 Screens off tap on the day screen; the night's screens_off column is the LAST
+such tap in the 12 hours before its bedtime, read like the dose. Doses, daylight
+and screens-off markers belong to the night they precede and must never glue two
+nights together, so all ride outside the night clustering. The computer column is
+the day's Mac screen time (union of Screen Time's app-usage intervals), read from
+the cache tools/computer-time.py maintains — the one column measured by the Mac
+itself rather than logged on the phone.
 
 The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
 
@@ -150,6 +156,22 @@ OVERRIDES_FILE = SRC / "diary-overrides.json"
 _cardio_env = os.environ.get("AUDIO_TIMER_CARDIO_DIR")
 CARDIO_SRC = Path(_cardio_env).expanduser() if _cardio_env else SRC.parent / "cardio-sessions"
 
+# The per-day computer-time cache tools/computer-time.py maintains from macOS Screen
+# Time (the sync refreshes it before this runs). Day -> minutes; a day the Mac never
+# measured stays blank, like every other missing source.
+_computer_env = os.environ.get("AUDIO_TIMER_COMPUTER_FILE")
+COMPUTER_FILE = (Path(_computer_env).expanduser() if _computer_env
+                 else SRC.parent / "computer-time.json")
+
+
+def load_computer():
+    try:
+        data = json.loads(COMPUTER_FILE.read_text())
+        return {d: float(m) for d, m in data.items()
+                if isinstance(m, (int, float))} if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
 
 def load_overrides():
     try:
@@ -177,6 +199,9 @@ def load_rows():
                 continue
             if s.get("stopReason") in ("morning-walk", "daylight"):
                 rows.append({"kind": "daylight", "start": start, "end": start})
+                continue
+            if s.get("stopReason") == "screens-off":
+                rows.append({"kind": "screens", "start": start, "end": start})
                 continue
             if s.get("stopReason") == "melatonin":
                 rows.append({"kind": "melatonin", "start": start, "end": start})
@@ -218,10 +243,12 @@ def mins(td):
     return td.total_seconds() / 60
 
 
-def attach_day_inputs(nights, doses, lights):
+def attach_day_inputs(nights, doses, lights, screens):
     """The preceding day's zeitgebers: the last dose in the 12 h before bedtime, the
-    first daylight marker in the 24 h before it. Both stay out of the night clustering:
-    they sit mid-gap between two nights and would bridge them into one."""
+    first daylight marker in the 24 h before it, the last screens-off tap in the 12 h
+    before it (the blue-light cutoff nearest the night, like the dose). All stay out
+    of the night clustering: they sit mid-gap between two nights and would bridge
+    them into one."""
     for n in nights:
         prior = [d for d in doses
                  if n["bedtime"] - timedelta(hours=12) <= d["start"] <= n["bedtime"]]
@@ -229,30 +256,44 @@ def attach_day_inputs(nights, doses, lights):
         walked = [l for l in lights
                   if n["bedtime"] - timedelta(hours=24) <= l["start"] <= n["bedtime"]]
         n["light"] = walked[0]["start"] if walked else None
+        cut = [x for x in screens
+               if n["bedtime"] - timedelta(hours=12) <= x["start"] <= n["bedtime"]]
+        n["screens"] = cut[-1]["start"] if cut else None
 
 
-def pending_day_rows(nights, doses, lights):
-    """Days whose inputs exist but whose night does not (yet): any dose or daylight
-    marker no night claimed becomes an inputs-only row named after the event's own
-    local date. Tonight's row-to-be is the usual case — it fills in tomorrow."""
-    used = {n["melatonin"] for n in nights} | {n["light"] for n in nights}
+def pending_day_rows(nights, doses, lights, screens):
+    """Days whose inputs exist but whose night does not (yet): any dose, daylight or
+    screens-off marker no night claimed becomes an inputs-only row named after the
+    event's own local date. Tonight's row-to-be is the usual case — it fills in
+    tomorrow."""
+    # A marker is claimed when it falls inside ANY night's window for its kind — not
+    # only when it is the one the night chose. Two taps the same evening are one
+    # night's story: the unchosen one says nothing new and must not spawn a phantom
+    # inputs-only row for the same date.
+    def claimed(e, window_h):
+        return any(n["bedtime"]
+                   and n["bedtime"] - timedelta(hours=window_h) <= e["start"] <= n["bedtime"]
+                   for n in nights)
     days = {}
-    for kind, events in (("melatonin", doses), ("light", lights)):
+    for kind, window_h, events in (("melatonin", 12, doses), ("light", 24, lights),
+                                   ("screens", 12, screens)):
         for e in events:
-            if e["start"] in used:
+            if claimed(e, window_h):
                 continue
             d = days.setdefault(e["start"].strftime("%Y-%m-%d"), {})
-            # First light (first exposure), last dose (the one nearest the night).
+            # First light (first exposure); last dose and last screens-off cut
+            # (the one nearest the night).
             if kind == "light":
                 d.setdefault("light", e["start"])
             else:
-                d["melatonin"] = e["start"]
+                d[kind] = e["start"]
     rows = []
     for date, got in sorted(days.items(), reverse=True):
         rows.append({"date": date, "bedtime": None, "sol": None, "awakenings": None,
                      "waso": None, "final_wake": None, "rise": None, "tib": None,
                      "tst": None, "se": None, "fatigue": None, "note": "",
-                     "melatonin": got.get("melatonin"), "light": got.get("light")})
+                     "melatonin": got.get("melatonin"), "light": got.get("light"),
+                     "screens": got.get("screens")})
     return rows
 
 
@@ -282,7 +323,7 @@ def night_metrics(rows, overrides):
     n = {"date": (bedtime - timedelta(hours=12)).strftime("%Y-%m-%d"), "bedtime": bedtime,
          "sol": mins(onset - bedtime), "awakenings": None, "waso": None,
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
-         "fatigue": None, "light": None, "note": ""}
+         "fatigue": None, "light": None, "screens": None, "note": ""}
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
     # The FIRST score after onset: the morning's answer. A second alarm the same
@@ -375,7 +416,8 @@ def main():
     rows = load_rows()
     doses = [r for r in rows if r["kind"] == "melatonin"]
     lights = [r for r in rows if r["kind"] == "daylight"]
-    rows = [r for r in rows if r["kind"] not in ("melatonin", "daylight")]
+    screens = [r for r in rows if r["kind"] == "screens"]
+    rows = [r for r in rows if r["kind"] not in ("melatonin", "daylight", "screens")]
     overrides = load_overrides()
     # A recorded rise ends its night, so the rows after it are read again as their own
     # night: a day busy enough with taps to never leave a 12-hour silence would otherwise
@@ -392,8 +434,8 @@ def main():
 
     nights = [n for g in cluster(rows, timedelta(hours=GAP_NIGHT_H))
               for n in nights_in(g)]
-    attach_day_inputs(nights, doses, lights)
-    pending = pending_day_rows(nights, doses, lights)
+    attach_day_inputs(nights, doses, lights, screens)
+    pending = pending_day_rows(nights, doses, lights, screens)
     # Newest first, like the app's own log; pending inputs-only rows fall into date
     # order with the nights instead of stacking on top out of sequence.
     nights = sorted(nights + pending, key=lambda n: n["date"], reverse=True)
@@ -411,6 +453,7 @@ def main():
 
 
     cardio = load_cardio()
+    computer = load_computer()
 
     # Durations as zero-padded HH:MM, clocks as ISO local timestamps (a rise can land
     # on the day after the night's date, so HH:MM alone would lie to any date
@@ -430,7 +473,8 @@ def main():
 
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["night", "morning_light", "cardio", "melatonin", "bedtime", "sol",
+        w.writerow(["night", "morning_light", "cardio", "melatonin", "computer",
+                    "screens_off", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
                     "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
@@ -438,7 +482,8 @@ def main():
             w.writerow([
                 n["date"], iso(n["light"]),
                 ";".join(iso(t) for t in cardio.get(n["date"], [])),
-                iso(n["melatonin"]), iso(n["bedtime"]),
+                iso(n["melatonin"]), hm(computer.get(n["date"])),
+                iso(n["screens"]), iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),
                 hm(sum(w_tst) / len(w_tst)) if w_tst else "",
