@@ -1936,8 +1936,12 @@ const delEvent    = async id => req((await os('issues','readwrite')).delete(id))
 const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
 
 /* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
-   toggling it off just stops painting the button — walks already logged stay logged. */
+   toggling it off just stops painting the button — walks already logged stay logged.
+   Screens-off is its evening twin: the tap that logs "I stopped screens / blue light",
+   pinned as a habit, leaving the phone as a marker row for the diary's screens_off
+   column the same way the walk feeds Morning light. */
 const MORNING_WALK = {id: 'morning-walk', name: '☀️ Morning walk'};
+const SCREENS_OFF  = {id: 'screens-off',  name: '📵 Screens off'};
 
 let events = [], logEvent = null, logAt = 0, logPhotos = [];
 
@@ -1945,6 +1949,7 @@ async function paintEvents(){
   events = (await allEvents()).sort((a, b) => a.name.localeCompare(b.name));
   const habits = events.filter(ev => ev.cat === 'habit');
   const others = events.filter(ev => ev.cat !== 'habit');
+  habits.unshift(SCREENS_OFF);
   if (settings.morningWalk) habits.unshift(MORNING_WALK);
   fillEventGrid($('#habitgrid'), habits);
   fillEventGrid($('#issuegrid'), others);
@@ -2022,15 +2027,18 @@ $('#evsave').onclick = async () => {
     id: uid(), issueId: logEvent.id, issue: logEvent.name, at: logAt,
     note: note, photos: logPhotos
   });
-  /* The morning walk also leaves the phone: a zero-length marker row, stamped with the
-     tap time, rides the sync/upload pipeline like the wake-up. The walk IS the daylight
-     log — the diary reads this row for its Morning light column. Other events (and the
-     photos, always) stay local. */
-  if (logEvent.id === MORNING_WALK.id){
+  /* The two built-in habits also leave the phone: a zero-length marker row, stamped
+     with the tap time, rides the sync/upload pipeline like the wake-up. The walk IS
+     the daylight log (the diary's Morning light column) and the screens-off tap is the
+     blue-light cutoff (the diary's screens_off column). Other events (and the photos,
+     always) stay local. */
+  const markerReason = logEvent.id === MORNING_WALK.id ? 'morning-walk'
+                     : logEvent.id === SCREENS_OFF.id  ? 'screens-off' : null;
+  if (markerReason){
     await putSession({
       id: uid(), startedAt: logAt, endedAt: logAt, trackStart: '', trackEnd: '',
       timerMinutes: null, timerArmedAt: null, autoArmed: false, fadeInSeconds: 0,
-      speed: 1, stopReason: 'morning-walk', stopPosition: 0, listenedSeconds: 0,
+      speed: 1, stopReason: markerReason, stopPosition: 0, listenedSeconds: 0,
       lastInteraction: logAt, note: note
     });
     paintSun();               // the daylight line at the top of the day screen

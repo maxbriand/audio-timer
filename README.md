@@ -229,7 +229,7 @@ python3 make-icons.py
 
 **Automatically** — the server upload. The phone posts each finished night to the receiver
 running on the Mac (reached through the VPS relay), which writes it straight into
-`~/Documents/Assets/Body/sources/audio-sessions/`. Nothing to run. [SETUP.md](SETUP.md)
+`~/Documents/Body/sources/audio-sessions/`. Nothing to run. [SETUP.md](SETUP.md)
 covers the one-time setup.
 
 **By hand**, still there for a phone that is not set up:
@@ -240,7 +240,7 @@ python3 tools/sleep-log-to-body.py --write    # append
 ```
 
 Reads `~/Downloads/audio-timer-sessions.csv` and appends new rows to
-`~/Documents/Assets/Body/sources/sleep/audio-sessions.csv`, de-duplicating on the `started`
+`~/Documents/Body/sources/sleep/audio-sessions.csv`, de-duplicating on the `started`
 timestamp. It writes nothing without `--write`. The two routes write to different files and
 do not interfere.
 - The countdown is a wall-clock deadline checked on every `timeupdate`, not a `setInterval`

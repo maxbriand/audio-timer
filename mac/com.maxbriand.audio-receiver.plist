@@ -11,7 +11,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; set -a; source "$HOME/Library/Application Support/audio-timer/env"; set +a; export AUDIO_TIMER_HOST=127.0.0.1 AUDIO_TIMER_PORT=8787 AUDIO_TIMER_DIR="$HOME/Documents/Assets/Body/sources/audio-sessions"; exec python3 -u "$HOME/Projects/audio-timer/tools/log-receiver.py"</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; set -a; source "$HOME/Library/Application Support/audio-timer/env"; set +a; export AUDIO_TIMER_HOST=127.0.0.1 AUDIO_TIMER_PORT=8787 AUDIO_TIMER_DIR="$HOME/Documents/Body/sources/audio-sessions"; exec python3 -u "$HOME/Projects/audio-timer/tools/log-receiver.py"</string>
   </array>
 
   <key>RunAtLoad</key>

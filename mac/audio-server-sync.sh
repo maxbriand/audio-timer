@@ -7,10 +7,10 @@
 # So there is nothing to pull any more; this script's job is only to keep the CSV and the
 # daily record from drifting away from the day files.
 #
-#   Day files    ~/Documents/Assets/Body/sources/audio-sessions/YYYY-MM-DD.json
+#   Day files    ~/Documents/Body/sources/audio-sessions/YYYY-MM-DD.json
 #                (written live by log-receiver.py as the phone uploads)
 #   Derived      sessions.csv next to them, and the daily record (tools/sleep-diary.py)
-#                as ~/Documents/Assets/Body/sources/daily.csv — the row spans the whole
+#                as ~/Documents/Body/sources/daily.csv — the row spans the whole
 #                day (light, cardio, melatonin, the night), so it sits at the sources
 #                root, above the per-domain folders
 #
@@ -29,8 +29,8 @@ set -u
 # launchd gives a process almost no PATH, so name the tools' real locations.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-DEST_DIR="${AUDIO_SYNC_DEST:-$HOME/Documents/Assets/Body/sources/audio-sessions}"
-DIARY_DIR="${AUDIO_SYNC_DIARY_DEST:-$HOME/Documents/Assets/Body/sources}"
+DEST_DIR="${AUDIO_SYNC_DEST:-$HOME/Documents/Body/sources/audio-sessions}"
+DIARY_DIR="${AUDIO_SYNC_DIARY_DEST:-$HOME/Documents/Body/sources}"
 LOG_FILE="${AUDIO_SYNC_LOG:-$HOME/Library/Logs/audio-server-sync.log}"
 LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
 # The CSV roll-up lives next to this script, in the audio-timer checkout.
@@ -99,10 +99,16 @@ fi
 
 log "rebuilt · $days day files · $rows sessions"
 
+# The Mac measures its own screen time for the record's computer column: refresh the
+# per-day cache from knowledgeC.db BEFORE deriving (the DB holds ~4 weeks; the cache is
+# append-only, so older days survive the system's pruning). A failed refresh only means
+# the cache keeps yesterday's days.
+mkdir -p "$DIARY_DIR"
+python3 "$REPO_DIR/tools/computer-time.py" "$DIARY_DIR/computer-time.json" >/dev/null 2>&1 || log "computer-time refresh failed (cache keeps its days)"
+
 # The daily record is derived, like the CSV: rebuilt whole on every run so it can never
 # drift from the day files. Its rules live in tools/sleep-diary.py. Read from the day
 # files, written as daily.csv at the sources root.
-mkdir -p "$DIARY_DIR"
 python3 "$REPO_DIR/tools/sleep-diary.py" "$DEST_DIR" "$DIARY_DIR" >/dev/null 2>&1 || log "daily-record generation failed (data is safe; the record is derived)"
 
 # Stamped only after a run that worked — a failed one leaves the run owed, so the next
