@@ -359,6 +359,7 @@
     <div class="setrow"><label>Shake to skip — while audio is playing, a shake jumps to the next chapter. A shake on paused audio always resumes, toggle or not.</label><div class="chips sm" id="ch-shakeSkip"></div></div>
     <div class="setrow" id="shakehealthrow" style="display:none"><label>Night shake watch — whether the screen-off watch can survive the phone going idle</label><div class="chips sm"><button class="chip sm" id="shakehealth"></button></div></div>
     <div class="setrow"><label>Morning walk — pins a ☀️ Morning walk event at the top of the day screen</label><div class="chips sm" id="ch-morningWalk"></div></div>
+    <div class="setrow"><label>Morning light reminder — rings 30 min after the wake-up if no walk is logged yet; its Done button logs the walk (needs the APK)</label><div class="chips sm" id="ch-walkReminder"></div></div>
 
     <div class="setsplit">
       <div class="setrow">
@@ -745,7 +746,7 @@ audio.preload = 'metadata';
 let current = null, objUrl = null, seeking = false, lastSave = 0, loading = false;
 
 /* ---------- settings ---------- */
-const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, shakeSkip: false, morningWalk: false};
+const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, shakeSkip: false, morningWalk: false, walkReminder: false};
 let settings = Object.assign({}, DEFAULTS);
 const TARGET_VOL = 1;
 
@@ -1740,7 +1741,8 @@ const SETTING_CHOICES = {
   speed:   {values: [0.8, 1, 1.25, 1.5],  labels: ['0.8×', '1×', '1.25×', '1.5×']},
   autoArm: {values: [false, true],        labels: ['off', 'on']},
   shakeSkip: {values: [false, true],      labels: ['off', 'on']},
-  morningWalk: {values: [false, true],    labels: ['off', 'on']}
+  morningWalk: {values: [false, true],    labels: ['off', 'on']},
+  walkReminder: {values: [false, true],   labels: ['off', 'on']}
 };
 function buildSettings(){
   for (const key of Object.keys(SETTING_CHOICES)){
@@ -2043,6 +2045,14 @@ $('#evsave').onclick = async () => {
     });
     paintSun();               // the daylight line at the top of the day screen
     uploadSoon();
+    if (markerReason === 'morning-walk'){
+      // The walk is logged: a reminder still counting down has nothing left to say.
+      try {
+        const C = window.Capacitor;
+        const WA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.WalkAlarm;
+        if (WA) WA.cancel();
+      } catch(_){}
+    }
   }
   toast(logEvent.name + ' logged — ' + fmtClock(logAt));
   closeEventSheet();
@@ -2062,6 +2072,8 @@ $('#modenav').onclick = () => {
       const C = window.Capacitor;
       const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
       if (FA) FA.cancel();
+      const WA = C.Plugins.WalkAlarm;
+      if (WA) WA.cancel();
     } catch(_){}
     showView('audio');
   }

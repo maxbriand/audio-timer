@@ -54,6 +54,12 @@
             android:turnScreenOn="true"
             android:launchMode="singleInstance" />
 
+        <!-- The morning-light reminder, 30 minutes after the rise when no walk is logged
+             (⚙ toggle). One answer: Done, which stages the walk marker itself. -->
+        <receiver
+            android:name=".WalkAlarmReceiver"
+            android:exported="false" />
+
         <!-- The daily melatonin reminder (bedtime − 5 h, set in ⚙). Same shape as the
              fatigue alarm; its notification is un-swipeable and only "Taken ✓" ends it. -->
         <receiver

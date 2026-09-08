@@ -37,8 +37,10 @@ such tap in the 12 hours before its bedtime, read like the dose. Doses, daylight
 and screens-off markers belong to the night they precede and must never glue two
 nights together, so all ride outside the night clustering. The computer column is
 the day's Mac screen time (union of Screen Time's app-usage intervals), read from
-the cache tools/computer-time.py maintains — the one column measured by the Mac
-itself rather than logged on the phone.
+the cache tools/computer-time.py maintains. The work column is the day's LOGGED
+working time and computer_off the last work-session end before the night, both read
+straight from Cadence's local files (logtime.json / sessions.json) — with the
+screen-time cache, the columns measured by the Mac rather than logged on the phone.
 
 The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
 
@@ -159,6 +161,47 @@ CARDIO_SRC = Path(_cardio_env).expanduser() if _cardio_env else SRC.parent / "ca
 # The per-day computer-time cache tools/computer-time.py maintains from macOS Screen
 # Time (the sync refreshes it before this runs). Day -> minutes; a day the Mac never
 # measured stays blank, like every other missing source.
+# Cadence (the work-tracking app) keeps its whole history in two local JSON files, so
+# the diary reads them directly — no collector, no cache. logtime.json is the
+# deliberately LOGGED working time (the work column, minutes per local day);
+# sessions.json holds the precise activity spans, whose last end before a night's
+# bedtime is the computer_off marker. Cadence clips sessions at midnight (the
+# continuation restarts at 00:00 next day), so the off-moment must be read across
+# midnight — the same last-in-the-12-hours-before-bedtime reading as the dose.
+_cadence_env = os.environ.get("AUDIO_TIMER_CADENCE_DIR")
+CADENCE_DIR = (Path(_cadence_env).expanduser() if _cadence_env
+               else Path("~/Library/Application Support/Cadence").expanduser())
+
+
+def load_cadence():
+    def loc(ts):
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+    work = {}
+    try:
+        entries = json.loads((CADENCE_DIR / "logtime.json").read_text()).get("entries", [])
+    except (OSError, ValueError):
+        entries = []
+    for e in entries:
+        try:
+            day = loc(e["started_at"]).strftime("%Y-%m-%d")
+        except (KeyError, ValueError):
+            continue
+        m = e.get("minutes_logged")
+        if isinstance(m, (int, float)):
+            work[day] = work.get(day, 0) + m
+    ends = []
+    try:
+        sess = json.loads((CADENCE_DIR / "sessions.json").read_text()).get("sessions", [])
+    except (OSError, ValueError):
+        sess = []
+    for x in sess:
+        try:
+            ends.append(loc(x["ended_at"]))
+        except (KeyError, ValueError):
+            continue
+    return work, sorted(ends)
+
+
 _computer_env = os.environ.get("AUDIO_TIMER_COMPUTER_FILE")
 COMPUTER_FILE = (Path(_computer_env).expanduser() if _computer_env
                  else SRC.parent / "computer-time.json")
@@ -243,7 +286,7 @@ def mins(td):
     return td.total_seconds() / 60
 
 
-def attach_day_inputs(nights, doses, lights, screens):
+def attach_day_inputs(nights, doses, lights, screens, cad_ends):
     """The preceding day's zeitgebers: the last dose in the 12 h before bedtime, the
     first daylight marker in the 24 h before it, the last screens-off tap in the 12 h
     before it (the blue-light cutoff nearest the night, like the dose). All stay out
@@ -259,6 +302,9 @@ def attach_day_inputs(nights, doses, lights, screens):
         cut = [x for x in screens
                if n["bedtime"] - timedelta(hours=12) <= x["start"] <= n["bedtime"]]
         n["screens"] = cut[-1]["start"] if cut else None
+        off = [t for t in cad_ends
+               if n["bedtime"] - timedelta(hours=12) <= t <= n["bedtime"]]
+        n["cadence_off"] = off[-1] if off else None
 
 
 def pending_day_rows(nights, doses, lights, screens):
@@ -293,7 +339,7 @@ def pending_day_rows(nights, doses, lights, screens):
                      "waso": None, "final_wake": None, "rise": None, "tib": None,
                      "tst": None, "se": None, "fatigue": None, "note": "",
                      "melatonin": got.get("melatonin"), "light": got.get("light"),
-                     "screens": got.get("screens")})
+                     "screens": got.get("screens"), "cadence_off": None})
     return rows
 
 
@@ -323,7 +369,8 @@ def night_metrics(rows, overrides):
     n = {"date": (bedtime - timedelta(hours=12)).strftime("%Y-%m-%d"), "bedtime": bedtime,
          "sol": mins(onset - bedtime), "awakenings": None, "waso": None,
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
-         "fatigue": None, "light": None, "screens": None, "note": ""}
+         "fatigue": None, "light": None, "screens": None, "cadence_off": None,
+         "note": ""}
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
     # The FIRST score after onset: the morning's answer. A second alarm the same
@@ -434,7 +481,8 @@ def main():
 
     nights = [n for g in cluster(rows, timedelta(hours=GAP_NIGHT_H))
               for n in nights_in(g)]
-    attach_day_inputs(nights, doses, lights, screens)
+    cad_work, cad_ends = load_cadence()
+    attach_day_inputs(nights, doses, lights, screens, cad_ends)
     pending = pending_day_rows(nights, doses, lights, screens)
     # Newest first, like the app's own log; pending inputs-only rows fall into date
     # order with the nights instead of stacking on top out of sequence.
@@ -474,7 +522,7 @@ def main():
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["night", "morning_light", "cardio", "melatonin", "computer",
-                    "screens_off", "bedtime", "sol",
+                    "work", "computer_off", "screens_off", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
                     "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
@@ -483,6 +531,7 @@ def main():
                 n["date"], iso(n["light"]),
                 ";".join(iso(t) for t in cardio.get(n["date"], [])),
                 iso(n["melatonin"]), hm(computer.get(n["date"])),
+                hm(cad_work.get(n["date"])), iso(n["cadence_off"]),
                 iso(n["screens"]), iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),
