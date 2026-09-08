@@ -27,6 +27,16 @@ public class BootReceiver extends BroadcastReceiver {
       }
     }
 
+    long walkAt = WalkAlarm.at(c);
+    if (walkAt != 0){
+      if (walkAt > System.currentTimeMillis()){
+        WalkAlarm.schedule(c, walkAt);
+      } else {
+        WalkAlarm.clear(c);
+        WalkAlarmReceiver.show(c);
+      }
+    }
+
     if (!MelatoninAlarm.bedtime(c).isEmpty()){
       long next = MelatoninAlarm.nextAt(c);
       long missedBy = System.currentTimeMillis() - next;
