@@ -608,6 +608,7 @@
       <div class="cardtitle">ECG <span class="cardsub" style="display:inline">— single lead, µV, 130 / s</span></div>
       <canvas id="ecgScope" class="scope" style="margin-top:8px"></canvas>
       <div class="krow"><span>Last sample</span><b id="liveEcgV">—</b></div>
+      <div class="krow"><span>Signal (peak-to-peak, 1.4 s)</span><b id="liveEcgP2P">—</b></div>
       <div class="krow"><span>Sample timestamp</span><b id="liveEcgTs">—</b></div>
     </div>
 
@@ -2748,14 +2749,19 @@ $('#posfile').onchange = async e => {
     if (liveOpen){
       $('liveBatt').textContent = ($('batt').textContent || '').replace('batt ', '') || '—';
       if (!streamsOn && connected) startStreams();   // sensor arrived after the page opened
-      // A stale "on skin" is the strap going quiet, not the strap staying on:
-      // the H10 stops notifying when it loses the skin, so age the last packet.
+      // A stale "on skin" is the strap going quiet, not the strap staying on: the H10
+      // stops notifying when it loses the skin — nothing announces the loss — so the
+      // packet age is the primary signal, and the ECG collapse below is the second one.
       const age = lastLiveHrAt ? (Date.now() - lastLiveHrAt) / 1000 : null;
+      const flat = ecgLost();
       $('liveHrAge').textContent = age === null ? '—'
-        : age < 2 ? 'just now' : age.toFixed(0) + ' s ago' + (age > 5 ? ' — strap silent (off skin or out of range)' : '');
-      if (age !== null && age > 5){
+        : age < 1 ? 'just now'
+        : age.toFixed(1) + ' s ago' + (age > HR_SILENT ? ' — strap silent (off skin or out of range)' : '');
+      $('liveEcgP2P').textContent = ecgP2P() === null ? '—'
+        : Math.round(ecgP2P()) + ' µV' + (ecgRef ? ' · on-skin ref ' + Math.round(ecgRef) : '');
+      if (age !== null && (age > HR_SILENT || flat)){
         $('liveBpm').textContent = '--';
-        $('liveContact').textContent = 'no contact — strap silent';
+        $('liveContact').textContent = flat ? 'no contact — ECG flat' : 'no contact — strap silent';
       }
     }
     if (hr > 0) { $('bpm').textContent = hr; $('tick').style.left = pos(hr) + '%'; }
@@ -3206,6 +3212,45 @@ $('#posfile').onchange = async e => {
   let liveOpen = false, streamsOn = false, streamsFailed = false;
   let ecgBuf = [], accBuf = [], rrCount = 0, lastRr = [], lastLiveHrAt = 0;
 
+  /* How fast off-skin can honestly be called.
+
+     The heart-rate packets simply STOP when the strap leaves the skin, so silence is
+     the signal — and 1.5 s (two missed packets at 1/s) is as tight as it goes without
+     calling an ordinary Bluetooth hiccup a removal. The ECG is the second signal and
+     the faster one in the case the packets keep coming from damp electrodes with no
+     pulse behind them: it streams at 130 Hz whatever the contact is doing, so its
+     amplitude collapsing far below the on-skin level is contact lost.
+
+     Neither can go below one cardiac cycle: absence of a heartbeat takes a heartbeat's
+     worth of evidence, and at Maxime's resting 57 bpm (sinus bradycardia, 2024 ECG)
+     a beat gap is ~1.05 s. Hence the 1.4 s window — a shorter one would read the pause
+     between two QRS complexes as a flat line. The reference is learned from his own
+     signal, so there is no absolute µV threshold to get wrong. */
+  const HR_SILENT = 1.5;              // seconds of packet silence = off skin
+  const ECG_WIN = 180;                // 130 Hz × ~1.4 s — one full beat, worst case
+  const ECG_FLOOR = 200;              // µV — below this there is no reference worth trusting
+  let ecgRef = 0;                     // learned on-skin peak-to-peak, µV
+
+  function ecgP2P(){
+    if (ecgBuf.length < ECG_WIN) return null;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = ecgBuf.length - ECG_WIN; i < ecgBuf.length; i++){
+      const v = ecgBuf[i];
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    return hi - lo;
+  }
+
+  function ecgLost(){
+    const p = ecgP2P();
+    if (p === null) return false;
+    // Track the strap's own on-skin amplitude, decaying slowly (~35 s half-life at the
+    // 250 ms render tick) so the reference follows the wearer rather than one spike.
+    ecgRef = Math.max(p, ecgRef * 0.995);
+    return ecgRef > ECG_FLOOR && p < ecgRef * 0.2;
+  }
+
   // Posture from the gravity vector — the mean of the last half-second of
   // accelerometer samples. H10 axes as worn, measured on the strap itself
   // (Maxime, 2026-09-08 — four screenshots, one per position): X runs along
@@ -3421,7 +3466,7 @@ $('#posfile').onchange = async e => {
     const liveNow = h === '#live';
     $('livePage').classList.toggle('open', liveNow);
     if (liveNow && !liveOpen){
-      liveOpen = true; streamsFailed = false; lastLiveHrAt = 0;
+      liveOpen = true; streamsFailed = false; lastLiveHrAt = 0; ecgRef = 0;
       startStreams();
       requestAnimationFrame(liveDraw);
     } else if (!liveNow && liveOpen){
