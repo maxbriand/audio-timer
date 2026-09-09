@@ -247,7 +247,7 @@
   }
   #toast.on{opacity:1}
 
-  #zoneapp{
+  .zone{
     --ink:#0B0F14;
     --flood-in:#0F3826;   --num-in:#B9F6CF;
     --flood-warn:#4A3A10; --num-warn:#FFDF8E;
@@ -259,143 +259,143 @@
     --mono:'IBM Plex Mono',ui-monospace,monospace;
     --sans:'Archivo',system-ui,sans-serif;
   }
-  #zoneapp *{box-sizing:border-box;margin:0;padding:0}
-  #zoneapp{
+  .zone *{box-sizing:border-box;margin:0;padding:0}
+  .zone{
     background:var(--ink); color:var(--txt); font-family:var(--sans);
     display:flex; justify-content:center;
     transition:background .6s ease;
     -webkit-tap-highlight-color:transparent;
   }
-  #zoneapp[data-state="in"]{background:var(--flood-in)}
-  #zoneapp[data-state="warn"]{background:var(--flood-warn)}
-  #zoneapp[data-state="high"]{background:var(--flood-high)}
-  #zoneapp[data-state="low"]{background:var(--flood-low)}
+  .zone[data-state="in"]{background:var(--flood-in)}
+  .zone[data-state="warn"]{background:var(--flood-warn)}
+  .zone[data-state="high"]{background:var(--flood-high)}
+  .zone[data-state="low"]{background:var(--flood-low)}
   @media (prefers-reduced-motion: no-preference){
-    #zoneapp[data-state="high"].pulsing, #zoneapp[data-state="low"].pulsing{animation:pulse 1.1s ease-in-out infinite}
+    .zone[data-state="high"].pulsing, .zone[data-state="low"].pulsing{animation:pulse 1.1s ease-in-out infinite}
     @keyframes pulse{50%{filter:brightness(1.45)}}
   }
-  #zoneapp .app{width:100%;max-width:430px;min-height:100dvh;display:flex;flex-direction:column;padding:14px 18px calc(16px + env(safe-area-inset-bottom))}
+  .zone .app{width:100%;max-width:430px;min-height:100dvh;display:flex;flex-direction:column;padding:14px 18px calc(16px + env(safe-area-inset-bottom))}
 
-  #zoneapp /* status strip */
+  .zone /* status strip */
   .strip{display:flex;justify-content:space-between;align-items:center;font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-  #zoneapp .strip b{color:var(--txt);font-weight:500}
-  #zoneapp #dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#5a6672;margin-right:6px;vertical-align:1px}
-  #zoneapp.live #dot{background:#4ade80}
+  .zone .strip b{color:var(--txt);font-weight:500}
+  .zone #dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#5a6672;margin-right:6px;vertical-align:1px}
+  .zone.live #dot{background:#4ade80}
 
-  #zoneapp /* numeral */
+  .zone /* numeral */
   .hero{flex:1 0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:220px}
-  #zoneapp #bpm{font:700 clamp(96px,36vw,170px)/0.9 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-  #zoneapp[data-state="in"] #bpm{color:var(--num-in)}
-  #zoneapp[data-state="warn"] #bpm{color:var(--num-warn)}
-  #zoneapp[data-state="high"] #bpm{color:var(--num-high)}
-  #zoneapp[data-state="low"] #bpm{color:var(--num-low)}
-  #zoneapp[data-state="idle"] #bpm{color:#3a4550}
-  #zoneapp[data-state="idle"].live #bpm{color:#E7ECF0}
-  #zoneapp .unit{font:500 12px/1 var(--mono);letter-spacing:.3em;text-transform:uppercase;color:var(--dim);margin-top:10px}
+  .zone #bpm{font:700 clamp(96px,36vw,170px)/0.9 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .zone[data-state="in"] #bpm{color:var(--num-in)}
+  .zone[data-state="warn"] #bpm{color:var(--num-warn)}
+  .zone[data-state="high"] #bpm{color:var(--num-high)}
+  .zone[data-state="low"] #bpm{color:var(--num-low)}
+  .zone[data-state="idle"] #bpm{color:#3a4550}
+  .zone[data-state="idle"].live #bpm{color:#E7ECF0}
+  .zone .unit{font:500 12px/1 var(--mono);letter-spacing:.3em;text-transform:uppercase;color:var(--dim);margin-top:10px}
 
-  #zoneapp /* zone band */
+  .zone /* zone band */
   .band{width:100%;margin-top:26px}
-  #zoneapp .ztrack{position:relative;height:14px;border-radius:7px;background:rgba(0,0,0,.35);overflow:visible}
-  #zoneapp #seg{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.26);border-radius:7px}
-  #zoneapp #tick{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);transition:left .5s ease;opacity:0}
-  #zoneapp.live #tick{opacity:1}
-  #zoneapp .bandlbl{position:relative;height:16px;margin-top:6px;font:500 11px/1 var(--mono);color:var(--dim)}
-  #zoneapp #lblMin, #zoneapp #lblMax{position:absolute;transform:translateX(-50%)}
+  .zone .ztrack{position:relative;height:14px;border-radius:7px;background:rgba(0,0,0,.35);overflow:visible}
+  .zone #seg{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.26);border-radius:7px}
+  .zone #tick{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);transition:left .5s ease;opacity:0}
+  .zone.live #tick{opacity:1}
+  .zone .bandlbl{position:relative;height:16px;margin-top:6px;font:500 11px/1 var(--mono);color:var(--dim)}
+  .zone #lblMin, .zone #lblMax{position:absolute;transform:translateX(-50%)}
 
-  #zoneapp /* state line */
+  .zone /* state line */
   #stateline{margin-top:16px;text-align:center;font:500 14px/1.5 var(--mono);letter-spacing:.12em;text-transform:uppercase;min-height:22px}
-  #zoneapp #stateline .sub{display:block;font-size:11px;color:var(--dim);letter-spacing:.14em}
+  .zone #stateline .sub{display:block;font-size:11px;color:var(--dim);letter-spacing:.14em}
 
-  #zoneapp /* settings */
+  .zone /* settings */
   .card{margin-top:22px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
-  #zoneapp .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-  #zoneapp .field label{display:block;font:500 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
-  #zoneapp .field input{width:100%;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;color:var(--txt);font:700 20px/1 var(--mono);padding:10px 6px;text-align:center}
-  #zoneapp .field input:focus-visible{outline:2px solid #fff;outline-offset:1px}
-  #zoneapp .toggles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
-  #zoneapp .tgl{border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--dim);border-radius:9px;padding:11px;font:500 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
-  #zoneapp .tgl[aria-pressed="true"]{background:rgba(255,255,255,.16);color:var(--txt);border-color:rgba(255,255,255,.35)}
-  #zoneapp .tgl:focus-visible{outline:2px solid #fff;outline-offset:1px}
+  .zone .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .zone .field label{display:block;font:500 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .zone .field input{width:100%;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;color:var(--txt);font:700 20px/1 var(--mono);padding:10px 6px;text-align:center}
+  .zone .field input:focus-visible{outline:2px solid #fff;outline-offset:1px}
+  .zone .toggles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .zone .tgl{border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--dim);border-radius:9px;padding:11px;font:500 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+  .zone .tgl[aria-pressed="true"]{background:rgba(255,255,255,.16);color:var(--txt);border-color:rgba(255,255,255,.35)}
+  .zone .tgl:focus-visible{outline:2px solid #fff;outline-offset:1px}
 
-  #zoneapp /* band breakdown */
+  .zone /* band breakdown */
   .bands{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
-  #zoneapp .bd{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;padding:9px 4px;text-align:center}
-  #zoneapp .bd span{display:block;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--dim);margin-bottom:6px}
-  #zoneapp .bd b{font:700 16px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--txt)}
-  #zoneapp .bd.on{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4)}
-  #zoneapp .bd.on b{color:#fff}
+  .zone .bd{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;padding:9px 4px;text-align:center}
+  .zone .bd span{display:block;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--dim);margin-bottom:6px}
+  .zone .bd b{font:700 16px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--txt)}
+  .zone .bd.on{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4)}
+  .zone .bd.on b{color:#fff}
 
-  #zoneapp /* stats */
+  .zone /* stats */
   .stats{display:flex;justify-content:space-between;align-items:center;margin-top:16px;font:500 12px/1 var(--mono);letter-spacing:.08em;color:var(--dim)}
-  #zoneapp .stats b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums}
-  #zoneapp #timer{margin-top:12px;font:500 30px/1 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.04em;min-height:34px}
+  .zone .stats b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums}
+  .zone #timer{margin-top:12px;font:500 30px/1 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.04em;min-height:34px}
 
-  #zoneapp /* parts */
+  .zone /* parts */
   .partsbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;font:500 12px/1.3 var(--mono);letter-spacing:.06em;color:var(--dim)}
-  #zoneapp .partsbar b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums}
-  #zoneapp .ghost{flex:none;border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--txt);border-radius:9px;padding:10px 13px;font:500 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
-  #zoneapp .ghost:focus-visible{outline:2px solid #fff;outline-offset:2px}
-  #zoneapp .setbar{display:flex;justify-content:space-between;align-items:center;gap:10px;font:500 12px/1.3 var(--mono);letter-spacing:.06em;color:var(--dim)}
-  #zoneapp .grid.two{grid-template-columns:1fr 1fr}
-  #zoneapp .fieldhint{margin-top:10px;font:400 11px/1.5 var(--mono);color:var(--dim)}
-  #zoneapp .subtitle{margin-top:16px;font:700 13px/1.2 var(--sans);letter-spacing:.02em}
-  #zoneapp .field.wide{margin-top:8px}
-  #zoneapp .field.wide input{text-align:left;font:500 14px/1 var(--mono);padding:10px}
-  #zoneapp #syncStatus.bad{color:#FFC9C4}
-  #zoneapp #pmax{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:8px;min-height:13px}
-  #zoneapp #partsDlg, #zoneapp #setDlg, #zoneapp #logDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;border:1px solid var(--line);background:#121821;color:var(--txt);border-radius:16px;padding:18px;width:calc(100% - 28px);max-width:430px;max-height:82dvh;overflow:auto}
-  #zoneapp #partsDlg::backdrop, #zoneapp #setDlg::backdrop, #zoneapp #logDlg::backdrop{background:rgba(0,0,0,.62)}
-  #zoneapp #partsTitle, #zoneapp #setTitle, #zoneapp #logTitle{font:700 16px/1.2 var(--sans);letter-spacing:.02em}
-  #zoneapp #partsHint, #zoneapp #logHint{margin-top:6px;font:400 11.5px/1.5 var(--mono);color:var(--dim)}
-  #zoneapp .plist{list-style:none;margin:14px 0 0}
-  #zoneapp .plist li, #zoneapp .running{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-bottom:8px}
-  #zoneapp .running{border-style:dashed}
-  #zoneapp .running[hidden]{display:none}
-  #zoneapp .pn{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase}
-  #zoneapp .pv{text-align:right;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--dim)}
-  #zoneapp .pv em{display:block;font-style:normal;margin-bottom:5px}
-  #zoneapp .pv b{font:700 15px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--txt)}
-  #zoneapp #partsEmpty, #zoneapp #logEmpty{margin-top:14px;font:400 12px/1.5 var(--mono);color:var(--dim)}
-  #zoneapp #partsEmpty[hidden], #zoneapp #logEmpty[hidden]{display:none}
-  #zoneapp #partsClose, #zoneapp #logClose{margin-top:6px;width:100%}
-  #zoneapp .pn small{display:block;font-size:9px;font-weight:400;color:var(--dim);margin-top:4px;letter-spacing:.08em}
-  #zoneapp #logStatus{margin:12px 0 2px}
+  .zone .partsbar b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums}
+  .zone .ghost{flex:none;border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--txt);border-radius:9px;padding:10px 13px;font:500 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+  .zone .ghost:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .zone .setbar{display:flex;justify-content:space-between;align-items:center;gap:10px;font:500 12px/1.3 var(--mono);letter-spacing:.06em;color:var(--dim)}
+  .zone .grid.two{grid-template-columns:1fr 1fr}
+  .zone .fieldhint{margin-top:10px;font:400 11px/1.5 var(--mono);color:var(--dim)}
+  .zone .subtitle{margin-top:16px;font:700 13px/1.2 var(--sans);letter-spacing:.02em}
+  .zone .field.wide{margin-top:8px}
+  .zone .field.wide input{text-align:left;font:500 14px/1 var(--mono);padding:10px}
+  .zone #syncStatus.bad{color:#FFC9C4}
+  .zone #pmax{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:8px;min-height:13px}
+  .zone #partsDlg, .zone #setDlg, .zone #logDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;border:1px solid var(--line);background:#121821;color:var(--txt);border-radius:16px;padding:18px;width:calc(100% - 28px);max-width:430px;max-height:82dvh;overflow:auto}
+  .zone #partsDlg::backdrop, .zone #setDlg::backdrop, .zone #logDlg::backdrop{background:rgba(0,0,0,.62)}
+  .zone #partsTitle, .zone #setTitle, .zone #logTitle{font:700 16px/1.2 var(--sans);letter-spacing:.02em}
+  .zone #partsHint, .zone #logHint{margin-top:6px;font:400 11.5px/1.5 var(--mono);color:var(--dim)}
+  .zone .plist{list-style:none;margin:14px 0 0}
+  .zone .plist li, .zone .running{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-bottom:8px}
+  .zone .running{border-style:dashed}
+  .zone .running[hidden]{display:none}
+  .zone .pn{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .zone .pv{text-align:right;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--dim)}
+  .zone .pv em{display:block;font-style:normal;margin-bottom:5px}
+  .zone .pv b{font:700 15px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--txt)}
+  .zone #partsEmpty, .zone #logEmpty{margin-top:14px;font:400 12px/1.5 var(--mono);color:var(--dim)}
+  .zone #partsEmpty[hidden], .zone #logEmpty[hidden]{display:none}
+  .zone #partsClose, .zone #logClose{margin-top:6px;width:100%}
+  .zone .pn small{display:block;font-size:9px;font-weight:400;color:var(--dim);margin-top:4px;letter-spacing:.08em}
+  .zone #logStatus{margin:12px 0 2px}
 
-  #zoneapp /* actions */
+  .zone /* actions */
   #session{margin-top:16px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
-  #zoneapp #session.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
-  #zoneapp #session:focus-visible{outline:2px solid #fff;outline-offset:2px}
-  #zoneapp #connect{margin-top:10px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
-  #zoneapp #connect.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
-  #zoneapp #connect:focus-visible{outline:2px solid #fff;outline-offset:2px}
-  #zoneapp #hint{margin-top:10px;font:400 11.5px/1.5 var(--mono);color:var(--dim);text-align:center;min-height:16px}
+  .zone #session.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
+  .zone #session:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .zone #connect{margin-top:10px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
+  .zone #connect.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
+  .zone #connect:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .zone #hint{margin-top:10px;font:400 11.5px/1.5 var(--mono);color:var(--dim);text-align:center;min-height:16px}
 
-  #zoneapp .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .zone .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-  #zoneapp /* full-screen pages (settings, #zoneapp live data) — real pages, #zoneapp not dialogs */
+  .zone /* full-screen pages (settings, .zone live data) — real pages, .zone not dialogs */
   .page{position:fixed;inset:0;z-index:20;background:var(--ink);display:none;overflow-y:auto;-webkit-overflow-scrolling:touch}
-  #zoneapp .page.open{display:block}
-  #zoneapp .page .inner{max-width:430px;margin:0 auto;padding:14px 18px calc(24px + env(safe-area-inset-bottom))}
-  #zoneapp .pagehead{display:flex;align-items:center;gap:12px;margin-bottom:6px}
-  #zoneapp .pagehead h2{font:700 18px/1.2 var(--sans);letter-spacing:.02em}
-  #zoneapp .pagehead .ghost{flex:none}
-  #zoneapp .strip .ghost{padding:7px 10px;font-size:10px}
-  #zoneapp .krow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font:500 11px/1.4 var(--mono);letter-spacing:.06em;color:var(--dim)}
-  #zoneapp .krow:last-child{border-bottom:none}
-  #zoneapp .krow b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums;text-align:right;word-break:break-word}
-  #zoneapp .scope{width:100%;height:120px;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:9px;display:block}
-  #zoneapp .cardtitle{font:700 13px/1.2 var(--sans);letter-spacing:.02em;margin-bottom:4px}
-  #zoneapp .cardsub{font:400 10.5px/1.5 var(--mono);color:var(--dim);margin-bottom:6px}
-  #zoneapp #liveBpm{font:700 44px/1 var(--mono);font-variant-numeric:tabular-nums}
-  #zoneapp #liveNote{margin-top:8px;font:400 11px/1.5 var(--mono);color:#FFDF8E;min-height:0}
-  #zoneapp #liveNote:empty{display:none}
+  .zone .page.open{display:block}
+  .zone .page .inner{max-width:430px;margin:0 auto;padding:14px 18px calc(24px + env(safe-area-inset-bottom))}
+  .zone .pagehead{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .zone .pagehead h2{font:700 18px/1.2 var(--sans);letter-spacing:.02em}
+  .zone .pagehead .ghost{flex:none}
+  .zone .strip .ghost{padding:7px 10px;font-size:10px}
+  .zone .krow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font:500 11px/1.4 var(--mono);letter-spacing:.06em;color:var(--dim)}
+  .zone .krow:last-child{border-bottom:none}
+  .zone .krow b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums;text-align:right;word-break:break-word}
+  .zone .scope{width:100%;height:120px;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:9px;display:block}
+  .zone .cardtitle{font:700 13px/1.2 var(--sans);letter-spacing:.02em;margin-bottom:4px}
+  .zone .cardsub{font:400 10.5px/1.5 var(--mono);color:var(--dim);margin-bottom:6px}
+  .zone #liveBpm{font:700 44px/1 var(--mono);font-variant-numeric:tabular-nums}
+  .zone #liveNote{margin-top:8px;font:400 11px/1.5 var(--mono);color:#FFDF8E;min-height:0}
+  .zone #liveNote:empty{display:none}
 
   /* Embedded as a full-screen overlay over Audio Timer: shown by the 🏃 / 🫀 buttons,
      hidden by its ✕. The page's own settings/live pages stack inside it as before. */
   #zoneapp{position:fixed;inset:0;z-index:40;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}
   #zoneapp.on{display:flex}
-  #zoneapp .app{padding-top:calc(14px + var(--safe-t))}
-  #zoneapp .page .inner{padding-top:calc(14px + var(--safe-t))}
+  .zone .app{padding-top:calc(14px + var(--safe-t))}
+  .zone .page .inner{padding-top:calc(14px + var(--safe-t))}
   /* Polar H10 row in ⚙ — zone-alarm's connect button, driven by its script, restyled here */
   #setsheet #connect{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);
     background:var(--accent);color:#141414;font-size:15px;font-weight:600}
@@ -408,13 +408,18 @@
      the screen's height as much as its width. The settings/live pages inside keep
      their own scrolling. */
   #zoneapp{overflow:hidden}
-  #zoneapp .app{height:100%;min-height:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
-  #zoneapp .hero{flex:1 1 auto;min-height:0;overflow:hidden}
-  #zoneapp #bpm{font-size:min(36vw,17vh)}
-  #zoneapp .band{margin-top:14px}
-  #zoneapp #stateline{margin-top:10px}
-  #zoneapp #timer{margin-top:6px;min-height:0}
-  #zoneapp .card{margin-top:12px}
+  .zone .app{height:100%;min-height:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .zone .hero{flex:1 1 auto;min-height:0;overflow:hidden}
+  .zone #bpm{font-size:min(36vw,17vh)}
+  .zone .band{margin-top:14px}
+  .zone #stateline{margin-top:10px}
+  .zone #timer{margin-top:6px;min-height:0}
+  .zone .card{margin-top:12px}
+  /* Live data is its own page, a sibling of the cardio overlay, not a sub-page of it:
+     a .zone wrapper carries zone-alarm's theme to it, display:contents so the section's
+     own fixed layout is the whole page. Above everything of Audio Timer's. */
+  #livewrap{display:contents}
+  #livewrap .page{z-index:40}
 </style>
 </head>
 <body>
@@ -476,7 +481,7 @@
 </div>
 
 <!-- ======== zone alarm — the cardio app, embedded whole (ported 2026-09-09) ======== -->
-<div id="zoneapp" data-state="idle">
+<div id="zoneapp" class="zone" data-state="idle">
 <div class="app">
 
   <div class="strip">
@@ -572,6 +577,12 @@
   </div>
 </section>
 
+
+<p id="live" class="sr-only" role="status" aria-live="polite"></p>
+</div>
+
+<!-- Live data — separate page, fed by the same strap connection as zone alarm -->
+<div id="livewrap" class="zone">
 <section id="livePage" class="page" role="region" aria-labelledby="liveTitle">
   <div class="inner">
     <div class="pagehead">
@@ -619,8 +630,6 @@
     </div>
   </div>
 </section>
-
-<p id="live" class="sr-only" role="status" aria-live="polite"></p>
 </div>
 
 <div id="eventsheet">
@@ -3370,7 +3379,7 @@ $('#posfile').onchange = async e => {
 
   async function startStreams(){
     if (streamsOn || streamsFailed) return;
-    if (!isConnected()){ $('liveNote').textContent = 'Connect the sensor to see live data.'; return; }
+    if (!isConnected()){ $('liveNote').textContent = 'Connect the sensor in ⚙ settings to see live data.'; return; }
     streamsOn = true;
     $('liveNote').textContent = '';
     if (window.NativeBLE){ if (NativeBLE.liveMode) NativeBLE.liveMode(true); return; }
@@ -3454,20 +3463,13 @@ $('#posfile').onchange = async e => {
    zone-alarm's own router (which also stops the 130 Hz streams). */
 (() => {
   const root = document.getElementById('zoneapp');
-  let liveOnly = false;                       // opened straight on Live: Back leaves the app
-  const open = hash => {
-    liveOnly = hash === '#live';
-    root.classList.add('on');
-    if (hash && location.hash !== hash) location.hash = hash;
+  // 🏃 opens the cardio overlay; 🫀 opens the Live page, which lives beside the overlay
+  // (never inside it), as zone-alarm's #live route — so its Back is simply home.
+  document.getElementById('zonenav').onclick = () => { root.classList.add('on'); };
+  document.getElementById('livenav').onclick = () => {
+    root.classList.remove('on');
+    if (location.hash !== '#live') location.hash = '#live';
   };
-  // 🫀 goes straight to Live, so its Back goes straight home: when the live page
-  // closes through zone-alarm's own router, the overlay goes with it — the cardio
-  // screen underneath was never what was asked for.
-  window.addEventListener('hashchange', () => {
-    if (liveOnly && location.hash !== '#live'){ liveOnly = false; root.classList.remove('on'); }
-  });
-  document.getElementById('zonenav').onclick = () => open('');
-  document.getElementById('livenav').onclick = () => open('#live');
   document.getElementById('zoneClose').onclick = () => {
     if (location.hash) location.hash = '';
     root.classList.remove('on');
