@@ -13,6 +13,18 @@ public class MainActivity extends BridgeActivity {
   // so a queued night-time shake can land, so it must show over the keyguard. Every other
   // launch clears the flags again — the app has no business over the lock screen otherwise.
   static final String EXTRA_WAKE_FOR_SHAKE = "wakeForShake";
+  /* Set by the wake-up alarm's "I'm up" — as a direct activity launch, because Android 12
+     forbids a notification action that trampolines through a receiver. */
+  static final String EXTRA_WAKE_UP = "wakeUp";
+
+  private void applyWakeUp(Intent intent){
+    if (intent == null || !intent.getBooleanExtra(EXTRA_WAKE_UP, false)) return;
+    WakeAlarm.up(this, System.currentTimeMillis());
+    android.app.NotificationManager nm =
+      (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+    if (nm != null) nm.cancel(WakeAlarmReceiver.NOTIF_ID);
+    intent.removeExtra(EXTRA_WAKE_UP);
+  }
 
   private void applyWakeFlags(Intent intent){
     boolean wake = intent != null && intent.getBooleanExtra(EXTRA_WAKE_FOR_SHAKE, false);
@@ -26,11 +38,13 @@ public class MainActivity extends BridgeActivity {
   protected void onNewIntent(Intent intent){
     super.onNewIntent(intent);
     applyWakeFlags(intent);
+    applyWakeUp(intent);
   }
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
     applyWakeFlags(getIntent());
+    applyWakeUp(getIntent());
     registerPlugin(ShakeWatchPlugin.class);
     registerPlugin(LogUploadPlugin.class);
     registerPlugin(FatigueAlarmPlugin.class);

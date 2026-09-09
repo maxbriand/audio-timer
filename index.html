@@ -91,7 +91,9 @@
   }
   .syncin:focus{outline:0;border-color:var(--accent)}
   .syncin::placeholder{color:var(--muted)}
-  #upstatus,#bedstatus,#wakestatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #nextwake{display:none;font-size:13px;color:var(--muted);padding:2px 2px 10px;line-height:1.5;font-variant-numeric:tabular-nums}
+  #nextwake b{color:var(--accent);font-weight:600}
+  #upstatus,#wakestatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
@@ -437,6 +439,7 @@
 
 <main>
 <div id="audioview">
+  <div id="nextwake"></div>
   <div class="empty" id="empty">
     No audio yet.<br>Tap <b>Add audio</b> and pick files from your phone.<br>
     They're stored inside this app — no internet needed.
@@ -720,22 +723,20 @@
 
     <div class="setsplit">
       <div class="setrow">
-        <label>Bedtime — 5 h before it, an alarm asks to take the melatonin (0.5 mg).
-               It snoozes but only "Taken ✓" closes it. APK only.</label>
-        <input class="syncin" type="time" id="bedtime">
-        <div id="bedstatus"></div>
-      </div>
-      <div class="sheetfoot">
-        <button id="bedsave">Save</button>
-        <button id="bedoff">Turn off</button>
-      </div>
-    </div>
-
-    <div class="setsplit">
-      <div class="setrow">
-        <label>Wake-up time — an alarm rings at it every day, over the lock screen like a clock.
-               "I'm up" stops it, snooze is 10 min. APK only.</label>
+        <label>Wake-up time — the goal. An alarm rings at it over the lock screen like a clock:
+               one snooze, then only "I'm up", which opens the day screen and logs the rise. APK only.</label>
         <input class="syncin" type="time" id="waketime">
+      </div>
+      <div class="setrow">
+        <label>Accepted delay — minutes past the goal that still count as an acceptable rise.
+               Rise within half an hour of that limit and tomorrow rings 30 min earlier than you
+               rose; anything else returns to the goal.</label>
+        <input class="syncin" type="number" id="wakedelay" inputmode="numeric" min="0" max="180" step="5" placeholder="30">
+      </div>
+      <div class="setrow">
+        <label>Sleep duration (hh:mm) — how long the night should be. It sets bedtime at
+               wake-up − duration, and with it the melatonin reminder 5 h before bed.</label>
+        <input class="syncin" type="time" id="sleepdur">
         <div id="wakestatus"></div>
       </div>
       <div class="sheetfoot">
@@ -2119,22 +2120,54 @@ function buildSettings(){
   }
 }
 $('#setnav').onclick = () => {
-  buildSettings(); paintUpload(); paintBedtime(); paintWaketime(); paintShakeHealth();
+  buildSettings(); paintUpload(); paintSchedule(); paintShakeHealth();
   $('#setsheet').classList.add('on');
 };
 
-/* ---------- bedtime → melatonin reminder ----------
-   The alarm itself is native — it must ring with the page long gone — so the page only
-   stores the bedtime and pushes it across on boot and on save, the same no-drift contract
-   as the upload config. 5 h before bed is the chronobiotic timing for the 0.5 mg dose. */
+/* ---------- sleep schedule: wake-up alarm, bedtime, melatonin ----------
+   Three numbers are set in ⚙ — the goal wake-up time, the accepted delay past it, and how
+   long the night should be — and the rest is derived from them (Maxime, 2026-09-09):
+
+     bedtime   = goal − sleep duration
+     melatonin = bedtime − 5 h          (the chronobiotic timing for the 0.5 mg dose)
+
+   so there is no separate bedtime to keep in step: moving the goal moves the whole evening
+   with it. Both alarms are native — they must ring with the page long gone — and the page
+   only stores the settings and pushes them across on boot and on save.
+
+   Tomorrow's wake-up is NOT simply the goal: the native side recomputes it at each rise
+   (rise near the accepted limit pulls the next one 30 min earlier, anything else returns to
+   the goal), so the page asks for the armed moment rather than assuming it. */
 const nativeMelatonin = (() => {
   const C = window.Capacitor;
   return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.MelatoninAlarm) || null;
 })();
-let bedtimeCfg = '';
+const nativeWake = (() => {
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.WakeAlarm) || null;
+})();
+
+const SLEEP_DEFAULT = 540, DELAY_DEFAULT = 30;
+let wakeGoal = '', wakeDelay = DELAY_DEFAULT, sleepMin = SLEEP_DEFAULT;
+let bedtimeCfg = '';         // derived — the 🌙 gate and the melatonin alarm both read it
+let nextWakeAt = 0;          // epoch ms of the armed alarm, from the native side
 let melatoninMissedAt = 0;   // an armed ring the system swallowed — see the day screen line
-async function loadBedtime(){
-  bedtimeCfg = (await getMeta('bedtime')) || '';
+
+const hhmmToMin = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+const minToHhmm = m => String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0') +
+  ':' + String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0');
+const fmtDur = m => Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0');
+function reminderClock(t){ return minToHhmm(hhmmToMin(t) - 300); }   // 5 h before bed
+
+function deriveBedtime(){
+  bedtimeCfg = wakeGoal ? minToHhmm(hhmmToMin(wakeGoal) - sleepMin) : '';
+}
+
+async function pushSchedule(){
+  deriveBedtime();
+  if (nativeWake){
+    try { await nativeWake.configure({goal: wakeGoal, delayMin: wakeDelay}); } catch(_){}
+  }
   if (nativeMelatonin){
     try {
       const r = await nativeMelatonin.configure({bedtime: bedtimeCfg});
@@ -2144,84 +2177,114 @@ async function loadBedtime(){
       }
     } catch(_){}
   }
+  await refreshNextWake();
 }
-function reminderClock(t){
-  const [h, m] = t.split(':').map(Number);
-  const mins = ((h * 60 + m) - 300 + 1440) % 1440;
-  return String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
-}
-function paintBedtime(){
-  $('#bedtime').value = bedtimeCfg;
-  $('#bedstatus').textContent = !bedtimeCfg ? 'Off.'
-    : 'Rings at ' + reminderClock(bedtimeCfg) + ' — 5 h before ' + bedtimeCfg + '.'
-      + (nativeMelatonin ? '' : ' Needs the APK to actually ring.');
-}
-$('#bedsave').onclick = async () => {
-  const v = $('#bedtime').value;
-  if (!v) return toast('Pick a bedtime first');
-  bedtimeCfg = v;
-  await setMeta('bedtime', v);
-  if (nativeMelatonin){
-    try { await nativeMelatonin.configure({bedtime: v}); } catch(_){}
-  }
-  paintBedtime();
-  paintModenav();                     // a new bedtime moves the 🌙 window with it
-  toast('Melatonin alarm set — ' + reminderClock(v));
-};
-$('#bedoff').onclick = async () => {
-  bedtimeCfg = '';
-  await setMeta('bedtime', '');
-  if (nativeMelatonin){
-    try { await nativeMelatonin.configure({bedtime: ''}); } catch(_){}
-  }
-  paintBedtime();
-  paintModenav();                     // no bedtime, no gate — the button is back all day
-  toast('Melatonin alarm off');
-};
-$('#closeset').onclick = () => $('#setsheet').classList.remove('on');
-$('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
 
-/* ---------- wake-up time → wake-up alarm ----------
-   Same shape as the melatonin reminder: the alarm is native (it must ring with the page
-   long gone), the page stores the time and pushes it across on boot and on save. A set
-   time is pushed; an empty one is pushed only by the explicit Turn off — a lost meta
-   read must never silently switch a wake-up alarm off. */
-const nativeWake = (() => {
-  const C = window.Capacitor;
-  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.WakeAlarm) || null;
-})();
-let waketimeCfg = '';
-async function loadWaketime(){
-  waketimeCfg = (await getMeta('waketime')) || '';
-  if (nativeWake && waketimeCfg){
-    try { await nativeWake.configure({time: waketimeCfg}); } catch(_){}
+/* The armed moment comes from the native side, which owns the rule. Without the APK there
+   is no alarm at all, so the page shows the goal's next occurrence — what it would be. */
+async function refreshNextWake(){
+  nextWakeAt = 0;
+  if (!wakeGoal) return;
+  if (nativeWake){
+    try {
+      const st = await nativeWake.status();
+      nextWakeAt = st && st.nextAt ? Number(st.nextAt) : 0;
+    } catch(_){}
+  }
+  if (!nextWakeAt){
+    const d = new Date();
+    d.setHours(Math.floor(hhmmToMin(wakeGoal) / 60), hhmmToMin(wakeGoal) % 60, 0, 0);
+    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+    nextWakeAt = d.getTime();
   }
 }
-function paintWaketime(){
-  $('#waketime').value = waketimeCfg;
-  $('#wakestatus').textContent = !waketimeCfg ? 'Off.'
-    : 'Rings every day at ' + waketimeCfg + '.' + (nativeWake ? '' : ' Needs the APK to actually ring.');
+
+function nextWakeLabel(){
+  if (!nextWakeAt) return '';
+  const d = new Date(nextWakeAt);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - today) / 86400e3);
+  const when = days === 0 ? 'today' : days === 1 ? 'tomorrow'
+    : d.toLocaleDateString(undefined, {weekday: 'short'});
+  return fmtClock(nextWakeAt) + ' ' + when;
 }
+
+async function loadSchedule(){
+  wakeGoal = (await getMeta('waketime')) || '';
+  const d = parseInt(await getMeta('wakedelay'), 10);
+  wakeDelay = isNaN(d) ? DELAY_DEFAULT : d;
+  const sl = parseInt(await getMeta('sleepdur'), 10);
+  sleepMin = isNaN(sl) ? SLEEP_DEFAULT : sl;
+  deriveBedtime();
+  // A set schedule is pushed on every boot; an empty one is pushed only by the explicit
+  // Turn off — a lost meta read must never silently switch the alarms off.
+  if (wakeGoal) await pushSchedule(); else await refreshNextWake();
+}
+
+function paintSchedule(){
+  $('#waketime').value = wakeGoal;
+  $('#wakedelay').value = wakeDelay;
+  $('#sleepdur').value = minToHhmm(sleepMin);
+  $('#wakestatus').textContent = !wakeGoal ? 'Off.'
+    : 'Next alarm ' + nextWakeLabel() + ' · goal ' + wakeGoal + ' (+' + wakeDelay +
+      ' min accepted) · ' + fmtDur(sleepMin) + ' in bed from ' + bedtimeCfg +
+      ' · melatonin ' + reminderClock(bedtimeCfg) +
+      (nativeWake ? '' : ' · needs the APK to actually ring');
+  const nw = $('#nextwake');
+  if (wakeGoal && nextWakeAt){
+    nw.innerHTML = '⏰ Wake-up <b></b>';
+    nw.querySelector('b').textContent = nextWakeLabel();
+    nw.style.display = 'block';
+  } else { nw.style.display = 'none'; nw.textContent = ''; }
+}
+
 $('#wakesave').onclick = async () => {
   const v = $('#waketime').value;
-  if (!v) return toast('Pick a time first');
-  waketimeCfg = v;
-  await setMeta('waketime', v);
-  if (nativeWake){
-    try { await nativeWake.configure({time: v}); } catch(_){}
-  }
-  paintWaketime();
-  toast('Wake-up alarm set — ' + v);
+  if (!v) return toast('Pick a wake-up time first');
+  wakeGoal = v;
+  const d = parseInt($('#wakedelay').value, 10);
+  wakeDelay = isNaN(d) ? DELAY_DEFAULT : Math.min(180, Math.max(0, d));
+  const sl = $('#sleepdur').value ? hhmmToMin($('#sleepdur').value) : SLEEP_DEFAULT;
+  sleepMin = Math.min(720, Math.max(240, sl));
+  await setMeta('waketime', wakeGoal);
+  await setMeta('wakedelay', String(wakeDelay));
+  await setMeta('sleepdur', String(sleepMin));
+  await pushSchedule();
+  paintSchedule();
+  paintModenav();                     // the derived bedtime moves the 🌙 window with it
+  toast('Wake-up alarm set — ' + wakeGoal);
 };
 $('#wakeoff').onclick = async () => {
-  waketimeCfg = '';
+  wakeGoal = ''; nextWakeAt = 0;
   await setMeta('waketime', '');
-  if (nativeWake){
-    try { await nativeWake.configure({time: ''}); } catch(_){}
-  }
-  paintWaketime();
-  toast('Wake-up alarm off');
+  deriveBedtime();
+  if (nativeWake){ try { await nativeWake.configure({goal: '', delayMin: wakeDelay}); } catch(_){} }
+  if (nativeMelatonin){ try { await nativeMelatonin.configure({bedtime: ''}); } catch(_){} }
+  paintSchedule();
+  paintModenav();                     // no bedtime, no gate — the button is back all day
+  toast('Wake-up and melatonin alarms off');
 };
+
+/* "I'm up" on the alarm, pressed while the page was not running: the native side kept the
+   moment, so the app opens on the day screen and writes the rise at the time it happened. */
+async function checkPendingWake(){
+  if (nativeWake){
+    try {
+      const r = await nativeWake.consumeUp();
+      const at = r && r.at ? Number(r.at) : 0;
+      if (at > 0){
+        await logWakeUp('', at);
+        showView('sun');
+        return;
+      }
+    } catch(_){}
+  }
+  await refreshNextWake();
+  paintSchedule();
+}
+
+$('#closeset').onclick = () => $('#setsheet').classList.remove('on');
+$('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
 
 /* moon/sun screens — moon is night mode (the audio screen); sun is day mode, an empty
    screen for now. Both directions ask for confirmation, and cancelling stays put.
@@ -2255,13 +2318,15 @@ function showView(v){
   // One toggle button, wearing the icon of the mode you are IN.
   $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
   paintModenav();
-  if (v === 'sun'){ paintEvents(); paintSun(); }
+  if (v === 'sun'){ paintEvents(); paintSun(); } else paintSchedule();
   // The mode survives an app restart: closed in day mode, it reopens in day mode.
   setMeta('view', v).catch(() => {});
   syncShake();    // day mode closes the shake watch; night mode reopens it if eligible
 }
-async function logWakeUp(note){
-  const now = Date.now();
+async function logWakeUp(note, at){
+  // `at` is the moment of the rise when it came from the alarm's "I'm up" pressed while
+  // the page was not running; otherwise the rise is now.
+  const now = at || Date.now();
   await putSession({
     id: uid(), startedAt: now, endedAt: now, trackStart: '', trackEnd: '',
     timerMinutes: null, timerArmedAt: null, autoArmed: false, fadeInSeconds: 0,
@@ -2275,7 +2340,15 @@ async function logWakeUp(note){
   try {
     const C = window.Capacitor;
     const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
-    if (FA) await FA.schedule({minutes: 45, nightDay: dayKey(now)});
+    // 45 minutes from the RISE, not from this moment: a rise reported late (the alarm's
+    // "I'm up" opening the app) must not push the fatigue check past its window.
+    const late = Math.round((Date.now() - now) / 60000);
+    if (FA) await FA.schedule({minutes: Math.max(1, 45 - late), nightDay: dayKey(now)});
+  } catch(_){}
+  /* The rise decides tomorrow's alarm — the native side owns the rule, so it is told the
+     moment and the page then re-reads what it armed. */
+  try {
+    if (nativeWake){ await nativeWake.wokeAt({at: String(now)}); await refreshNextWake(); paintSchedule(); }
   } catch(_){}
   uploadSoon();
 }
@@ -3525,8 +3598,12 @@ $('#posfile').onchange = async e => {
 (async () => {
   await loadSettings();
   await loadUpCfg();
-  await loadBedtime();
-  await loadWaketime();
+  await loadSchedule();
+  paintSchedule();
+  await checkPendingWake();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkPendingWake();
+  });
   await render();
   showStorage();
   renderTimer();
