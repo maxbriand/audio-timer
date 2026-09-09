@@ -54,6 +54,14 @@
             android:turnScreenOn="true"
             android:launchMode="singleInstance" />
 
+        <!-- Zone alarm (the embedded cardio app): its session engine — H10 subscription,
+             zone detection, alerts, timers — runs in this foreground service so nothing
+             stops when the page is throttled or the screen goes off. -->
+        <service
+            android:name=".HrService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <!-- The morning-light reminder, 30 minutes after the rise when no walk is logged
              (⚙ toggle). One answer: Done, which stages the walk marker itself. -->
         <receiver
@@ -95,6 +103,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
