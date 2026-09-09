@@ -56,6 +56,12 @@ CARDIO_ROOT = Path(_cardio_env).expanduser() if _cardio_env else ROOT.parent / "
 CARDIO_FIELDS = (
     "id", "started", "ended", "localDay", "minBpm", "maxBpm",
     "inRangeSeconds", "parts", "peakBpm",
+    # Everything a row of the Body asset's exercise-log.csv needs (2026-09-09):
+    # durationSeconds -> total_min · bands -> light/mod/vig/over90_min · partsDetail ->
+    # the mN (toMax) and rN (recovery) pairs · hrmax/resting -> the reserve the bands are
+    # a percentage of · rpe and note -> their own columns. durationSeconds was missing
+    # before this, so the total was being stripped on the way in.
+    "durationSeconds", "bands", "partsDetail", "hrmax", "resting", "rpe", "note",
 )
 
 

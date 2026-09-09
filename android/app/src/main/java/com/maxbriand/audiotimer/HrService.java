@@ -148,6 +148,14 @@ public class HrService extends Service {
     private int peak;
     private final JSONArray parts = new JSONArray();
     private long partStart, partIn;
+    /* Recovery: how long from reaching the range high back down to the range low. It is
+       the exercise log's R column, and nothing measured it until now — the legend still
+       said "hand-timed for now". It runs from the moment a part closes until the rate
+       touches the low set, so it deliberately overlaps the next part, which starts as
+       soon as the rate falls under the high. Never reaching the low leaves it unset:
+       a blank cell, never a guess. */
+    private long recoveryStart;
+    private int recoveryIdx = -1;
     private boolean above;
     // Alerts stay silent until the heart rate has reached the min once —
     // starting a session at rest must not trip the below-range alarm.
@@ -341,6 +349,8 @@ public class HrService extends Service {
         for (int i = 0; i < NB; i++) tBand[i] = 0;
         peak = 0;
         while (parts.length() > 0) parts.remove(0);
+        recoveryStart = 0;
+        recoveryIdx = -1;
         partStart = startedAt;
         partIn = 0;
         boolean fresh = isFresh();
@@ -363,6 +373,8 @@ public class HrService extends Service {
             p.put("toMax", (SystemClock.elapsedRealtime() - partStart) / 1000.0);
             p.put("target", max);
             parts.put(p);
+            recoveryStart = SystemClock.elapsedRealtime();
+            recoveryIdx = parts.length() - 1;
         } catch (Exception e) { /* a malformed part must never kill the session */ }
         above = true;
         alerts.partDone(vibOn, sndOn);
@@ -421,6 +433,15 @@ public class HrService extends Service {
 
         // Only time inside the range counts — anything over the high limit does not.
         if (hr >= min && hr <= max) { tIn += dt; if (!above) partIn += dt; }
+        // Back down to the low set: the recovery that part owes is complete.
+        if (recoveryStart != 0 && recoveryIdx >= 0 && hr > 0 && hr <= min) {
+            try {
+                parts.getJSONObject(recoveryIdx)
+                     .put("recovery", (SystemClock.elapsedRealtime() - recoveryStart) / 1000.0);
+            } catch (Exception e) { /* the part stays without its recovery, which is blank */ }
+            recoveryStart = 0;
+            recoveryIdx = -1;
+        }
         int bi = bandIndex();
         if (bi >= 0) tBand[bi] += dt;
 

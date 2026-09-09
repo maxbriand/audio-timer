@@ -93,6 +93,8 @@
   .syncin::placeholder{color:var(--muted)}
   #nextwake{display:none;font-size:13px;color:var(--muted);padding:2px 2px 10px;line-height:1.5;font-variant-numeric:tabular-nums}
   #nextwake b{color:var(--accent);font-weight:600}
+  #cardiohead{margin:18px 0 8px;font-size:15px;font-weight:650}
+  #cardiohead[hidden]{display:none}
   #upstatus,#wakestatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
@@ -345,8 +347,15 @@
   .zone .field.wide input{text-align:left;font:500 14px/1 var(--mono);padding:10px}
   .zone #syncStatus.bad{color:#FFC9C4}
   .zone #pmax{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:8px;min-height:13px}
-  .zone #partsDlg, .zone #setDlg, .zone #logDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;border:1px solid var(--line);background:#121821;color:var(--txt);border-radius:16px;padding:18px;width:calc(100% - 28px);max-width:430px;max-height:82dvh;overflow:auto}
-  .zone #partsDlg::backdrop, .zone #setDlg::backdrop, .zone #logDlg::backdrop{background:rgba(0,0,0,.62)}
+  .zone #partsDlg, .zone #setDlg, .zone #logDlg, .zone #rpeDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;border:1px solid var(--line);background:#121821;color:var(--txt);border-radius:16px;padding:18px;width:calc(100% - 28px);max-width:430px;max-height:82dvh;overflow:auto}
+  .zone #partsDlg::backdrop, .zone #setDlg::backdrop, .zone #logDlg::backdrop, .zone #rpeDlg::backdrop{background:rgba(0,0,0,.62)}
+  .zone #rpeGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:14px}
+  .zone #rpeGrid button{border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--txt);
+    border-radius:9px;padding:12px 0;font:700 15px/1 var(--mono);cursor:pointer}
+  .zone #rpeGrid button.on{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.45)}
+  .zone #rpeNote{width:100%;margin-top:12px;background:rgba(0,0,0,.3);border:1px solid var(--line);
+    border-radius:9px;color:var(--txt);font:400 13px/1.5 var(--mono);padding:10px;min-height:64px;resize:vertical}
+  .zone #rpeFoot{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
   .zone #partsTitle, .zone #setTitle, .zone #logTitle{font:700 16px/1.2 var(--sans);letter-spacing:.02em}
   .zone #partsHint, .zone #logHint{margin-top:6px;font:400 11.5px/1.5 var(--mono);color:var(--dim)}
   .zone .plist{list-style:none;margin:14px 0 0}
@@ -553,6 +562,18 @@
   <button id="logClose" class="ghost">Close</button>
 </dialog>
 
+<dialog id="rpeDlg" aria-labelledby="rpeTitle" aria-describedby="rpeHint">
+  <h2 id="rpeTitle">How hard was that?</h2>
+  <p id="rpeHint">Perceived effort for the session as a whole, 0–10 — the reading that stands
+    when the heart rate misleads (heat, dehydration, illness). Skipping leaves it blank.</p>
+  <div id="rpeGrid"></div>
+  <textarea id="rpeNote" placeholder="A note about the session (optional)"></textarea>
+  <div id="rpeFoot">
+    <button id="rpeSave" class="ghost">Save</button>
+    <button id="rpeSkip" class="ghost">Skip</button>
+  </div>
+</dialog>
+
 <section id="settingsPage" class="page" role="region" aria-labelledby="setTitle">
   <div class="inner">
     <div class="pagehead">
@@ -573,10 +594,7 @@
       <button id="vib" class="tgl" aria-pressed="true">Vibration on</button>
       <button id="snd" class="tgl" aria-pressed="false">Sound off</button>
     </div>
-    <h3 class="subtitle">Private sync</h3>
-    <div class="field wide"><label for="syncUrl">Server URL</label><input id="syncUrl" type="url" placeholder="https://…/cardio" autocomplete="off" spellcheck="false"></div>
-    <div class="field wide" style="margin-top:8px"><label for="syncTok">Token</label><input id="syncTok" type="password" placeholder="—" autocomplete="off"></div>
-    <p class="fieldhint" id="syncStatus">Sessions log locally for 14 days; with a server set they upload whenever the phone is online. Same server and token as the audio-timer app, with /cardio at the end of the URL.</p>
+    <p class="fieldhint">Sessions log locally for 14 days and upload to the server set in the app's own ⚙ settings — the same host and token, with /cardio on the end, which is the route the receiver files them under.</p>
   </div>
 </section>
 
@@ -734,9 +752,11 @@
         <input class="syncin" type="number" id="wakedelay" inputmode="numeric" min="0" max="180" step="5" placeholder="30">
       </div>
       <div class="setrow">
-        <label>Sleep duration (hh:mm) — how long the night should be. It sets bedtime at
-               wake-up − duration, and with it the melatonin reminder 5 h before bed.</label>
-        <input class="syncin" type="time" id="sleepdur">
+        <label>Sleep duration — how long the night should be, as hh:mm (9:00 is nine hours).
+               It sets bedtime at wake-up − duration, and with it the melatonin reminder
+               5 h before bed.</label>
+        <input class="syncin" type="text" id="sleepdur" inputmode="numeric" maxlength="5"
+               placeholder="09:00" autocomplete="off" spellcheck="false">
         <div id="wakestatus"></div>
       </div>
       <div class="sheetfoot">
@@ -755,6 +775,8 @@
     <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
     <div id="logcount"></div>
     <div id="loglist"></div>
+    <h3 id="cardiohead" hidden>Cardio</h3>
+    <div id="cardiolist"></div>
     <div class="sheetfoot">
       <button id="exportcsv">Export CSV</button>
       <button id="closelog">Close</button>
@@ -2026,7 +2048,56 @@ async function openLog(){
       box.appendChild(el);
     }
   }
+  renderCardio();
   $('#logsheet').classList.add('on');
+}
+
+/* The cardio sessions, in the same log as the nights — everything a row of
+   sources/exercise-log.csv needs, so it can be filled from here without reading numbers off
+   the end screen. Read straight from zone-alarm's own store rather than through its script:
+   it saves there on every change, so this is always current and needs no plumbing between
+   the two. Blank stays blank — a part that never came back down to the low set shows no
+   recovery rather than a guessed one. */
+function renderCardio(){
+  let rows = [];
+  try { rows = JSON.parse(localStorage.getItem('za-sessions') || '[]'); } catch(_){}
+  rows = rows.filter(r => r && r.started).sort((a, b) => a.started < b.started ? 1 : -1);
+  const head = $('#cardiohead'), box = $('#cardiolist');
+  box.innerHTML = '';
+  head.hidden = !rows.length;
+  if (!rows.length) return;
+  const ms = v => v == null ? null :
+    Math.floor(v / 60) + ':' + String(Math.round(v % 60)).padStart(2, '0');
+  const BANDS = ['light', 'mod', 'vig', '≥90%'];
+  for (const r of rows){
+    const t0 = Date.parse(r.started), t1 = r.ended ? Date.parse(r.ended) : 0;
+    const el = document.createElement('div');
+    el.className = 'logrow';
+    for (const cls of ['logday', 'logmeta', 'logmeta logsub', 'logmeta logsub', 'logmeta logsub']){
+      const d = document.createElement('div'); d.className = cls; el.appendChild(d);
+    }
+    const [day, meta, bands, parts, extra] = el.children;
+    day.textContent = fmtDay(t0) + ' · ' + fmtClock(t0) + (t1 ? '–' + fmtClock(t1) : ' · running');
+    meta.textContent = [
+      r.durationSeconds != null ? ms(r.durationSeconds) + ' total' : null,
+      r.inRangeSeconds != null ? ms(r.inRangeSeconds) + ' in range' : null,
+      r.peakBpm ? 'peak ' + r.peakBpm : null,
+      (r.minBpm && r.maxBpm) ? 'range ' + r.minBpm + '–' + r.maxBpm : null,
+      (r.resting && r.hrmax) ? 'reserve ' + r.resting + '–' + r.hrmax : null
+    ].filter(Boolean).join(' · ');
+    bands.textContent = Array.isArray(r.bands)
+      ? r.bands.map((v, i) => BANDS[i] + ' ' + ms(v)).join(' · ') : '';
+    parts.textContent = Array.isArray(r.partsDetail) && r.partsDetail.length
+      ? r.partsDetail.map((p, i) => 'P' + (i + 1) + ' M ' + (ms(p.toMax) || '—') +
+          ' R ' + (p.recovery == null ? '—' : ms(p.recovery))).join(' · ')
+      : (r.parts ? r.parts + ' part' + (r.parts === 1 ? '' : 's') : '');
+    extra.textContent = [
+      r.rpe != null ? 'RPE ' + r.rpe + '/10' : null,
+      r.note ? '“' + r.note + '”' : null,
+      r.syncedAt ? 'synced' : 'to sync'
+    ].filter(Boolean).join(' · ');
+    box.appendChild(el);
+  }
 }
 
 function download(filename, text, type){
@@ -2159,6 +2230,21 @@ const minToHhmm = m => String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padSt
 const fmtDur = m => Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0');
 function reminderClock(t){ return minToHhmm(hhmmToMin(t) - 300); }   // 5 h before bed
 
+/* A duration, not a clock time: <input type="time"> renders as an AM/PM picker wherever
+   the locale says so, and "9:00 PM" means nothing as the length of a night. So it is plain
+   text, parsed leniently — "9:00", "9h00", "900" and "9" all mean nine hours, the last two
+   because a numeric keypad has no colon — and normalised back to hh:mm for display. */
+function parseDur(v){
+  const t = String(v || '').trim().replace(/[hH]/, ':');
+  let m = /^(\d{1,2}):(\d{1,2})$/.exec(t);
+  if (m) return (+m[1]) * 60 + (+m[2]);
+  m = /^(\d{1,2})(\d{2})$/.exec(t);
+  if (m) return (+m[1]) * 60 + (+m[2]);
+  m = /^(\d{1,2})$/.exec(t);
+  if (m) return (+m[1]) * 60;
+  return NaN;
+}
+
 function deriveBedtime(){
   bedtimeCfg = wakeGoal ? minToHhmm(hhmmToMin(wakeGoal) - sleepMin) : '';
 }
@@ -2244,8 +2330,8 @@ $('#wakesave').onclick = async () => {
   wakeGoal = v;
   const d = parseInt($('#wakedelay').value, 10);
   wakeDelay = isNaN(d) ? DELAY_DEFAULT : Math.min(180, Math.max(0, d));
-  const sl = $('#sleepdur').value ? hhmmToMin($('#sleepdur').value) : SLEEP_DEFAULT;
-  sleepMin = Math.min(720, Math.max(240, sl));
+  const sl = parseDur($('#sleepdur').value);
+  sleepMin = Math.min(720, Math.max(240, isNaN(sl) ? SLEEP_DEFAULT : sl));
   await setMeta('waketime', wakeGoal);
   await setMeta('wakedelay', String(wakeDelay));
   await setMeta('sleepdur', String(sleepMin));
@@ -2253,6 +2339,10 @@ $('#wakesave').onclick = async () => {
   paintSchedule();
   paintModenav();                     // the derived bedtime moves the 🌙 window with it
   toast('Wake-up alarm set — ' + wakeGoal);
+};
+$('#sleepdur').onblur = () => {
+  const m = parseDur($('#sleepdur').value);
+  if (!isNaN(m)) $('#sleepdur').value = minToHhmm(Math.min(720, Math.max(240, m)));
 };
 $('#wakeoff').onclick = async () => {
   wakeGoal = ''; nextWakeAt = 0;
@@ -2407,11 +2497,10 @@ const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
 
 /* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
    toggling it off just stops painting the button — walks already logged stay logged.
-   Screens-off is its evening twin: the tap that logs "I stopped screens / blue light",
-   pinned as a habit, leaving the phone as a marker row for the diary's screens_off
-   column the same way the walk feeds Morning light. */
+   (A 📵 Screens off twin lived here until 2026-09-09: a tap is the wrong way to catch a
+   blue-light cutoff, so the button is gone. The diary still reads any "screens-off"
+   marker, so a future source can fill that column without touching the reader.) */
 const MORNING_WALK = {id: 'morning-walk', name: '☀️ Morning walk'};
-const SCREENS_OFF  = {id: 'screens-off',  name: '📵 Screens off'};
 
 let events = [], logEvent = null, logAt = 0, logPhotos = [];
 
@@ -2419,7 +2508,6 @@ async function paintEvents(){
   events = (await allEvents()).sort((a, b) => a.name.localeCompare(b.name));
   const habits = events.filter(ev => ev.cat === 'habit');
   const others = events.filter(ev => ev.cat !== 'habit');
-  habits.unshift(SCREENS_OFF);
   if (settings.morningWalk) habits.unshift(MORNING_WALK);
   fillEventGrid($('#habitgrid'), habits);
   fillEventGrid($('#issuegrid'), others);
@@ -2502,8 +2590,7 @@ $('#evsave').onclick = async () => {
      the daylight log (the diary's Morning light column) and the screens-off tap is the
      blue-light cutoff (the diary's screens_off column). Other events (and the photos,
      always) stay local. */
-  const markerReason = logEvent.id === MORNING_WALK.id ? 'morning-walk'
-                     : logEvent.id === SCREENS_OFF.id  ? 'screens-off' : null;
+  const markerReason = logEvent.id === MORNING_WALK.id ? 'morning-walk' : null;
   if (markerReason){
     await putSession({
       id: uid(), startedAt: logAt, endedAt: logAt, trackStart: '', trackEnd: '',
@@ -2599,12 +2686,16 @@ $('#posfile').onchange = async e => {
   // high limit; `above` is true while you sit at or over it, waiting to drop
   // back down and open the next part.
   let parts = [], partStart = 0, partIn = 0, above = false;
+  // Recovery — the exercise log's R column: from reaching the range high back down to the
+  // range low. It overlaps the next part on purpose (that one starts as soon as the rate
+  // falls under the high), and never touching the low leaves it unset rather than guessed.
+  let recoveryStart = 0, recoveryIdx = -1;
   // Alerts stay silent until the heart rate has reached the min once —
   // starting a session at rest must not trip the below-range alarm.
   let reachedMin = false;
   let audioCtx = null;
 
-  const settings = { min:80, max:170, delay:10, vib:true, snd:false, hrmax:0, resting:0, syncUrl:'', syncTok:'' };
+  const settings = { min:80, max:170, delay:10, vib:true, snd:false, hrmax:0, resting:0 };
   // Settings survive restarts — a profile field like the resting bpm would be
   // pointless retyped every run.
   try { Object.assign(settings, JSON.parse(localStorage.getItem('za-settings') || '{}')); } catch(e){}
@@ -2650,18 +2741,45 @@ $('#posfile').onchange = async e => {
     saveLog(); pushLog();
   }
 
+  /* Everything sources/exercise-log.csv asks for, saved at the end of the session so a row
+     can be filled without reading it off the screen (Maxime, 2026-09-09). The mapping:
+     peak → peakBpm · max_set/low_set → maxBpm/minBpm · start → started · total_min →
+     durationSeconds · light/mod/vig/over90_min → bands · mN/rN → partsDetail[].toMax and
+     .recovery · rpe and note → their own fields. Seconds are kept raw; the CSV's minutes
+     are a conversion at fill time, so nothing is rounded twice. */
   function logEnd(){
     const e = sessLog.find(x => x.id === curSessionId);
     setCur(null);
-    if (!e) return;
+    if (!e) return null;
     e.ended = new Date().toISOString();
     e.durationSeconds = Math.round(elapsed());
     e.inRangeSeconds = Math.round(tIn);
     e.parts = parts.length;
     e.peakBpm = peak;
+    e.bands = tBand.map(v => Math.round(v));            // light, moderate, vigorous, ≥90 %
+    e.partsDetail = parts.map(p => ({
+      inRange: Math.round(p.inRange),
+      toMax: Math.round(p.toMax),
+      recovery: p.recovery == null ? null : Math.round(p.recovery),
+      target: p.target
+    }));
+    e.hrmax = settings.hrmax || null;                   // the bands mean nothing without
+    e.resting = settings.resting || null;               // the two ends of the reserve
     delete e.syncedAt;                        // the entry changed — upload it again
     saveLog(); pushLog();
+    return e.id;
   }
+
+  /* RPE and the note are the two things no sensor can supply, so the session asks for them
+     the moment it ends — while the effort is still fresh. Skipping leaves them unset. */
+  function askRpe(id){
+    if (!id) return;
+    rpeFor = id;
+    $('rpeNote').value = '';
+    [...$('rpeGrid').children].forEach(b => b.classList.remove('on'));
+    $('rpeDlg').showModal();
+  }
+  let rpeFor = null;
 
   function setSync(text, bad){
     for (const el of [$('syncStatus'), $('logStatus')]){
@@ -2669,10 +2787,21 @@ $('#posfile').onchange = async e => {
     }
   }
 
+  /* One server, configured once — in the app's own ⚙, not here. Cardio rides the same
+     host and token with /cardio appended, which is the route the receiver files these
+     sessions under, in their own folder away from the night log. Read lazily: the app's
+     upload config loads asynchronously at boot, well after this script has run. */
+  function cardioSync(){
+    const c = (typeof upCfg !== 'undefined' && upCfg) || null;
+    if (!c || !c.url) return null;
+    return { url: c.url.replace(/\/+$/, '') + '/cardio', tok: c.token || '' };
+  }
+
   let pushing = false;
   async function pushLog(){
-    const url = settings.syncUrl, tok = settings.syncTok;
-    if (!url || !tok || pushing) return;
+    const cfg = cardioSync();
+    if (!cfg || pushing) return;
+    const url = cfg.url, tok = cfg.tok;
     // The token travels in a header — refuse plain http anywhere but localhost.
     if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url))
       return setSync('The server URL must be https.', true);
@@ -2743,8 +2872,8 @@ $('#posfile').onchange = async e => {
     }
     $('logEmpty').hidden = rows.length > 0;
     $('logBtn').setAttribute('aria-expanded', $('logDlg').open ? 'true' : 'false');
-    if (!settings.syncUrl || !settings.syncTok)
-      $('logStatus').textContent = 'Sync is off — runs stay on the phone for 14 days.';
+    if (!cardioSync())
+      $('logStatus').textContent = 'No server set in ⚙ — runs stay on the phone for 14 days.';
   }
 
   function pos(v){ return Math.min(100, Math.max(0, (v - SCALE_LO) / (SCALE_HI - SCALE_LO) * 100)); }
@@ -2951,6 +3080,7 @@ $('#posfile').onchange = async e => {
 
   function closePart(){
     parts.push({ inRange: partIn, toMax: (Date.now() - partStart) / 1000, target: settings.max });
+    recoveryStart = Date.now(); recoveryIdx = parts.length - 1;
     above = true;
     renderPartsList();
     announce('Part ' + parts.length + ' done. ' + spoken(parts[parts.length - 1].inRange) +
@@ -3009,6 +3139,10 @@ $('#posfile').onchange = async e => {
     if (hr > 0){
       // Only time inside the range counts — anything over the high limit does not.
       if (hr >= settings.min && hr <= settings.max){ tIn += dt; if (!above) partIn += dt; }
+      if (recoveryStart && recoveryIdx >= 0 && hr <= settings.min){
+        parts[recoveryIdx].recovery = (Date.now() - recoveryStart) / 1000;
+        recoveryStart = 0; recoveryIdx = -1;
+      }
       const bi = bandIdx(hr);
       if (bi >= 0) tBand[bi] += dt;
       if (alerting && now - lastAlertAt >= 4500){ lastAlertAt = now; buzz(outDir); }
@@ -3066,6 +3200,7 @@ $('#posfile').onchange = async e => {
     phase = 'active'; startedAt = Date.now(); endedAt = 0;
     tIn = 0; tBand = Array(NB).fill(0); peak = 0;
     parts = []; partStart = Date.now(); partIn = 0;
+    recoveryStart = 0; recoveryIdx = -1;
     const fresh = isConnected() && hr > 0;
     above = fresh && hr >= settings.max;
     reachedMin = fresh && hr >= settings.min;
@@ -3191,13 +3326,43 @@ $('#posfile').onchange = async e => {
     if (NATIVE){
       // The service answers with a state push straight away, so the button
       // never waits on the next tick to change.
-      if (running){ NativeSession.end(); logEnd(); }
+      if (running){ NativeSession.end(); askRpe(logEnd()); }
       else { NativeSession.start(); logStart(); }
       return;
     }
-    if (running){ endSession(); logEnd(); }
+    if (running){ endSession(); askRpe(logEnd()); }
     else { startSession(); logStart(); }
   });
+
+  // 0–10, the Borg CR10 range the exercise log's rpe column expects.
+  let rpePick = null;
+  (() => {
+    const g = $('rpeGrid');
+    for (let i = 0; i <= 10; i++){
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = i;
+      b.onclick = () => {
+        rpePick = i;
+        [...g.children].forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+      };
+      g.appendChild(b);
+    }
+  })();
+  function closeRpe(save){
+    const e = sessLog.find(x => x.id === rpeFor);
+    if (save && e){
+      if (rpePick !== null) e.rpe = rpePick;
+      const n = $('rpeNote').value.trim();
+      if (n) e.note = n;
+      delete e.syncedAt;                      // the entry changed — upload it again
+      saveLog(); pushLog();
+    }
+    rpeFor = null; rpePick = null;
+    $('rpeDlg').close();
+  }
+  $('rpeSave').addEventListener('click', () => closeRpe(true));
+  $('rpeSkip').addEventListener('click', () => closeRpe(false));
 
   const dlg = $('partsDlg');
   $('partsBtn').addEventListener('click', () => {
@@ -3262,9 +3427,6 @@ $('#posfile').onchange = async e => {
       saveSettings(); pushLog();
     });
   }
-  bindText('syncUrl','syncUrl'); bindText('syncTok','syncTok');
-  $('syncUrl').value = settings.syncUrl || '';
-  $('syncTok').value = settings.syncTok || '';
 
   // ------------------------------------------------------------ live data page
   // The Live page shows every stream the strap can send. HR, RR, contact and
