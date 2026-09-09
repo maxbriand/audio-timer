@@ -39,7 +39,7 @@ public class BootReceiver extends BroadcastReceiver {
 
     // The wake-up alarm: still ahead, arm it again; missed by less than half an hour
     // while the phone was off, ring now — the morning is still that morning.
-    if (!WakeAlarm.time(c).isEmpty()){
+    if (!WakeAlarm.goal(c).isEmpty()){
       long wnext = WakeAlarm.nextAt(c);
       long wmissed = System.currentTimeMillis() - wnext;
       WakeAlarm.scheduleNext(c);

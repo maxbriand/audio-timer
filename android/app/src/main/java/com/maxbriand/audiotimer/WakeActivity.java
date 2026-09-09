@@ -3,6 +3,7 @@ package com.maxbriand.audiotimer;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -96,9 +97,10 @@ public class WakeActivity extends Activity {
     root.addView(title);
 
     TextView sub = new TextView(this);
-    String wt = WakeAlarm.time(this);
+    String wt = WakeAlarm.goal(this);
     sub.setText(wt.isEmpty() ? "Your wake-up time."
                              : "It's " + wt + " — the day starts here.");
+    if (WakeAlarm.snoozed(this)) sub.setText("Snoozed once already — the day starts here.");
     sub.setTextColor(MUTED);
     sub.setTextSize(15);
     sub.setGravity(Gravity.CENTER);
@@ -108,17 +110,26 @@ public class WakeActivity extends Activity {
     Button up = pill("I'm up", ACCENT);
     up.setOnClickListener(v -> {
       quiet();
+      // The rise: tomorrow's alarm is set from this moment, and the app opens on the day
+      // screen, where the wake-up row is written like any other day-mode switch.
+      WakeAlarm.up(this, System.currentTimeMillis());
+      startActivity(new Intent(this, MainActivity.class)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        .putExtra(MainActivity.EXTRA_WAKE_UP, true));
       finish();
     });
     root.addView(up);
 
-    Button snooze = pill("Snooze 10 min", MUTED);
-    snooze.setOnClickListener(v -> {
-      quiet();
-      WakeAlarm.snooze(this);
-      finish();
-    });
-    root.addView(snooze);
+    // One postponement per ring: after it, "I'm up" is the only way out.
+    if (!WakeAlarm.snoozed(this)){
+      Button snooze = pill("Snooze 10 min", MUTED);
+      snooze.setOnClickListener(v -> {
+        quiet();
+        WakeAlarm.snooze(this);
+        finish();
+      });
+      root.addView(snooze);
+    }
 
     ScrollView sv = new ScrollView(this);
     sv.setBackgroundColor(BG);
