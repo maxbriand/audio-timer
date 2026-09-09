@@ -33,7 +33,21 @@ const swLine = /\n[^\n]*serviceWorker[^\n]*register\('\.\/sw\.js'\)[^\n]*\n/;
 if (!swLine.test(html)) throw new Error('service-worker registration line not found in index.html');
 html = html.replace(swLine, '\n');
 
+// The Live page's BLE bridge (native/ble.js → native-ble.js): the WebView has no Web
+// Bluetooth, so inside the shell GATT rides the Capacitor plugin. Bundled and referenced
+// in the native build only; the hosted PWA keeps talking navigator.bluetooth itself.
+// It must load BEFORE the app script so window.NativeH10 exists when the page boots.
+const { build } = await import('esbuild');
+await build({
+  entryPoints: [join(ROOT, 'native', 'ble.js')],
+  bundle: true,
+  minify: true,
+  format: 'iife',
+  outfile: join(WWW, 'native-ble.js')
+});
+html = html.replace('<script>', '<script src="native-ble.js"></script>\n<script>');
+
 await writeFile(join(WWW, 'index.html'), html);
 for (const a of ASSETS) await copyFile(join(ROOT, a), join(WWW, a));
 
-console.log(`www/ built — index.html + ${ASSETS.length} assets`);
+console.log(`www/ built — index.html + native-ble.js + ${ASSETS.length} assets`);
