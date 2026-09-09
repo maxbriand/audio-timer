@@ -91,7 +91,7 @@
   }
   .syncin:focus{outline:0;border-color:var(--accent)}
   .syncin::placeholder{color:var(--muted)}
-  #upstatus,#bedstatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #upstatus,#bedstatus,#wakestatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
@@ -396,6 +396,25 @@
   #zoneapp.on{display:flex}
   #zoneapp .app{padding-top:calc(14px + var(--safe-t))}
   #zoneapp .page .inner{padding-top:calc(14px + var(--safe-t))}
+  /* Polar H10 row in ⚙ — zone-alarm's connect button, driven by its script, restyled here */
+  #setsheet #connect{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);
+    background:var(--accent);color:#141414;font-size:15px;font-weight:600}
+  #setsheet #connect.quiet{background:var(--surface-2);color:var(--text);font-weight:500}
+  #setsheet #connect:active{filter:brightness(.9)}
+  #setsheet #hint{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.4}
+  #setsheet #hint:empty{display:none}
+  /* The cardio main screen fits the screen — no scrolling. The hero (numeral + band)
+     is the part that gives: it shrinks with the viewport, and the numeral is sized by
+     the screen's height as much as its width. The settings/live pages inside keep
+     their own scrolling. */
+  #zoneapp{overflow:hidden}
+  #zoneapp .app{height:100%;min-height:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  #zoneapp .hero{flex:1 1 auto;min-height:0;overflow:hidden}
+  #zoneapp #bpm{font-size:min(36vw,17vh)}
+  #zoneapp .band{margin-top:14px}
+  #zoneapp #stateline{margin-top:10px}
+  #zoneapp #timer{margin-top:6px;min-height:0}
+  #zoneapp .card{margin-top:12px}
 </style>
 </head>
 <body>
@@ -463,7 +482,6 @@
   <div class="strip">
     <span style="display:flex;align-items:center;gap:8px"><button id="zoneClose" class="ghost" aria-label="Back to Audio Timer">&#10005;</button><span><span id="dot"></span><b>Polar H10</b></span></span>
     <span style="display:flex;align-items:center;gap:8px"><span id="batt"></span>
-      <button id="liveBtn" class="ghost" aria-controls="livePage">Live</button>
       <button id="settingsBtn" class="ghost" aria-controls="settingsPage">Settings</button></span>
   </div>
 
@@ -501,8 +519,6 @@
       <button id="partsBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="partsDlg">Parts <b id="partsCount">0</b></button>
     </div>
     <button id="session">Start session</button>
-    <button id="connect">Connect sensor</button>
-    <div id="hint"></div>
   </div>
 
 </div>
@@ -669,6 +685,14 @@
 
     <div class="setsplit">
       <div class="setrow">
+        <label>Polar H10 — the chest strap behind 🏃 zone alarm and 🫀 live data. Connect it here; the
+               session engine keeps the link with the screen off.</label>
+        <button id="connect">Connect sensor</button>
+        <div id="hint"></div>
+      </div>
+    </div>
+    <div class="setsplit">
+      <div class="setrow">
         <label>Server upload — sends each finished night to your own server the next time the
                phone has internet, even with the app closed, and clears it here afterwards</label>
         <input class="syncin" type="url" id="upurl" placeholder="https://your-server/audio-timer"
@@ -694,6 +718,19 @@
       <div class="sheetfoot">
         <button id="bedsave">Save</button>
         <button id="bedoff">Turn off</button>
+      </div>
+    </div>
+
+    <div class="setsplit">
+      <div class="setrow">
+        <label>Wake-up time — an alarm rings at it every day, over the lock screen like a clock.
+               "I'm up" stops it, snooze is 10 min. APK only.</label>
+        <input class="syncin" type="time" id="waketime">
+        <div id="wakestatus"></div>
+      </div>
+      <div class="sheetfoot">
+        <button id="wakesave">Save</button>
+        <button id="wakeoff">Turn off</button>
       </div>
     </div>
 
@@ -2072,7 +2109,7 @@ function buildSettings(){
   }
 }
 $('#setnav').onclick = () => {
-  buildSettings(); paintUpload(); paintBedtime(); paintShakeHealth();
+  buildSettings(); paintUpload(); paintBedtime(); paintWaketime(); paintShakeHealth();
   $('#setsheet').classList.add('on');
 };
 
@@ -2133,6 +2170,48 @@ $('#bedoff').onclick = async () => {
 };
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
 $('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
+
+/* ---------- wake-up time → wake-up alarm ----------
+   Same shape as the melatonin reminder: the alarm is native (it must ring with the page
+   long gone), the page stores the time and pushes it across on boot and on save. A set
+   time is pushed; an empty one is pushed only by the explicit Turn off — a lost meta
+   read must never silently switch a wake-up alarm off. */
+const nativeWake = (() => {
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.WakeAlarm) || null;
+})();
+let waketimeCfg = '';
+async function loadWaketime(){
+  waketimeCfg = (await getMeta('waketime')) || '';
+  if (nativeWake && waketimeCfg){
+    try { await nativeWake.configure({time: waketimeCfg}); } catch(_){}
+  }
+}
+function paintWaketime(){
+  $('#waketime').value = waketimeCfg;
+  $('#wakestatus').textContent = !waketimeCfg ? 'Off.'
+    : 'Rings every day at ' + waketimeCfg + '.' + (nativeWake ? '' : ' Needs the APK to actually ring.');
+}
+$('#wakesave').onclick = async () => {
+  const v = $('#waketime').value;
+  if (!v) return toast('Pick a time first');
+  waketimeCfg = v;
+  await setMeta('waketime', v);
+  if (nativeWake){
+    try { await nativeWake.configure({time: v}); } catch(_){}
+  }
+  paintWaketime();
+  toast('Wake-up alarm set — ' + v);
+};
+$('#wakeoff').onclick = async () => {
+  waketimeCfg = '';
+  await setMeta('waketime', '');
+  if (nativeWake){
+    try { await nativeWake.configure({time: ''}); } catch(_){}
+  }
+  paintWaketime();
+  toast('Wake-up alarm off');
+};
 
 /* moon/sun screens — moon is night mode (the audio screen); sun is day mode, an empty
    screen for now. Both directions ask for confirmation, and cancelling stays put.
@@ -2694,7 +2773,7 @@ $('#posfile').onchange = async e => {
       zoneRoot.classList.remove('pulsing');
       line.innerHTML = '<span class="sub">' + (wantConnected ? 'reconnecting…'
         : phase === 'active' ? 'no sensor — connect to keep tracking'
-        : 'connect your sensor, then start') + '</span>';
+        : 'connect your sensor in ⚙ settings, then start') + '</span>';
       return;
     }
     if (hr <= 0){
@@ -3345,7 +3424,6 @@ $('#posfile').onchange = async e => {
   function closePage(){ if (location.hash) history.back(); }
   $('settingsBtn').addEventListener('click', () => { location.hash = '#settings'; });
   $('setClose').addEventListener('click', closePage);
-  $('liveBtn').addEventListener('click', () => { location.hash = '#live'; });
   $('liveBack').addEventListener('click', closePage);
   route();
 
@@ -3376,10 +3454,18 @@ $('#posfile').onchange = async e => {
    zone-alarm's own router (which also stops the 130 Hz streams). */
 (() => {
   const root = document.getElementById('zoneapp');
+  let liveOnly = false;                       // opened straight on Live: Back leaves the app
   const open = hash => {
+    liveOnly = hash === '#live';
     root.classList.add('on');
     if (hash && location.hash !== hash) location.hash = hash;
   };
+  // 🫀 goes straight to Live, so its Back goes straight home: when the live page
+  // closes through zone-alarm's own router, the overlay goes with it — the cardio
+  // screen underneath was never what was asked for.
+  window.addEventListener('hashchange', () => {
+    if (liveOnly && location.hash !== '#live'){ liveOnly = false; root.classList.remove('on'); }
+  });
   document.getElementById('zonenav').onclick = () => open('');
   document.getElementById('livenav').onclick = () => open('#live');
   document.getElementById('zoneClose').onclick = () => {
@@ -3393,6 +3479,7 @@ $('#posfile').onchange = async e => {
   await loadSettings();
   await loadUpCfg();
   await loadBedtime();
+  await loadWaketime();
   await render();
   showStorage();
   renderTimer();

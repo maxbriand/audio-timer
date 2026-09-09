@@ -68,6 +68,19 @@
             android:name=".WalkAlarmReceiver"
             android:exported="false" />
 
+        <!-- The daily wake-up alarm (time set in ⚙): a classic alarm clock, full-screen over
+             the lock screen; tomorrow's is armed at every fire, so the cycle never breaks. -->
+        <receiver
+            android:name=".WakeAlarmReceiver"
+            android:exported="false" />
+        <activity
+            android:name=".WakeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance" />
+
         <!-- The daily melatonin reminder (bedtime − 5 h, set in ⚙). Same shape as the
              fatigue alarm; its notification is un-swipeable and only "Taken ✓" ends it. -->
         <receiver
