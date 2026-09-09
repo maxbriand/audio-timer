@@ -34,11 +34,11 @@
   h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
   #storage{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
   .hright{display:flex;align-items:center;gap:10px}
-  #setnav,#lognav,#modenav{
+  #setnav,#lognav,#modenav,#livenav{
     background:var(--surface-2);border:1px solid var(--line);color:var(--accent);
     width:34px;height:34px;border-radius:10px;font-size:16px;line-height:1;flex:none
   }
-  #setnav:active,#lognav:active,#modenav:active{background:var(--line)}
+  #setnav:active,#lognav:active,#modenav:active,#livenav:active{background:var(--line)}
   #sunview{display:none}
 
   #logsheet,#setsheet,#eventsheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
@@ -243,6 +243,29 @@
     opacity:0;pointer-events:none;transition:opacity .25s;z-index:20;max-width:90vw;text-align:center
   }
   #toast.on{opacity:1}
+  /* ---------- live sensor page ---------- */
+  #livesheet{position:fixed;inset:0;background:var(--bg);z-index:40;display:none;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:calc(14px + var(--safe-t)) 16px calc(20px + var(--safe-b))}
+  #livesheet.on{display:block}
+  .livehead{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+  .livehead h2{margin:0;font-size:19px}
+  #liveclose{background:none;border:0;color:var(--muted);font-size:20px;padding:8px}
+  .livesub{color:var(--muted);font-size:13.5px;margin:4px 0 12px}
+  #liveconnect{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);
+    background:var(--surface-2);color:var(--text);font-size:15px;margin-bottom:12px}
+  #liveconnect:active{background:var(--line)}
+  .livecard{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px;margin-bottom:12px}
+  .livecard h3{margin:0 0 4px;font-size:14.5px}
+  .livecard h3 span{color:var(--muted);font-weight:400;font-size:12.5px}
+  #liveBpm{font-size:44px;font-weight:700;font-variant-numeric:tabular-nums}
+  .krow{display:flex;justify-content:space-between;gap:12px;font-size:13px;
+    color:var(--muted);padding:3px 0;border-top:1px solid var(--line)}
+  .krow:first-of-type{border-top:0}
+  .krow b{color:var(--text);font-weight:500;text-align:right;font-variant-numeric:tabular-nums;
+    overflow-wrap:anywhere}
+  .scope{width:100%;height:96px;display:block;background:var(--surface-2);border-radius:8px}
 </style>
 </head>
 <body>
@@ -251,6 +274,7 @@
   <h1>Audio Timer</h1>
   <div class="hright">
     <span id="storage"></span>
+    <button id="livenav" aria-label="Live sensor data">🫀</button>
     <button id="modenav" aria-label="Day / night mode">🌙</button>
     <button id="setnav" aria-label="Playback settings">⚙️</button>
     <button id="lognav" aria-label="Listening log">📊</button>
@@ -299,6 +323,49 @@
       <button id="wakego">Log wake-up</button>
       <button id="wakecancel">Cancel</button>
     </div>
+  </div>
+</div>
+
+<div id="livesheet">
+  <div class="livehead">
+    <h2>Live — Polar H10</h2>
+    <button id="liveclose" aria-label="Close">✕</button>
+  </div>
+  <p class="livesub">Everything the strap sends, as it arrives. The connection lives only while this page is open.</p>
+  <p class="livesub" id="livenote"></p>
+  <button id="liveconnect">Connect sensor</button>
+
+  <div class="livecard">
+    <h3>Heart rate <span>— 1 / s</span></h3>
+    <div style="display:flex;align-items:baseline;gap:10px"><span id="liveBpm">--</span><span class="livesub" style="margin:0">bpm</span></div>
+    <div class="krow"><span>Sensor contact</span><b id="liveContact">—</b></div>
+    <div class="krow"><span>Energy expended (kJ, cumulative)</span><b id="liveEnergy">—</b></div>
+    <div class="krow"><span>RR intervals (ms, per beat)</span><b id="liveRr">—</b></div>
+    <div class="krow"><span>RR count this connection</span><b id="liveRrN">0</b></div>
+  </div>
+
+  <div class="livecard">
+    <h3>ECG <span>— single lead, µV, 130 / s</span></h3>
+    <canvas id="ecgScope" class="scope" style="margin-top:8px"></canvas>
+    <div class="krow"><span>Last sample</span><b id="liveEcgV">—</b></div>
+    <div class="krow"><span>Sample timestamp</span><b id="liveEcgTs">—</b></div>
+  </div>
+
+  <div class="livecard">
+    <h3>Accelerometer <span>— mG, 50 / s, ±8 G</span></h3>
+    <canvas id="accScope" class="scope" style="margin-top:8px"></canvas>
+    <div class="krow"><span>X / Y / Z</span><b id="liveAcc">—</b></div>
+    <div class="krow"><span>Position</span><b id="livePos">—</b></div>
+    <div class="krow"><span>Sample timestamp</span><b id="liveAccTs">—</b></div>
+  </div>
+
+  <div class="livecard">
+    <h3>Strap</h3>
+    <div class="krow"><span>Battery</span><b id="liveBatt">—</b></div>
+    <div class="krow"><span>Battery read</span><b id="liveBattAt">—</b></div>
+    <div class="krow"><span>Model</span><b id="liveModel">—</b></div>
+    <div class="krow"><span>Serial number</span><b id="liveSerial">—</b></div>
+    <div class="krow"><span>Firmware</span><b id="liveFw">—</b></div>
   </div>
 </div>
 
@@ -2096,6 +2163,282 @@ $('#posfile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = '';
   if (f) await importPositions(f);
 };
+
+
+/* ---------- live sensor page (ported from zone-alarm, 2026-09-09) ----------
+   Everything the H10 sends, decoded here in the page: HR/RR/contact/energy ride the
+   standard heart-rate packets, ECG and accelerometer come over Polar's proprietary PMD
+   service. In the APK, GATT goes through the bundled BLE bridge (window.NativeH10 —
+   the WebView has no Web Bluetooth); in a browser the page talks navigator.bluetooth
+   itself. One decoder serves both. The connection is page-scoped: it exists only while
+   the Live page is open, so the strap is never held from another app in the background. */
+(() => {
+  const PMD_SERVICE = 'fb005c80-02e7-f387-1cad-8acd2d8df0c8';
+  const PMD_CTRL = 'fb005c81-02e7-f387-1cad-8acd2d8df0c8';
+  const PMD_DATA = 'fb005c82-02e7-f387-1cad-8acd2d8df0c8';
+  // "start measurement" (0x02) with TLV settings: ECG (type 0x00) 130 Hz/14-bit;
+  // ACC (type 0x02) 50 Hz/16-bit/±8 G — the H10's documented stream settings.
+  const PMD_START_ECG = [0x02,0x00, 0x00,0x01,0x82,0x00, 0x01,0x01,0x0e,0x00];
+  const PMD_START_ACC = [0x02,0x02, 0x00,0x01,0x32,0x00, 0x01,0x01,0x10,0x00, 0x02,0x01,0x08,0x00];
+  const PMD_STOP_ECG = [0x03,0x00], PMD_STOP_ACC = [0x03,0x02];
+  const POLAR_EPOCH = Date.UTC(2000, 0, 1);   // PMD timestamps: ns since 2000-01-01
+
+  let liveOpen = false, connected = false, connecting = false;
+  let device = null, webPmdCtrl = null, webPmdData = null, battTimer = null;
+  let ecgBuf = [], accBuf = [], rrCount = 0, lastRr = [];
+
+  const note = t => { $('#livenote').textContent = t || ''; };
+
+  // Posture from the gravity vector — the mean of the last half-second of accelerometer
+  // samples. H10 axes as worn, measured on the strap itself (Maxime, 2026-09-08): X runs
+  // along the body (−1000 mG standing); Y is lateral (+1000 on the LEFT side); Z is
+  // front-to-back (+1000 on the back).
+  function posture(){
+    if (accBuf.length < 10) return '—';
+    const win = accBuf.slice(-25);
+    let gx = 0, gy = 0, gz = 0;
+    for (const [x, y, z] of win){ gx += x; gy += y; gz += z; }
+    gx /= win.length; gy /= win.length; gz /= win.length;
+    let dev = 0;
+    for (const [x, y, z] of win) dev += Math.abs(Math.hypot(x, y, z) - 1000);
+    if (dev / win.length > 250) return 'moving';
+    const ax = Math.abs(gx), ay = Math.abs(gy), az = Math.abs(gz);
+    const top = Math.max(ax, ay, az);
+    if (top < 700) return 'reclined / in between';
+    if (top === ax) return gx < 0 ? 'upright (standing or sitting)' : 'head down';
+    if (top === az) return gz > 0 ? 'lying on back' : 'lying on stomach';
+    return gy > 0 ? 'lying on left side' : 'lying on right side';
+  }
+
+  const stampBatt = () => {
+    $('#liveBattAt').textContent = new Date().toLocaleTimeString(undefined, { hour12: false });
+  };
+  function fmtTs(ns){
+    if (!ns) return '—';
+    const d = new Date(POLAR_EPOCH + ns / 1e6);
+    return d.toLocaleTimeString(undefined, { hour12: false }) + '.' +
+      String(d.getMilliseconds()).padStart(3, '0');
+  }
+
+  // Full Heart Rate Measurement (0x2A37) decode.
+  function liveHrPacket(dv){
+    try {
+      const f = dv.getUint8(0); let o = 1;
+      const bpm = (f & 1) ? dv.getUint16(o, true) : dv.getUint8(o); o += (f & 1) ? 2 : 1;
+      let energy = null;
+      if (f & 8){ energy = dv.getUint16(o, true); o += 2; }
+      const rr = [];
+      if (f & 16) for (; o + 1 < dv.byteLength; o += 2)
+        rr.push(Math.round(dv.getUint16(o, true) / 1024 * 1000));   // 1/1024 s → ms
+      rrCount += rr.length;
+      if (rr.length) lastRr = lastRr.concat(rr).slice(-6);
+      $('#liveBpm').textContent = bpm || '--';
+      // The contact bit lags reality: "on skin" needs the bit AND a pulse.
+      const contact = !(f & 4) ? 'not supported'
+        : !(f & 2) ? 'no contact'
+        : bpm > 0 ? 'on skin'
+        : 'no contact — no pulse (bit still set)';
+      $('#liveContact').textContent = contact + ' · flags 0x' + f.toString(16).padStart(2, '0');
+      $('#liveEnergy').textContent = energy === null ? 'not sent' : energy + ' kJ';
+      $('#liveRr').textContent = lastRr.length ? lastRr.join(' · ') : '—';
+      $('#liveRrN').textContent = rrCount;
+    } catch(e){}
+  }
+
+  // PMD data frame: type(1) + timestamp(8, ns LE) + frame type(1) + samples.
+  // The H10 streams uncompressed: ECG = 3-byte signed µV, ACC = int16 x,y,z mG.
+  function livePmd(dv){
+    if (dv.byteLength < 11) return;
+    const type = dv.getUint8(0), frame = dv.getUint8(9);
+    let ts = 0;
+    try { ts = Number(dv.getBigUint64(1, true)); } catch(e){}
+    if (type === 0x00 && frame === 0x00){
+      for (let i = 10; i + 2 < dv.byteLength; i += 3){
+        let v = dv.getUint8(i) | (dv.getUint8(i + 1) << 8) | (dv.getUint8(i + 2) << 16);
+        if (v & 0x800000) v -= 0x1000000;
+        ecgBuf.push(v);
+      }
+      if (ecgBuf.length > 780) ecgBuf = ecgBuf.slice(-780);   // 6 s at 130 Hz
+      $('#liveEcgV').textContent = ecgBuf[ecgBuf.length - 1] + ' µV';
+      $('#liveEcgTs').textContent = fmtTs(ts);
+    } else if (type === 0x02 && frame === 0x01){
+      for (let i = 10; i + 5 < dv.byteLength; i += 6)
+        accBuf.push([dv.getInt16(i, true), dv.getInt16(i + 2, true), dv.getInt16(i + 4, true)]);
+      if (accBuf.length > 300) accBuf = accBuf.slice(-300);   // 6 s at 50 Hz
+      const a = accBuf[accBuf.length - 1];
+      $('#liveAcc').textContent = a[0] + ' / ' + a[1] + ' / ' + a[2];
+      $('#livePos').textContent = posture();
+      $('#liveAccTs').textContent = fmtTs(ts);
+    }
+  }
+
+  function drawScope(id, series, colors){
+    const c = $(id), dpr = devicePixelRatio || 1;
+    const w = c.width = c.clientWidth * dpr, h = c.height = c.clientHeight * dpr;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    let peakAbs = 1;
+    for (const sr of series) for (const v of sr){ const a = Math.abs(v); if (a > peakAbs) peakAbs = a; }
+    series.forEach((sr, si) => {
+      if (sr.length < 2) return;
+      g.strokeStyle = colors[si]; g.lineWidth = dpr;
+      g.beginPath();
+      for (let i = 0; i < sr.length; i++){
+        const x = i / (sr.length - 1) * w;
+        const y = h / 2 - sr[i] / peakAbs * (h / 2 - 4);
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+    });
+  }
+  function liveDraw(){
+    if (!liveOpen) return;
+    drawScope('#ecgScope', [ecgBuf], ['#B9F6CF']);
+    drawScope('#accScope',
+      [accBuf.map(a => a[0]), accBuf.map(a => a[1]), accBuf.map(a => a[2])],
+      ['#FFC9C4', '#FFDF8E', '#BFE3FF']);
+    requestAnimationFrame(liveDraw);
+  }
+
+  function paintConn(){
+    $('#liveconnect').textContent = connected ? 'Disconnect'
+      : connecting ? 'Connecting…' : 'Connect sensor';
+  }
+  function resetReadouts(){
+    ecgBuf = []; accBuf = []; rrCount = 0; lastRr = [];
+    for (const id of ['#liveBpm']) $(id).textContent = '--';
+    for (const id of ['#liveContact','#liveEnergy','#liveRr','#liveEcgV','#liveEcgTs',
+                      '#liveAcc','#livePos','#liveAccTs','#liveBatt','#liveBattAt',
+                      '#liveModel','#liveSerial','#liveFw']) $(id).textContent = '—';
+    $('#liveRrN').textContent = 0;
+  }
+
+  async function connectNative(){
+    note('Choose your H10 in the list…');
+    await NativeH10.request();
+    await NativeH10.connect(() => {
+      connected = false; paintConn();
+      if (liveOpen) note('Connection lost — the strap went out of reach or off the skin.');
+    });
+    connected = true; note('');
+    await NativeH10.notifyHr(dv => liveHrPacket(dv));
+    try { $('#liveBatt').textContent = (await NativeH10.readBatt()) + ' %'; stampBatt(); } catch(e){}
+    try {
+      const d = await NativeH10.readDis();
+      if (d.model) $('#liveModel').textContent = d.model;
+      if (d.serial) $('#liveSerial').textContent = d.serial;
+      if (d.fw) $('#liveFw').textContent = d.fw;
+    } catch(e){}
+    try { await NativeH10.startPmd([PMD_START_ECG, PMD_START_ACC], dv => livePmd(dv)); }
+    catch(e){ note('ECG and accelerometer streams unavailable — heart rate only.'); }
+    battTimer = setInterval(async () => {
+      try { $('#liveBatt').textContent = (await NativeH10.readBatt()) + ' %'; stampBatt(); } catch(e){}
+    }, 60000);
+  }
+
+  async function connectWeb(){
+    if (!navigator.bluetooth){
+      note('Bluetooth is not available in this viewer — use the APK, or Chrome on Android.');
+      return;
+    }
+    note('Choose your H10 in the list…');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['heart_rate'] }],
+      optionalServices: ['battery_service', 'device_information', PMD_SERVICE]
+    });
+    device.addEventListener('gattserverdisconnected', () => {
+      connected = false; paintConn();
+      if (liveOpen) note('Connection lost — the strap went out of reach or off the skin.');
+    });
+    const server = await device.gatt.connect();
+    connected = true; note('');
+    const svc = await server.getPrimaryService('heart_rate');
+    const ch = await svc.getCharacteristic('heart_rate_measurement');
+    await ch.startNotifications();
+    ch.addEventListener('characteristicvaluechanged', e => liveHrPacket(e.target.value));
+    try {
+      const dis = await server.getPrimaryService('device_information');
+      const dec = new TextDecoder();
+      for (const [uuid, id] of [['00002a24-0000-1000-8000-00805f9b34fb', '#liveModel'],
+                                ['00002a25-0000-1000-8000-00805f9b34fb', '#liveSerial'],
+                                ['00002a26-0000-1000-8000-00805f9b34fb', '#liveFw']]){
+        try {
+          const v = await (await dis.getCharacteristic(uuid)).readValue();
+          $(id).textContent = dec.decode(v.buffer).replace(/\0+$/, '');
+        } catch(e){}
+      }
+    } catch(e){}
+    try {
+      const pmd = await server.getPrimaryService(PMD_SERVICE);
+      webPmdCtrl = await pmd.getCharacteristic(PMD_CTRL);
+      webPmdData = await pmd.getCharacteristic(PMD_DATA);
+      await webPmdCtrl.startNotifications();
+      await webPmdData.startNotifications();
+      webPmdData.addEventListener('characteristicvaluechanged', e => livePmd(e.target.value));
+      await webPmdCtrl.writeValueWithResponse(new Uint8Array(PMD_START_ECG));
+      await webPmdCtrl.writeValueWithResponse(new Uint8Array(PMD_START_ACC));
+    } catch(e){ note('ECG and accelerometer need a fresh pairing — disconnect, then connect again.'); }
+    const readBatt = async () => {
+      try {
+        const bs = await device.gatt.getPrimaryService('battery_service');
+        const v = await (await bs.getCharacteristic('battery_level')).readValue();
+        $('#liveBatt').textContent = v.getUint8(0) + ' %'; stampBatt();
+      } catch(e){}
+    };
+    battTimer = setInterval(readBatt, 60000);
+    readBatt();
+  }
+
+  async function connectLive(){
+    if (connecting) return;
+    connecting = true; paintConn();
+    try { await (window.NativeH10 ? connectNative() : connectWeb()); }
+    catch(e){
+      if (!/cancel/i.test(String(e)))
+        note('Connection failed — make sure the strap is worn (moisten the electrodes) and not held by another app, then retry.');
+      else note('');
+    }
+    connecting = false; paintConn();
+  }
+
+  async function disconnectLive(){
+    if (battTimer){ clearInterval(battTimer); battTimer = null; }
+    if (window.NativeH10){
+      try { await NativeH10.stopPmd([PMD_STOP_ECG, PMD_STOP_ACC]); } catch(e){}
+      NativeH10.disconnect();
+    } else {
+      try {
+        if (webPmdCtrl){
+          await webPmdCtrl.writeValueWithResponse(new Uint8Array(PMD_STOP_ECG));
+          await webPmdCtrl.writeValueWithResponse(new Uint8Array(PMD_STOP_ACC));
+        }
+      } catch(e){}
+      if (device && device.gatt && device.gatt.connected) device.gatt.disconnect();
+      webPmdCtrl = webPmdData = null;
+    }
+    connected = false; paintConn();
+  }
+
+  $('#liveconnect').onclick = () => { connected ? disconnectLive() : connectLive(); };
+  $('#livenav').onclick = () => {
+    liveOpen = true;
+    $('#livesheet').classList.add('on');
+    requestAnimationFrame(liveDraw);
+  };
+  $('#liveclose').onclick = () => {
+    liveOpen = false;
+    $('#livesheet').classList.remove('on');
+    disconnectLive();
+    resetReadouts(); note('');
+  };
+  // 130 Hz must not keep flowing under a hidden page: leaving the app drops the link.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && connected){
+      disconnectLive();
+      note('Disconnected while the app was hidden — reconnect to resume.');
+    }
+  });
+})();
 
 /* ---------- boot ---------- */
 (async () => {
