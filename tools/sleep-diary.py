@@ -132,7 +132,7 @@ AVG_WINDOW_DAYS = 28
 
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else ".").expanduser()
 
-# The day files are the raw log; the diary row spans the whole day (light, cardio,
+# The day files are the raw log; the diary row spans the whole day (light,
 # melatonin, then the night), so the record lives as daily.csv at the ROOT of the folder
 # holding the day-file folders (~/.../sources/), above the per-domain subfolders. A
 # second argument names the destination outright; without one, the day-file folder's
@@ -152,11 +152,10 @@ RETIRED = [OUT_DIR / "sleep-diary.md", OUT_DIR / "sleep-diary.csv",
 # awakening like any other middle one).
 OVERRIDES_FILE = SRC / "diary-overrides.json"
 
-# The cardio day files zone-alarm pushes (receiver route /cardio), filed beside the
-# audio log. The Cardio column shows each session's local start time on its calendar
-# day — a day input like light and melatonin, read as cause before the night.
-_cardio_env = os.environ.get("AUDIO_TIMER_CARDIO_DIR")
-CARDIO_SRC = Path(_cardio_env).expanduser() if _cardio_env else SRC.parent / "cardio-sessions"
+# (A Cardio column lived here until 2026-09-09, showing each zone-alarm session's start
+# time. It was dropped: exercise-log.csv is the cardio record now — the session's own row,
+# with its bands, parts and effort — and a start time repeated here said nothing that file
+# does not say better.)
 
 # The per-day computer-time cache tools/computer-time.py maintains from macOS Screen
 # Time (the sync refreshes it before this runs). Day -> minutes; a day the Mac never
@@ -438,27 +437,6 @@ def night_metrics(rows, overrides):
     return n
 
 
-def load_cardio():
-    """Session start times by local day, from the zone-alarm day files."""
-    by_day = {}
-    for f in (sorted(CARDIO_SRC.glob("*.json")) if CARDIO_SRC.is_dir() else []):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        for sess in data.get("sessions", []):
-            if not isinstance(sess, dict):
-                continue
-            try:
-                dt = datetime.fromisoformat(
-                    str(sess.get("started", "")).replace("Z", "+00:00")).astimezone()
-            except ValueError:
-                continue
-            day = sess.get("localDay") or dt.strftime("%Y-%m-%d")
-            by_day.setdefault(day, []).append(dt)
-    return {d: sorted(ts) for d, ts in by_day.items()}
-
-
 def main():
     rows = load_rows()
     doses = [r for r in rows if r["kind"] == "melatonin"]
@@ -500,7 +478,6 @@ def main():
 
 
 
-    cardio = load_cardio()
     computer = load_computer()
 
     # Durations as zero-padded HH:MM, clocks as ISO local timestamps (a rise can land
@@ -521,7 +498,7 @@ def main():
 
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["night", "morning_light", "cardio", "melatonin", "computer",
+        w.writerow(["night", "morning_light", "melatonin", "computer",
                     "work", "computer_off", "screens_off", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
                     "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
@@ -529,7 +506,6 @@ def main():
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
                 n["date"], iso(n["light"]),
-                ";".join(iso(t) for t in cardio.get(n["date"], [])),
                 iso(n["melatonin"]), hm(computer.get(n["date"])),
                 hm(cad_work.get(n["date"])), iso(n["cadence_off"]),
                 iso(n["screens"]), iso(n["bedtime"]),
