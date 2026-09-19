@@ -326,6 +326,8 @@
   .zone .bd{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:9px;padding:9px 4px;text-align:center}
   .zone .bd span{display:block;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--dim);margin-bottom:6px}
   .zone .bd b{font:700 16px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--txt)}
+  .zone .bd.wide{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;padding:9px 12px}
+  .zone .bd.wide span{margin-bottom:0}
   .zone .bd.on{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4)}
   .zone .bd.on b{color:#fff}
 
@@ -519,10 +521,11 @@
       <span id="setSummary">80–170 · alert 10 s</span>
     </div>
     <div class="bands">
-      <div class="bd"><span id="b0lbl">30–39%</span><b id="b0">-:--</b></div>
-      <div class="bd"><span id="b1lbl">40–59%</span><b id="b1">-:--</b></div>
-      <div class="bd"><span id="b2lbl">60–89%</span><b id="b2">-:--</b></div>
-      <div class="bd"><span id="b3lbl">≥90%</span><b id="b3">-:--</b></div>
+      <div class="bd wide"><span id="b0lbl">&lt;30%</span><b id="b0">-:--</b></div>
+      <div class="bd"><span id="b1lbl">30–39%</span><b id="b1">-:--</b></div>
+      <div class="bd"><span id="b2lbl">40–59%</span><b id="b2">-:--</b></div>
+      <div class="bd"><span id="b3lbl">60–89%</span><b id="b3">-:--</b></div>
+      <div class="bd"><span id="b4lbl">≥90%</span><b id="b4">-:--</b></div>
     </div>
     <p id="bandsNote" class="fieldhint" hidden>Set max &amp; resting bpm in Settings to compute the intensity bands (% of heart-rate reserve).</p>
     <div class="stats">
@@ -581,7 +584,7 @@
       <h2 id="setTitle">Settings</h2>
     </div>
     <div class="grid" style="margin-top:14px">
-      <div class="field"><label for="min">Range low</label><input id="min" type="number" inputmode="numeric" value="80" min="40" max="230"></div>
+      <div class="field"><label for="min">Range low</label><input id="min" type="number" inputmode="numeric" value="110" min="40" max="230"></div>
       <div class="field"><label for="max">Range high</label><input id="max" type="number" inputmode="numeric" value="170" min="40" max="230"></div>
       <div class="field"><label for="delay">Alert after</label><input id="delay" type="number" inputmode="numeric" value="10" min="0" max="120"></div>
     </div>
@@ -2667,9 +2670,11 @@ $('#posfile').onchange = async e => {
   const SCALE_LO = 60, SCALE_HI = 200;
   // Intensity bands as % of heart-rate reserve (Karvonen):
   // bpm = resting + pct × (max − resting). Times accrue per band.
-  const NB = 4;
-  const BAND_LO = [30, 40, 60, 90], BAND_HI = [40, 60, 90, Infinity];
-  const BAND_NAMES = ['30–39%', '40–59%', '60–89%', '≥90%'];
+  // The first band, very light (<30%), is open at the bottom: anything under 30% counts,
+  // a rate below the resting one included.
+  const NB = 5;
+  const BAND_LO = [-Infinity, 30, 40, 60, 90], BAND_HI = [30, 40, 60, 90, Infinity];
+  const BAND_NAMES = ['<30%', '30–39%', '40–59%', '60–89%', '≥90%'];
 
   // Inside the Android shell the session runs in HrService — detection, alerts
   // and timers all live there, so none of it stops when the page is throttled.
@@ -2695,10 +2700,14 @@ $('#posfile').onchange = async e => {
   let reachedMin = false;
   let audioCtx = null;
 
-  const settings = { min:80, max:170, delay:10, vib:true, snd:false, hrmax:0, resting:0 };
+  const PROFILE = { hrmax:189, resting:57 };
+  const settings = Object.assign({ min:110, max:170, delay:10, vib:true, snd:false }, PROFILE);
   // Settings survive restarts — a profile field like the resting bpm would be
   // pointless retyped every run.
   try { Object.assign(settings, JSON.parse(localStorage.getItem('za-settings') || '{}')); } catch(e){}
+  // A profile saved as unset (0, from before it had defaults) falls back to them: without
+  // both ends of the reserve the band cells carry no bpm range at all.
+  for (const k in PROFILE) if (!(settings[k] > 0)) settings[k] = PROFILE[k];
   function saveSettings(){
     try { localStorage.setItem('za-settings', JSON.stringify(settings)); } catch(e){}
   }
@@ -2756,7 +2765,9 @@ $('#posfile').onchange = async e => {
     e.inRangeSeconds = Math.round(tIn);
     e.parts = parts.length;
     e.peakBpm = peak;
-    e.bands = tBand.map(v => Math.round(v));            // light, moderate, vigorous, ≥90 %
+    // light, moderate, vigorous, ≥90 % — the four the exercise log has columns for; the
+    // very light band is on the screen only.
+    e.bands = tBand.slice(1).map(v => Math.round(v));
     e.partsDetail = parts.map(p => ({
       inRange: Math.round(p.inRange),
       toMax: Math.round(p.toMax),
@@ -2893,7 +2904,8 @@ $('#posfile').onchange = async e => {
       let lbl = BAND_NAMES[i];
       if (ok){
         const lo = pctToBpm(BAND_LO[i]);
-        lbl += i === NB - 1 ? ' · ' + lo + '+' : ' · ' + lo + '–' + (pctToBpm(BAND_HI[i]) - 1);
+        lbl += i === 0 ? ' · under ' + pctToBpm(BAND_HI[0])
+          : i === NB - 1 ? ' · ' + lo + '+' : ' · ' + lo + '–' + (pctToBpm(BAND_HI[i]) - 1);
       }
       $('b' + i + 'lbl').textContent = lbl;
     }
@@ -3162,7 +3174,7 @@ $('#posfile').onchange = async e => {
     natElapsed = s.elapsed || 0;
     natPartEl = s.partElapsed || 0;
     tIn = s.tIn || 0;
-    if (Array.isArray(s.bands)) tBand = s.bands;
+    if (Array.isArray(s.bands) && s.bands.length === NB) tBand = s.bands;
     peak = s.peak || 0;
     partIn = s.partIn || 0;
     above = !!s.above;
@@ -3398,14 +3410,14 @@ $('#posfile').onchange = async e => {
   }
   bindNum('min','min',40,229); bindNum('max','max',41,230); bindNum('delay','delay',0,120);
 
-  // Profile fields: optional — an empty input means unset.
+  // Profile fields: an emptied input goes back to the default.
   function bindOpt(id, key, lo, hi){
     $(id).addEventListener('change', () => {
       const raw = $(id).value.trim();
-      let v = raw === '' ? 0 : parseInt(raw, 10);
+      let v = raw === '' ? PROFILE[key] : parseInt(raw, 10);
       if (isNaN(v)) v = settings[key];
-      if (v !== 0) v = Math.min(hi, Math.max(lo, v));
-      settings[key] = v; $(id).value = v === 0 ? '' : v;
+      v = Math.min(hi, Math.max(lo, v));
+      settings[key] = v; $(id).value = v;
       saveSettings(); pushSettings();
       drawBand(); render();
     });
@@ -3414,8 +3426,7 @@ $('#posfile').onchange = async e => {
 
   // restore the loaded settings into the inputs
   $('min').value = settings.min; $('max').value = settings.max; $('delay').value = settings.delay;
-  if (settings.hrmax > 0) $('hrmax').value = settings.hrmax;
-  if (settings.resting > 0) $('resting').value = settings.resting;
+  $('hrmax').value = settings.hrmax; $('resting').value = settings.resting;
   $('vib').setAttribute('aria-pressed', settings.vib);
   $('vib').textContent = settings.vib ? 'Vibration on' : 'Vibration off';
   $('snd').setAttribute('aria-pressed', settings.snd);

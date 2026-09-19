@@ -79,9 +79,11 @@ public class HrService extends Service {
 
     // Intensity bands as % of heart-rate reserve (Karvonen):
     // bpm = resting + pct × (max − resting). Times accrue per band.
-    private static final int NB = 4;
-    private static final int[] BAND_LO = { 30, 40, 60, 90 };
-    private static final int[] BAND_HI = { 40, 60, 90, Integer.MAX_VALUE };
+    // The first band, very light (<30%), is open at the bottom: a rate below the resting
+    // one counts there too.
+    private static final int NB = 5;
+    private static final int[] BAND_LO = { Integer.MIN_VALUE, 30, 40, 60, 90 };
+    private static final int[] BAND_HI = { 30, 40, 60, 90, Integer.MAX_VALUE };
     private static final long TICK_MS = 1000;
     private static final long ALERT_REPEAT_MS = 4500;
     private static final long SAMPLE_STALE_MS = 5000;  // no HR for this long = not counting
@@ -136,8 +138,8 @@ public class HrService extends Service {
     }
 
     // settings, mirrored from the UI
-    private int min = 80, max = 170, delaySec = 10;
-    private int hrmax = 0, resting = 0;                // profile, 0 = unset
+    private int min = 110, max = 170, delaySec = 10;
+    private int hrmax = 189, resting = 57;             // profile, 0 = unset
     private boolean vibOn = true, sndOn = false;
 
     // session
