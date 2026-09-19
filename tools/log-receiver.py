@@ -65,6 +65,9 @@ CARDIO_FIELDS = (
     # The two ends of the run that are not numbered parts: part 0, from the start tap to the
     # range low, and the cool down after the button. No exercise-log column reads them yet.
     "warmupSeconds", "cooldownSeconds",
+    # The rest of the run's record (2026-09-19): the band under the four (<30 % of reserve)
+    # and the alert delay, the one setting of the run that was not being kept.
+    "veryLightSeconds", "alertDelaySeconds",
 )
 
 

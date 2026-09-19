@@ -111,7 +111,10 @@
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
   #loglist{margin-bottom:6px}
-  .logrow{padding:10px 0;border-bottom:1px solid var(--line)}
+  .logrow{position:relative;padding:10px 44px 10px 0;border-bottom:1px solid var(--line)}
+  .logdel{position:absolute;top:8px;right:0;width:34px;height:34px;border-radius:10px;
+    border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px}
+  .logdel:active{background:var(--surface-2);color:var(--danger)}
   .logrow:last-child{border-bottom:0}
   .logday{font-size:14px;font-weight:600}
   .logmeta{font-size:12.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
@@ -359,8 +362,8 @@
   .zone .field.wide input{text-align:left;font:500 14px/1 var(--mono);padding:10px}
   .zone #syncStatus.bad{color:#FFC9C4}
   .zone #pmax{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:8px;min-height:13px}
-  .zone #partsDlg, .zone #setDlg, .zone #logDlg, .zone #rpeDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;border:1px solid var(--line);background:#121821;color:var(--txt);border-radius:16px;padding:18px;width:calc(100% - 28px);max-width:430px;max-height:82dvh;overflow:auto}
-  .zone #partsDlg::backdrop, .zone #setDlg::backdrop, .zone #logDlg::backdrop, .zone #rpeDlg::backdrop{background:rgba(0,0,0,.62)}
+  .zone #partsDlg, .zone #setDlg, .zone #rpeDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;border:1px solid var(--line);background:#121821;color:var(--txt);border-radius:16px;padding:18px;width:calc(100% - 28px);max-width:430px;max-height:82dvh;overflow:auto}
+  .zone #partsDlg::backdrop, .zone #setDlg::backdrop, .zone #rpeDlg::backdrop{background:rgba(0,0,0,.62)}
   .zone #rpeGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:14px}
   .zone #rpeGrid button{border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--txt);
     border-radius:9px;padding:12px 0;font:700 15px/1 var(--mono);cursor:pointer}
@@ -368,8 +371,8 @@
   .zone #rpeNote{width:100%;margin-top:12px;background:rgba(0,0,0,.3);border:1px solid var(--line);
     border-radius:9px;color:var(--txt);font:400 13px/1.5 var(--mono);padding:10px;min-height:64px;resize:vertical}
   .zone #rpeFoot{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
-  .zone #partsTitle, .zone #setTitle, .zone #logTitle{font:700 16px/1.2 var(--sans);letter-spacing:.02em}
-  .zone #partsHint, .zone #logHint{margin-top:6px;font:400 11.5px/1.5 var(--mono);color:var(--dim)}
+  .zone #partsTitle, .zone #setTitle{font:700 16px/1.2 var(--sans);letter-spacing:.02em}
+  .zone #partsHint{margin-top:6px;font:400 11.5px/1.5 var(--mono);color:var(--dim)}
   .zone .plist{list-style:none;margin:14px 0 0}
   .zone .plist li, .zone .running{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-bottom:8px}
   .zone .running{border-style:dashed}
@@ -378,11 +381,10 @@
   .zone .pv{text-align:right;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--dim)}
   .zone .pv em{display:block;font-style:normal;margin-bottom:5px}
   .zone .pv b{font:700 15px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--txt)}
-  .zone #partsEmpty, .zone #logEmpty{margin-top:14px;font:400 12px/1.5 var(--mono);color:var(--dim)}
-  .zone #partsEmpty[hidden], .zone #logEmpty[hidden]{display:none}
-  .zone #partsClose, .zone #logClose{margin-top:6px;width:100%}
+  .zone #partsEmpty{margin-top:14px;font:400 12px/1.5 var(--mono);color:var(--dim)}
+  .zone #partsEmpty[hidden]{display:none}
+  .zone #partsClose{margin-top:6px;width:100%}
   .zone .pn small{display:block;font-size:9px;font-weight:400;color:var(--dim);margin-top:4px;letter-spacing:.08em}
-  .zone #logStatus{margin:12px 0 2px}
 
   .zone /* actions */
   #coolBtn{margin-top:12px;width:100%;padding:13px}
@@ -548,7 +550,6 @@
     </div>
     <div class="partsbar">
       <span id="partnow">Part <b>1</b> · <b>0:00</b> in range</span>
-      <button id="logBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="logDlg">Log <b id="logCount">0</b></button>
       <button id="partsBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="partsDlg">Parts <b id="partsCount">0</b></button>
     </div>
     <button id="coolBtn" class="ghost" aria-pressed="false" hidden>Cool down</button>
@@ -568,15 +569,6 @@
   </div>
   <p id="partsEmpty">Nothing finished yet — the warm-up closes when you reach the range low.</p>
   <button id="partsClose" class="ghost">Close</button>
-</dialog>
-
-<dialog id="logDlg" aria-labelledby="logTitle" aria-describedby="logHint">
-  <h2 id="logTitle">Run log</h2>
-  <p id="logHint">Every session of the last 14 days, kept on the phone.</p>
-  <ol id="logList" class="plist"></ol>
-  <p id="logEmpty">No session yet — runs land here when you start one.</p>
-  <p class="fieldhint" id="logStatus"></p>
-  <button id="logClose" class="ghost">Close</button>
 </dialog>
 
 <dialog id="rpeDlg" aria-labelledby="rpeTitle" aria-describedby="rpeHint">
@@ -2060,11 +2052,39 @@ async function openLog(){
          s.speed && s.speed !== 1 && s.speed + '×',
          s.fadeInSeconds ? s.fadeInSeconds + 's fade-in' : ''
         ].filter(Boolean).join(' · ');
+      // The night being recorded right now is not a log entry yet.
+      if (!(session && session.id === s.id)) el.appendChild(delButton(() => deleteNight(s)));
       box.appendChild(el);
     }
   }
   renderCardio();
   $('#logsheet').classList.add('on');
+  if (window.ZoneLog) window.ZoneLog.push();
+}
+
+function delButton(onTap){
+  const b = document.createElement('button');
+  b.className = 'logdel'; b.textContent = '✕'; b.setAttribute('aria-label', 'Delete this entry');
+  b.onclick = onTap;
+  return b;
+}
+
+/* Deleting an entry takes it off the phone and out of everything still waiting to send it: the
+   row itself, and on the APK the copy staged in the native outbox, which would otherwise go
+   out days later with the app closed. A copy the server already confirmed stays there — the
+   phone has no way to take it back. */
+async function deleteNight(s){
+  if (!confirm('Delete this entry? It leaves this phone and will not be sent to the server.' +
+      (s.uploadedAt ? ' The copy the server already has stays there.' : ''))) return;
+  if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
+  await delSession(s.id);
+  openLog();
+}
+function deleteRun(r){
+  if (!confirm('Delete this run? It leaves this phone and will not be sent to the server.' +
+      (r.syncedAt ? ' The copy the server already has stays there.' : ''))) return;
+  if (window.ZoneLog) window.ZoneLog.remove(r.id);
+  renderCardio();
 }
 
 /* The cardio sessions, in the same log as the nights — everything a row of
@@ -2083,38 +2103,51 @@ function renderCardio(){
   if (!rows.length) return;
   const ms = v => v == null ? null :
     Math.floor(v / 60) + ':' + String(Math.round(v % 60)).padStart(2, '0');
-  const BANDS = ['light', 'mod', 'vig', '≥90%'];
+  const BANDS = ['30–39%', '40–59%', '60–89%', '≥90%'];
+  const running = window.ZoneLog ? window.ZoneLog.running() : null;
   for (const r of rows){
     const t0 = Date.parse(r.started), t1 = r.ended ? Date.parse(r.ended) : 0;
     const el = document.createElement('div');
     el.className = 'logrow';
-    for (const cls of ['logday', 'logmeta', 'logmeta logsub', 'logmeta logsub', 'logmeta logsub']){
-      const d = document.createElement('div'); d.className = cls; el.appendChild(d);
-    }
-    const [day, meta, bands, parts, extra] = el.children;
-    day.textContent = fmtDay(t0) + ' · ' + fmtClock(t0) + (t1 ? '–' + fmtClock(t1) : ' · running');
-    meta.textContent = [
+    const line = (text, sub) => {
+      if (!text) return;
+      const d = document.createElement('div');
+      d.className = sub ? 'logmeta logsub' : 'logmeta'; d.textContent = text; el.appendChild(d);
+    };
+    const day = document.createElement('div');
+    day.className = 'logday';
+    day.textContent = fmtDay(t0) + ' · ' + fmtClock(t0) +
+      (t1 ? '–' + fmtClock(t1) : r.id === running ? ' · running' : ' · never ended');
+    el.appendChild(day);
+    line([
       r.durationSeconds != null ? ms(r.durationSeconds) + ' total' : null,
       r.inRangeSeconds != null ? ms(r.inRangeSeconds) + ' in range' : null,
-      r.peakBpm ? 'peak ' + r.peakBpm : null,
+      r.peakBpm ? 'peak ' + r.peakBpm : null
+    ].filter(Boolean).join(' · '));
+    line([
       (r.minBpm && r.maxBpm) ? 'range ' + r.minBpm + '–' + r.maxBpm : null,
-      (r.resting && r.hrmax) ? 'reserve ' + r.resting + '–' + r.hrmax : null
-    ].filter(Boolean).join(' · ');
-    bands.textContent = Array.isArray(r.bands)
-      ? r.bands.map((v, i) => BANDS[i] + ' ' + ms(v)).join(' · ') : '';
-    parts.textContent = [
-      r.warmupSeconds != null ? 'warm-up ' + ms(r.warmupSeconds) : null,
-      Array.isArray(r.partsDetail) && r.partsDetail.length
-        ? r.partsDetail.map((p, i) => 'P' + (i + 1) + ' M ' + (ms(p.toMax) || '—') +
-            ' R ' + (p.recovery == null ? '—' : ms(p.recovery))).join(' · ')
-        : (r.parts ? r.parts + ' part' + (r.parts === 1 ? '' : 's') : null),
-      r.cooldownSeconds != null ? 'cool down ' + ms(r.cooldownSeconds) : null
-    ].filter(Boolean).join(' · ');
-    extra.textContent = [
+      r.alertDelaySeconds != null ? 'alert after ' + r.alertDelaySeconds + ' s' : null,
+      r.hrmax ? 'max ' + r.hrmax : null,
+      r.resting ? 'resting ' + r.resting : null
+    ].filter(Boolean).join(' · '), true);
+    line([
+      r.veryLightSeconds != null ? '<30% ' + ms(r.veryLightSeconds) : null
+    ].concat(Array.isArray(r.bands) ? r.bands.map((v, i) => BANDS[i] + ' ' + ms(v)) : [])
+      .filter(Boolean).join(' · '), true);
+    // One line per stage of the run: the warm-up, each part's two halves, the cool down.
+    if (r.warmupSeconds != null) line('Part 0 · warm-up ' + ms(r.warmupSeconds), true);
+    if (Array.isArray(r.partsDetail) && r.partsDetail.length)
+      r.partsDetail.forEach((p, i) => line('Part ' + (i + 1) +
+        ' · reach ' + (p.toMax == null ? '—' : ms(p.toMax)) +
+        ' · rest ' + (p.recovery == null ? '—' : ms(p.recovery)), true));
+    else if (r.parts) line(r.parts + ' part' + (r.parts === 1 ? '' : 's'), true);
+    if (r.cooldownSeconds != null) line('Cool down ' + ms(r.cooldownSeconds), true);
+    line([
       r.rpe != null ? 'RPE ' + r.rpe + '/10' : null,
       r.note ? '“' + r.note + '”' : null,
       r.syncedAt ? 'synced' : 'to sync'
-    ].filter(Boolean).join(' · ');
+    ].filter(Boolean).join(' · '), true);
+    if (r.id !== running) el.appendChild(delButton(() => deleteRun(r)));
     box.appendChild(el);
   }
 }
@@ -2751,8 +2784,21 @@ $('#posfile').onchange = async e => {
     const cutoff = Date.now() - 14 * 86400e3;
     sessLog = sessLog.filter(s => Date.parse(s.started) > cutoff);
     try { localStorage.setItem('za-sessions', JSON.stringify(sessLog)); } catch(e){}
-    $('logCount').textContent = sessLog.length;
   }
+  // The runs are listed on Audio Timer's own log page, which reads the store directly. What
+  // it cannot do from there is delete: this script holds the log in memory and would write
+  // the entry straight back. A deleted run is simply gone from every later push — the whole
+  // log goes up each time — and the run in progress is never deletable.
+  window.ZoneLog = {
+    running: () => curSessionId,
+    push: () => pushLog(),          // opening the log is also the moment to retry a sync
+    remove(id){
+      if (id === curSessionId) return false;
+      sessLog = sessLog.filter(x => x.id !== id);
+      saveLog();
+      return true;
+    }
+  };
 
   function logStart(){
     const d = new Date();
@@ -2761,7 +2807,7 @@ $('#posfile').onchange = async e => {
       started: d.toISOString(),
       localDay: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
         '-' + String(d.getDate()).padStart(2, '0'),
-      minBpm: settings.min, maxBpm: settings.max
+      minBpm: settings.min, maxBpm: settings.max, alertDelaySeconds: settings.delay
     };
     sessLog.push(e);
     setCur(e.id);
@@ -2802,7 +2848,10 @@ $('#posfile').onchange = async e => {
     // light, moderate, vigorous, ≥90 % — the four the exercise log has columns for; the
     // very light band is on the screen only.
     e.bands = tBand.slice(1).map(v => Math.round(v));
+    e.veryLightSeconds = Math.round(tBand[0]);          // <30 %, beside the four
     logParts(e);
+    // The limits as they stood at the end — they can be changed mid-run.
+    e.minBpm = settings.min; e.maxBpm = settings.max; e.alertDelaySeconds = settings.delay;
     e.hrmax = settings.hrmax || null;                   // the bands mean nothing without
     e.resting = settings.resting || null;               // the two ends of the reserve
     delete e.syncedAt;                        // the entry changed — upload it again
@@ -2822,7 +2871,7 @@ $('#posfile').onchange = async e => {
   let rpeFor = null;
 
   function setSync(text, bad){
-    for (const el of [$('syncStatus'), $('logStatus')]){
+    for (const el of [$('syncStatus')]){
       if (el){ el.textContent = text; el.classList.toggle('bad', !!bad); }
     }
   }
@@ -2872,7 +2921,8 @@ $('#posfile').onchange = async e => {
       setSync('Offline — sessions kept, will retry.', true);
     }
     pushing = false;
-    if ($('logDlg').open) renderLog();        // the ack may have flipped rows to synced
+    // The ack may have flipped rows to synced — the log page shows that per run.
+    if (typeof renderCardio === 'function' && document.getElementById('logsheet').classList.contains('on')) renderCardio();
   }
   window.addEventListener('online', pushLog);
   // Coming back to the foreground is the retry moment a phone actually has:
@@ -2881,40 +2931,6 @@ $('#posfile').onchange = async e => {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') pushLog();
   });
-
-  // ------------------------------------------------------------ run log view
-  // The Log dialog lists the kept 14 days, newest first — the same reading the
-  // sleep diary gets: when the run started, how long it ran, what it held.
-  function renderLog(){
-    const list = $('logList');
-    list.textContent = '';
-    const rows = [...sessLog].sort((a, b) => a.started < b.started ? 1 : -1);
-    for (const e of rows){
-      const d = new Date(e.started);
-      const when = d.toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short' }) +
-        ' · ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-      const running = e.id === curSessionId;
-      const status = !e.ended ? (running ? 'running' : 'never ended')
-        : (e.parts != null ? e.parts + ' part' + (e.parts === 1 ? '' : 's') + ' · ' : '') +
-          (e.syncedAt ? 'synced' : 'to sync');
-      const dur = e.ended
-        ? fmt(e.durationSeconds != null ? e.durationSeconds
-            : (Date.parse(e.ended) - Date.parse(e.started)) / 1000)
-        : running ? fmt(elapsed()) : '—';
-      const li = document.createElement('li');
-      if (running) li.className = 'running';
-      li.innerHTML =
-        '<span class="pn">' + when + '<small>' + status + '</small></span>' +
-        '<span class="pv"><em>time</em><b>' + dur + '</b></span>' +
-        '<span class="pv"><em>in range</em><b>' + (e.inRangeSeconds != null ? fmt(e.inRangeSeconds) : running ? fmt(tIn) : '—') + '</b></span>' +
-        '<span class="pv"><em>peak</em><b>' + (e.peakBpm > 0 ? e.peakBpm : running && peak > 0 ? peak : '--') + '</b></span>';
-      list.appendChild(li);
-    }
-    $('logEmpty').hidden = rows.length > 0;
-    $('logBtn').setAttribute('aria-expanded', $('logDlg').open ? 'true' : 'false');
-    if (!cardioSync())
-      $('logStatus').textContent = 'No server set in ⚙ — runs stay on the phone for 14 days.';
-  }
 
   function pos(v){ return Math.min(100, Math.max(0, (v - SCALE_LO) / (SCALE_HI - SCALE_LO) * 100)); }
 
@@ -3516,14 +3532,6 @@ $('#posfile').onchange = async e => {
   });
   $('partsClose').addEventListener('click', () => { dlg.close(); $('partsBtn').focus(); renderPart(); });
 
-  const logDlg = $('logDlg');
-  $('logBtn').addEventListener('click', () => {
-    renderLog();
-    logDlg.showModal();
-    renderLog();          // aria-expanded reads the now-open dialog
-    pushLog();            // opening the log is also the moment to retry a sync
-  });
-  $('logClose').addEventListener('click', () => { logDlg.close(); $('logBtn').focus(); renderLog(); });
 
   function bindNum(id, key, lo, hi){
     $(id).addEventListener('change', () => {
