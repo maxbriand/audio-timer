@@ -26,8 +26,9 @@ import android.widget.TextView;
 /*
  * The wake-up alarm screen: rings until "I'm up" or Snooze, over the lock screen if that
  * is where it lands. Back does nothing on purpose — the contract is that only "I'm up"
- * silences today's ring (tomorrow's was armed at the fire), and "Snooze 10 min" merely postpones it. Leaving the
- * screen any other way leaves the un-swipeable notification behind, still asking.
+ * silences today's ring (and arms tomorrow's, announcing its hour), and "Snooze 10 min"
+ * merely postpones it. Leaving the screen any other way leaves the un-swipeable
+ * notification behind, still asking.
  */
 public class WakeActivity extends Activity {
   private static final int BG = Color.parseColor("#10141a");
@@ -97,9 +98,8 @@ public class WakeActivity extends Activity {
     root.addView(title);
 
     TextView sub = new TextView(this);
-    String wt = WakeAlarm.goal(this);
-    sub.setText(wt.isEmpty() ? "Your wake-up time."
-                             : "It's " + wt + " — the day starts here.");
+    // The clock, not the goal: the alarm a late rise pulled back rings at its own hour.
+    sub.setText("It's " + WakeAlarm.clock(System.currentTimeMillis()) + " — the day starts here.");
     if (WakeAlarm.snoozed(this)) sub.setText("Snoozed once already — the day starts here.");
     sub.setTextColor(MUTED);
     sub.setTextSize(15);
@@ -113,6 +113,9 @@ public class WakeActivity extends Activity {
       // The rise: tomorrow's alarm is set from this moment, and the app opens on the day
       // screen, where the wake-up row is written like any other day-mode switch.
       WakeAlarm.up(this, System.currentTimeMillis());
+      android.widget.Toast.makeText(this,
+        "Next alarm: tomorrow " + WakeAlarm.clock(WakeAlarm.nextAt(this)),
+        android.widget.Toast.LENGTH_LONG).show();
       startActivity(new Intent(this, MainActivity.class)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
         .putExtra(MainActivity.EXTRA_WAKE_UP, true));
