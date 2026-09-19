@@ -88,9 +88,9 @@
   #evthumbs:empty{margin-top:0}
   #evthumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
   #evsave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
-  #wakeline,#lightline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
+  #wakeline,#lightline,#alarmline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
   #melamiss{display:none;font-size:13.5px;color:var(--danger);padding:2px 2px 12px;line-height:1.5}
-  #wakeline b,#lightline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+  #wakeline b,#lightline b,#alarmline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
   .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
@@ -486,6 +486,7 @@
 <div id="sunview">
   <div id="melamiss"></div>
   <div id="wakeline"></div>
+  <div id="alarmline"></div>
   <div id="lightline"></div>
   <h3 class="evcat">Habits</h3>
   <div class="eventgrid" id="habitgrid"></div>
@@ -764,8 +765,9 @@
       </div>
       <div class="setrow">
         <label>Accepted delay — minutes past the goal that still count as an acceptable rise.
-               Rise within half an hour of that limit and tomorrow rings 30 min earlier than you
-               rose; anything else returns to the goal.</label>
+               Rise from half an hour before that limit onwards, however late, and tomorrow rings
+               30 min earlier than you rose (never before the goal); rise earlier and it rings
+               at the goal.</label>
         <input class="syncin" type="number" id="wakedelay" inputmode="numeric" min="0" max="180" step="5" placeholder="30">
       </div>
       <div class="setrow">
@@ -2225,9 +2227,11 @@ $('#setnav').onclick = () => {
    with it. Both alarms are native — they must ring with the page long gone — and the page
    only stores the settings and pushes them across on boot and on save.
 
-   Tomorrow's wake-up is NOT simply the goal: the native side recomputes it at each rise
-   (rise near the accepted limit pulls the next one 30 min earlier, anything else returns to
-   the goal), so the page asks for the armed moment rather than assuming it. */
+   Tomorrow's wake-up is NOT simply the goal: the native side recomputes it at the morning's
+   rise (a rise near or past the accepted limit puts the next one 30 min before it, walking
+   back to the goal half an hour a day; an earlier rise returns to the goal), and keeps that
+   moment armed through every later configure(), so the page asks for the armed moment
+   rather than assuming it — and says it out loud wherever the rise is logged. */
 const nativeMelatonin = (() => {
   const C = window.Capacitor;
   return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.MelatoninAlarm) || null;
@@ -2314,6 +2318,14 @@ function nextWakeLabel(){
   return fmtClock(nextWakeAt) + ' ' + when;
 }
 
+/* Why the armed hour is what it is — only worth a word when it is not the goal. */
+function nextWakeWhy(){
+  if (!nextWakeAt || !wakeGoal) return '';
+  const d = new Date(nextWakeAt);
+  return d.getHours() * 60 + d.getMinutes() === hhmmToMin(wakeGoal) ? ' — the goal'
+    : ' — 30 min before your last rise, on the way back to ' + wakeGoal;
+}
+
 async function loadSchedule(){
   wakeGoal = (await getMeta('waketime')) || '';
   const d = parseInt(await getMeta('wakedelay'), 10);
@@ -2341,6 +2353,15 @@ function paintSchedule(){
     nw.querySelector('b').textContent = nextWakeLabel();
     nw.style.display = 'block';
   } else { nw.style.display = 'none'; nw.textContent = ''; }
+  /* The day screen says it too: the rise is logged there, and that is the moment the next
+     alarm is decided — the hour must be readable without a trip to night mode or ⚙. */
+  const al = $('#alarmline');
+  if (wakeGoal && nextWakeAt){
+    al.innerHTML = '⏰ Next alarm <b></b>';
+    al.querySelector('b').textContent = nextWakeLabel();
+    al.append(nextWakeWhy());
+    al.style.display = 'block';
+  } else { al.style.display = 'none'; al.textContent = ''; }
 }
 
 $('#wakesave').onclick = async () => {
@@ -2357,7 +2378,7 @@ $('#wakesave').onclick = async () => {
   await pushSchedule();
   paintSchedule();
   paintModenav();                     // the derived bedtime moves the 🌙 window with it
-  toast('Wake-up alarm set — ' + wakeGoal);
+  toast('Wake-up alarm set — rings ' + nextWakeLabel());
 };
 $('#sleepdur').onblur = () => {
   const m = parseDur($('#sleepdur').value);
@@ -2426,7 +2447,8 @@ function showView(v){
   // One toggle button, wearing the icon of the mode you are IN.
   $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
   paintModenav();
-  if (v === 'sun'){ paintEvents(); paintSun(); } else paintSchedule();
+  if (v === 'sun'){ paintEvents(); paintSun(); }
+  paintSchedule();                    // both screens carry the next alarm's hour
   // The mode survives an app restart: closed in day mode, it reopens in day mode.
   setMeta('view', v).catch(() => {});
   syncShake();    // day mode closes the shake watch; night mode reopens it if eligible
@@ -2441,7 +2463,7 @@ async function logWakeUp(note, at){
     speed: 1, stopReason: 'wake-up', stopPosition: 0, listenedSeconds: 0,
     lastInteraction: now, note: note || ''
   });
-  toast('Wake-up logged — ' + fmtClock(now));
+  let said = 'Wake-up logged — ' + fmtClock(now);
   /* Getting up also arms the fatigue check: 45 minutes from now the phone rings like an
      alarm clock and asks for a 1–10 score, which rides the same upload pipeline as this
      row. Only the APK can ring with the page gone, so in a browser this is simply skipped. */
@@ -2456,8 +2478,14 @@ async function logWakeUp(note, at){
   /* The rise decides tomorrow's alarm — the native side owns the rule, so it is told the
      moment and the page then re-reads what it armed. */
   try {
-    if (nativeWake){ await nativeWake.wokeAt({at: String(now)}); await refreshNextWake(); paintSchedule(); }
+    if (nativeWake){
+      await nativeWake.wokeAt({at: String(now)});
+      await refreshNextWake();
+      paintSchedule();
+      if (nextWakeAt) said += ' · next alarm ' + nextWakeLabel();
+    }
   } catch(_){}
+  toast(said);
   uploadSoon();
 }
 

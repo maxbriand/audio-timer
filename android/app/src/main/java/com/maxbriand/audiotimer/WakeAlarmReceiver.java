@@ -61,7 +61,7 @@ public class WakeAlarmReceiver extends BroadcastReceiver {
     b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
      .setContentTitle("Wake up")
      .setContentText(snoozed ? "Snoozed once already — time to get up."
-                             : "It's " + WakeAlarm.goal(c) + " — your wake-up time.")
+                             : "It's " + WakeAlarm.clock(System.currentTimeMillis()) + " — your wake-up time.")
      .setCategory(Notification.CATEGORY_ALARM)
      .setOngoing(true)
      .setContentIntent(fullPi)
