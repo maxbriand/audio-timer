@@ -104,7 +104,7 @@ public class ZoneServicePlugin extends Plugin {
     public void settings(PluginCall call) {
         Intent i = new Intent(getContext(), HrService.class)
             .setAction(HrService.ACTION_SETTINGS)
-            .putExtra("min", call.getInt("min", 80))
+            .putExtra("min", call.getInt("min", 110))
             .putExtra("max", call.getInt("max", 170))
             .putExtra("delay", call.getInt("delay", 10))
             .putExtra("hrmax", call.getInt("hrmax", 0))
