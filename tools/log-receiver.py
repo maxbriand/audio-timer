@@ -62,6 +62,9 @@ CARDIO_FIELDS = (
     # a percentage of · rpe and note -> their own columns. durationSeconds was missing
     # before this, so the total was being stripped on the way in.
     "durationSeconds", "bands", "partsDetail", "hrmax", "resting", "rpe", "note",
+    # The two ends of the run that are not numbered parts: part 0, from the start tap to the
+    # range low, and the cool down after the button. No exercise-log column reads them yet.
+    "warmupSeconds", "cooldownSeconds",
 )
 
 

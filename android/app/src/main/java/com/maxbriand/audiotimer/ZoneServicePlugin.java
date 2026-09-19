@@ -57,6 +57,16 @@ public class ZoneServicePlugin extends Plugin {
         call.resolve();
     }
 
+    /** Cool down pressed or taken back — only ever addressed to a running engine. */
+    @PluginMethod
+    public void cooldown(PluginCall call) {
+        Intent i = new Intent(getContext(), HrService.class)
+            .setAction(HrService.ACTION_COOLDOWN)
+            .putExtra("on", Boolean.TRUE.equals(call.getBoolean("on", false)));
+        send(i);
+        call.resolve();
+    }
+
     @PluginMethod
     public void connect(PluginCall call) {
         if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED) {

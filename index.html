@@ -375,6 +375,9 @@
   .zone #logStatus{margin:12px 0 2px}
 
   .zone /* actions */
+  #coolBtn{margin-top:12px;width:100%;padding:13px}
+  .zone #coolBtn[hidden]{display:none}
+  .zone #coolBtn[aria-pressed="true"]{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.35)}
   #session{margin-top:16px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
   .zone #session.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
   .zone #session:focus-visible{outline:2px solid #fff;outline-offset:2px}
@@ -538,6 +541,7 @@
       <button id="logBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="logDlg">Log <b id="logCount">0</b></button>
       <button id="partsBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="partsDlg">Parts <b id="partsCount">0</b></button>
     </div>
+    <button id="coolBtn" class="ghost" aria-pressed="false" hidden>Cool down</button>
     <button id="session">Start session</button>
   </div>
 
@@ -545,14 +549,14 @@
 
 <dialog id="partsDlg" aria-labelledby="partsTitle" aria-describedby="partsHint">
   <h2 id="partsTitle">Parts of the run</h2>
-  <p id="partsHint">A part ends each time you reach 170 bpm.</p>
+  <p id="partsHint">A part is the climb to 170 bpm, then the rest back down to 110.</p>
   <ol id="partsList" class="plist"></ol>
   <div id="partRunning" class="running" hidden>
-    <span class="pn">Part <b id="prN">1</b><br>running</span>
-    <span class="pv"><em>in range</em><b id="prIn">0:00</b></span>
-    <span class="pv"><em>elapsed</em><b id="prEl">0:00</b></span>
+    <span class="pn"><span id="prName">Part 1</span><br>running</span>
+    <span class="pv"><em id="prAl">time to reach</em><b id="prA">0:00</b></span>
+    <span class="pv"><em id="prBl">time to rest</em><b id="prB">—</b></span>
   </div>
-  <p id="partsEmpty">No part finished yet — a part closes when you reach the range high.</p>
+  <p id="partsEmpty">Nothing finished yet — the warm-up closes when you reach the range low.</p>
   <button id="partsClose" class="ghost">Close</button>
 </dialog>
 
@@ -2090,10 +2094,14 @@ function renderCardio(){
     ].filter(Boolean).join(' · ');
     bands.textContent = Array.isArray(r.bands)
       ? r.bands.map((v, i) => BANDS[i] + ' ' + ms(v)).join(' · ') : '';
-    parts.textContent = Array.isArray(r.partsDetail) && r.partsDetail.length
-      ? r.partsDetail.map((p, i) => 'P' + (i + 1) + ' M ' + (ms(p.toMax) || '—') +
-          ' R ' + (p.recovery == null ? '—' : ms(p.recovery))).join(' · ')
-      : (r.parts ? r.parts + ' part' + (r.parts === 1 ? '' : 's') : '');
+    parts.textContent = [
+      r.warmupSeconds != null ? 'warm-up ' + ms(r.warmupSeconds) : null,
+      Array.isArray(r.partsDetail) && r.partsDetail.length
+        ? r.partsDetail.map((p, i) => 'P' + (i + 1) + ' M ' + (ms(p.toMax) || '—') +
+            ' R ' + (p.recovery == null ? '—' : ms(p.recovery))).join(' · ')
+        : (r.parts ? r.parts + ' part' + (r.parts === 1 ? '' : 's') : null),
+      r.cooldownSeconds != null ? 'cool down ' + ms(r.cooldownSeconds) : null
+    ].filter(Boolean).join(' · ');
     extra.textContent = [
       r.rpe != null ? 'RPE ' + r.rpe + '/10' : null,
       r.note ? '“' + r.note + '”' : null,
@@ -2680,21 +2688,25 @@ $('#posfile').onchange = async e => {
   // and timers all live there, so none of it stops when the page is throttled.
   // The page then only renders the state the service pushes up.
   const NATIVE = !!window.NativeSession;
-  let natElapsed = 0, natPartEl = 0, lastPartsLen = 0, lastBattAt = 0;
+  let natElapsed = 0, natPartEl = 0, natReach = 0, natRest = 0, lastPartsSig = '', lastBattAt = 0;
 
   let device = null, wantConnected = false, wakeLock = null, nativeConnected = false;
   let hr = 0, lastHrAt = 0, connectedAt = 0, peak = 0;
   let outSince = null, outDir = null, alerting = false, lastAlertAt = 0;
   let phase = 'ready', startedAt = 0, endedAt = 0;
   let tIn = 0, tBand = Array(NB).fill(0), lastTick = performance.now();
-  // A part runs from the moment you (re-)enter the range until you reach the
-  // high limit; `above` is true while you sit at or over it, waiting to drop
-  // back down and open the next part.
-  let parts = [], partStart = 0, partIn = 0, above = false;
-  // Recovery — the exercise log's R column: from reaching the range high back down to the
-  // range low. It overlaps the next part on purpose (that one starts as soon as the rate
-  // falls under the high), and never touching the low leaves it unset rather than guessed.
-  let recoveryStart = 0, recoveryIdx = -1;
+  // The run is a chain of stages. 'warmup' (part 0) lasts from the start tap until the range
+  // low is first reached. Then each part is two halves: 'reach', the climb to the range high
+  // (toMax — the exercise log's M column), and 'rest', back down to the range low (recovery —
+  // its R column); touching the low closes the part and opens the next. 'cooldown' is the
+  // last stage: once Cool down is pressed (`cool`) the below-range alarm is off, and going
+  // under the low opens it instead of another part. A rest that never touches the low stays
+  // unset rather than guessed. `parts` holds the finished stages, each with its `kind`.
+  let parts = [], stage = 'warmup', partStart = 0, maxAt = 0, partIn = 0, cool = false;
+  // Anything shorter than this is the heart wavering across a limit, not a part of the run:
+  // its time joins the part before.
+  const MIN_PART = 30;
+  let lastEndedId = null;
   // Alerts stay silent until the heart rate has reached the min once —
   // starting a session at rest must not trip the below-range alarm.
   let reachedMin = false;
@@ -2756,24 +2768,35 @@ $('#posfile').onchange = async e => {
      durationSeconds · light/mod/vig/over90_min → bands · mN/rN → partsDetail[].toMax and
      .recovery · rpe and note → their own fields. Seconds are kept raw; the CSV's minutes
      are a conversion at fill time, so nothing is rounded twice. */
+  // The numbered parts keep their shape (the exercise log's mN/rN read them); the warm-up
+  // and the cool down ride beside them. Called again when the service's closing frame
+  // lands: it finishes the last stage on the end tap, a moment after logEnd() has run.
+  function logParts(e){
+    const num = numbered();
+    const dur = k => { const p = parts.find(x => x.kind === k); return p ? Math.round(p.dur) : null; };
+    e.parts = num.length;
+    e.partsDetail = num.map(p => ({
+      inRange: Math.round(p.inRange),
+      toMax: p.toMax == null ? null : Math.round(p.toMax),
+      recovery: p.recovery == null ? null : Math.round(p.recovery),
+      target: p.target
+    }));
+    e.warmupSeconds = dur('warmup');
+    e.cooldownSeconds = dur('cooldown');
+  }
   function logEnd(){
     const e = sessLog.find(x => x.id === curSessionId);
     setCur(null);
     if (!e) return null;
+    lastEndedId = e.id;
     e.ended = new Date().toISOString();
     e.durationSeconds = Math.round(elapsed());
     e.inRangeSeconds = Math.round(tIn);
-    e.parts = parts.length;
     e.peakBpm = peak;
     // light, moderate, vigorous, ≥90 % — the four the exercise log has columns for; the
     // very light band is on the screen only.
     e.bands = tBand.slice(1).map(v => Math.round(v));
-    e.partsDetail = parts.map(p => ({
-      inRange: Math.round(p.inRange),
-      toMax: Math.round(p.toMax),
-      recovery: p.recovery == null ? null : Math.round(p.recovery),
-      target: p.target
-    }));
+    logParts(e);
     e.hrmax = settings.hrmax || null;                   // the bands mean nothing without
     e.resting = settings.resting || null;               // the two ends of the reserve
     delete e.syncedAt;                        // the entry changed — upload it again
@@ -2910,7 +2933,8 @@ $('#posfile').onchange = async e => {
       $('b' + i + 'lbl').textContent = lbl;
     }
     $('bandsNote').hidden = ok;
-    $('partsHint').textContent = 'A part ends each time you reach ' + settings.max + ' bpm.';
+    $('partsHint').textContent = 'A part is the climb to ' + settings.max + ' bpm, then the rest back down to ' +
+      settings.min + '. Under ' + MIN_PART + ' s, a part joins the one before.';
     $('setSummary').textContent = settings.min + '\u2013' + settings.max + ' \u00b7 alert ' + settings.delay + ' s';
   }
 
@@ -2941,8 +2965,19 @@ $('#posfile').onchange = async e => {
   }
   function partElapsed(){
     if (NATIVE) return natPartEl;
-    return phase === 'active' && !above ? (Date.now() - partStart) / 1000 : 0;
+    return phase === 'active' ? (Date.now() - partStart) / 1000 : 0;
   }
+  // The two halves of the part in progress: the climb (frozen once the high is reached)
+  // and the rest after it.
+  function curReach(){
+    if (NATIVE) return natReach;
+    return stage === 'rest' ? (maxAt - partStart) / 1000 : partElapsed();
+  }
+  function curRest(){
+    if (NATIVE) return natRest;
+    return phase === 'active' && stage === 'rest' ? (Date.now() - maxAt) / 1000 : 0;
+  }
+  function numbered(){ return parts.filter(p => p.kind === 'part'); }
   function spoken(s){
     s = Math.round(s);
     const m = Math.floor(s / 60), r = s % 60;
@@ -3021,7 +3056,8 @@ $('#posfile').onchange = async e => {
     if (phase === 'done'){
       setState('idle');
       zoneRoot.classList.remove('pulsing');
-      line.innerHTML = 'Session done<span class="sub">' + parts.length + ' part' + (parts.length === 1 ? '' : 's') + ' — timer stopped, alerts off</span>';
+      const n = numbered().length;
+      line.innerHTML = 'Session done<span class="sub">' + n + ' part' + (n === 1 ? '' : 's') + ' — timer stopped, alerts off</span>';
       return;
     }
     if (outSince === null){
@@ -3031,9 +3067,16 @@ $('#posfile').onchange = async e => {
         line.innerHTML = 'Warm-up<span class="sub">alerts arm once you reach ' + settings.min + '</span>';
         return;
       }
-      setState('in');
       zoneRoot.classList.remove('pulsing');
-      line.innerHTML = 'In range<span class="sub">part ' + (parts.length + 1) + ' — push to ' + settings.max + '</span>';
+      if (stage === 'cooldown' || (cool && hr < settings.min)){
+        setState('idle');
+        line.innerHTML = 'Cool down<span class="sub">below-range alert off</span>';
+        return;
+      }
+      setState('in');
+      line.innerHTML = stage === 'rest'
+        ? 'Rest<span class="sub">part ' + (numbered().length + 1) + ' — back down to ' + settings.min + '</span>'
+        : 'In range<span class="sub">part ' + (numbered().length + 1) + ' — push to ' + settings.max + '</span>';
     } else {
       const outFor = (performance.now() - outSince) / 1000;
       const word = outDir === 'high' ? 'Above range' : 'Below range';
@@ -3054,51 +3097,119 @@ $('#posfile').onchange = async e => {
   // Live summary of the part in progress: the bar under the stats and, when
   // the dialog is open, its dashed row. Finished parts only redraw on change.
   function renderPart(){
-    const n = parts.length + 1;
+    const n = numbered().length + 1, cnt = numbered().length;
     $('partnow').innerHTML = phase === 'ready'
-      ? 'Part <b>1</b> · on session start'
+      ? 'Part <b>0</b> · warm-up on start'
       : phase === 'done'
-        ? '<b>' + parts.length + '</b> part' + (parts.length === 1 ? '' : 's') + ' this session'
-        : above
-          ? 'Part <b>' + n + '</b> · drop under ' + settings.max + ' to start'
-          : 'Part <b>' + n + '</b> · <b>' + fmt(partIn) + '</b> in range';
+        ? '<b>' + cnt + '</b> part' + (cnt === 1 ? '' : 's') + ' this session'
+        : stage === 'warmup' ? 'Part <b>0</b> · warm-up <b>' + fmt(partElapsed()) + '</b>'
+        : stage === 'cooldown' ? 'Cool down · <b>' + fmt(partElapsed()) + '</b>'
+        : stage === 'rest' ? 'Part <b>' + n + '</b> · rest <b>' + fmt(curRest()) + '</b>'
+        : 'Part <b>' + n + '</b> · reach <b>' + fmt(curReach()) + '</b>';
+    // Cool down appears with part 1 and stays to the end of the session. Pressed, it can be
+    // taken back until the cool down itself has begun.
+    const cb = $('coolBtn');
+    cb.hidden = phase !== 'active' || stage === 'warmup';
+    cb.setAttribute('aria-pressed', cool ? 'true' : 'false');
+    cb.disabled = stage === 'cooldown';
+    cb.textContent = stage === 'cooldown' ? 'Cooling down'
+      : cool ? 'Cool down · under ' + settings.min : 'Cool down';
     // Read back from the dialog rather than trusting its close event — some
     // WebView builds never fire it, which would strand aria-expanded on true.
     $('partsBtn').setAttribute('aria-expanded', $('partsDlg').open ? 'true' : 'false');
     const running = $('partRunning');
-    running.hidden = phase !== 'active' || above;
+    running.hidden = phase !== 'active';
     if (!running.hidden){
-      $('prN').textContent = n;
-      $('prIn').textContent = fmt(partIn);
-      $('prEl').textContent = fmt(partElapsed());
+      const single = stage === 'warmup' || stage === 'cooldown';
+      $('prName').textContent = stage === 'warmup' ? 'Part 0 · warm-up'
+        : stage === 'cooldown' ? 'Cool down' : 'Part ' + n;
+      $('prAl').textContent = stage === 'warmup' ? 'time to reach ' + settings.min
+        : stage === 'cooldown' ? 'time' : 'time to reach';
+      $('prA').textContent = fmt(single ? partElapsed() : curReach());
+      $('prBl').parentElement.hidden = single;
+      $('prB').textContent = stage === 'rest' ? fmt(curRest()) : '—';
     }
   }
 
   function renderPartsList(){
-    $('partsCount').textContent = parts.length;
+    $('partsCount').textContent = numbered().length;
     const list = $('partsList');
     list.textContent = '';
-    parts.forEach((p, i) => {
+    let n = 0;
+    parts.forEach(p => {
       const li = document.createElement('li');
-      li.innerHTML =
-        '<span class="pn">Part ' + (i + 1) + '<br>to ' + p.target + ' bpm</span>' +
-        '<span class="pv"><em>in range</em><b>' + fmt(p.inRange) + '</b></span>' +
-        '<span class="pv"><em>time to reach</em><b>' + fmt(p.toMax) + '</b></span>';
+      if (p.kind === 'part'){
+        n++;
+        li.innerHTML =
+          '<span class="pn">Part ' + n + '<br>to ' + p.target + ' bpm</span>' +
+          '<span class="pv"><em>time to reach</em><b>' + (p.toMax == null ? '—' : fmt(p.toMax)) + '</b></span>' +
+          '<span class="pv"><em>time to rest</em><b>' + (p.recovery == null ? '—' : fmt(p.recovery)) + '</b></span>';
+      } else {
+        li.innerHTML = p.kind === 'warmup'
+          ? '<span class="pn">Part 0<br>warm-up</span>' +
+            '<span class="pv"><em>time to reach ' + (p.target || settings.min) + '</em><b>' + fmt(p.dur) + '</b></span>'
+          : '<span class="pn">Cool down</span>' +
+            '<span class="pv"><em>time</em><b>' + fmt(p.dur) + '</b></span>';
+      }
       list.appendChild(li);
     });
     $('partsEmpty').hidden = parts.length > 0;
     renderPart();
   }
 
-  function closePart(){
-    parts.push({ inRange: partIn, toMax: (Date.now() - partStart) / 1000, target: settings.max });
-    recoveryStart = Date.now(); recoveryIdx = parts.length - 1;
-    above = true;
+  // A finished stage joins the list — unless it lasted under MIN_PART and there is a part
+  // before it, in which case its time goes there (to that part's rest, when it has one).
+  function pushStage(e){
+    const prev = parts[parts.length - 1];
+    if (prev && e.dur < MIN_PART){
+      prev.dur += e.dur;
+      if (prev.kind === 'part'){
+        prev.inRange += e.inRange || 0;
+        if (prev.recovery != null) prev.recovery += e.dur;
+      }
+    } else parts.push(e);
     renderPartsList();
-    announce('Part ' + parts.length + ' done. ' + spoken(parts[parts.length - 1].inRange) +
-      ' in range, ' + settings.max + ' reached in ' + spoken(parts[parts.length - 1].toMax) + '.');
+  }
+  // Close the stage in progress at `now` and open `next`.
+  function closeStage(now, next){
+    const dur = (now - partStart) / 1000;
+    if (stage === 'warmup'){ if (dur > 0) pushStage({ kind:'warmup', dur, target: settings.min }); }
+    else if (stage === 'cooldown') pushStage({ kind:'cooldown', dur });
+    else pushStage({
+      kind:'part', dur, inRange: partIn, target: settings.max,
+      toMax: stage === 'rest' ? (maxAt - partStart) / 1000 : null,
+      recovery: stage === 'rest' && next ? (now - maxAt) / 1000 : null
+    });
+    stage = next; partStart = now; maxAt = 0; partIn = 0;
+  }
+  function reachedMax(now){
+    stage = 'rest'; maxAt = now;
+    announce('Part ' + (numbered().length + 1) + ': ' + settings.max + ' reached in ' +
+      spoken(curReach()) + '. Rest down to ' + settings.min + '.');
     if (settings.vib) vibrate([90, 70, 90]);
     beep('part');
+  }
+  // The stage machine, one sample at a time.
+  function stepStages(){
+    const now = Date.now();
+    if (stage === 'warmup'){ if (hr >= settings.min) closeStage(now, 'reach'); }
+    if (stage === 'reach'){
+      if (hr >= settings.max) reachedMax(now);
+      else if (cool && hr < settings.min) closeStage(now, 'cooldown');
+    } else if (stage === 'rest' && hr <= settings.min){
+      closeStage(now, cool ? 'cooldown' : 'reach');
+      const last = parts[parts.length - 1];
+      if (last && last.kind === 'part' && last.recovery != null)
+        announce('Part ' + numbered().length + ' done. Rest ' + spoken(last.recovery) + '.');
+    }
+  }
+  function setCool(on){
+    if (phase !== 'active' || stage === 'warmup' || stage === 'cooldown') return;
+    if (NATIVE){ NativeSession.cooldown(on); return; }
+    cool = on;
+    if (cool){ outSince = null; outDir = null; alerting = false; if (navigator.vibrate) navigator.vibrate(0); }
+    if (isConnected() && hr > 0) stepStages();
+    render();
   }
 
   function beep(kind){
@@ -3141,7 +3252,8 @@ $('#posfile').onchange = async e => {
     let out = hr < settings.min ? 'low' : hr > settings.max ? 'high' : null;
     // The below-range alarm arms only once the min has been reached —
     // before that, being low is just the warm-up.
-    if (out === 'low' && !reachedMin) out = null;
+    // ...and once Cool down is pressed it is off for good.
+    if (out === 'low' && (!reachedMin || cool)) out = null;
     if (!out){ outSince = null; outDir = null; alerting = false; }
     else {
       if (outSince === null || outDir !== out){ outSince = now; outDir = out; alerting = false; }
@@ -3150,16 +3262,11 @@ $('#posfile').onchange = async e => {
     }
     if (hr > 0){
       // Only time inside the range counts — anything over the high limit does not.
-      if (hr >= settings.min && hr <= settings.max){ tIn += dt; if (!above) partIn += dt; }
-      if (recoveryStart && recoveryIdx >= 0 && hr <= settings.min){
-        parts[recoveryIdx].recovery = (Date.now() - recoveryStart) / 1000;
-        recoveryStart = 0; recoveryIdx = -1;
-      }
+      if (hr >= settings.min && hr <= settings.max){ tIn += dt; partIn += dt; }
       const bi = bandIdx(hr);
       if (bi >= 0) tBand[bi] += dt;
       if (alerting && now - lastAlertAt >= 4500){ lastAlertAt = now; buzz(outDir); }
-      if (!above && hr >= settings.max) closePart();
-      else if (above && hr < settings.max){ above = false; partStart = Date.now(); partIn = 0; }
+      stepStages();
     }
     render();
   }
@@ -3170,14 +3277,19 @@ $('#posfile').onchange = async e => {
     nativeConnected = !!s.connected;
     wantConnected = !!s.wantConnected;
     hr = s.hr || 0;
+    const phase0 = phase;
     phase = s.phase || 'ready';
     natElapsed = s.elapsed || 0;
     natPartEl = s.partElapsed || 0;
+    natReach = s.reach || 0;
+    natRest = s.rest || 0;
+    const wasStage = stage, wasPhase = phase0;
+    stage = s.stage || 'warmup';
+    cool = !!s.cool;
     tIn = s.tIn || 0;
     if (Array.isArray(s.bands) && s.bands.length === NB) tBand = s.bands;
     peak = s.peak || 0;
     partIn = s.partIn || 0;
-    above = !!s.above;
     reachedMin = !!s.reachedMin;
     outDir = s.out || null;
     alerting = !!s.alerting;
@@ -3188,13 +3300,25 @@ $('#posfile').onchange = async e => {
       $('liveBattAt').textContent = new Date(s.battAt).toLocaleTimeString(undefined, { hour12: false });
     }
     const list = Array.isArray(s.parts) ? s.parts : [];
-    if (list.length > parts.length){
-      const p = list[list.length - 1];
-      announce('Part ' + list.length + ' done. ' + spoken(p.inRange) +
-        ' in range, ' + p.target + ' reached in ' + spoken(p.toMax) + '.');
-    }
+    const grew = list.length > parts.length;
     parts = list;
-    if (list.length !== lastPartsLen){ lastPartsLen = list.length; renderPartsList(); }
+    if (phase === 'active' && wasStage === 'reach' && stage === 'rest')
+      announce('Part ' + (numbered().length + 1) + ': ' + settings.max + ' reached in ' +
+        spoken(natReach) + '. Rest down to ' + settings.min + '.');
+    else if (grew){
+      const p = list[list.length - 1];
+      if (p.kind === 'part' && p.recovery != null)
+        announce('Part ' + numbered().length + ' done. Rest ' + spoken(p.recovery) + '.');
+    }
+    // A short stage folds into the part before without the list growing, so the list is
+    // redrawn on any change of its content, not of its length.
+    const sig = JSON.stringify(list);
+    if (sig !== lastPartsSig){ lastPartsSig = sig; renderPartsList(); }
+    // The service finishes the last stage on the end tap; logEnd() ran before that frame.
+    if (wasPhase === 'active' && phase === 'done' && lastEndedId){
+      const e = sessLog.find(x => x.id === lastEndedId);
+      if (e){ logParts(e); delete e.syncedAt; saveLog(); pushLog(); }
+    }
     render();
   }
 
@@ -3211,11 +3335,11 @@ $('#posfile').onchange = async e => {
     // the heart rate has reached the min once (reachedMin).
     phase = 'active'; startedAt = Date.now(); endedAt = 0;
     tIn = 0; tBand = Array(NB).fill(0); peak = 0;
-    parts = []; partStart = Date.now(); partIn = 0;
-    recoveryStart = 0; recoveryIdx = -1;
+    parts = []; partStart = Date.now(); maxAt = 0; partIn = 0; cool = false;
     const fresh = isConnected() && hr > 0;
-    above = fresh && hr >= settings.max;
     reachedMin = fresh && hr >= settings.min;
+    // Already at the range low on the tap: there is no warm-up to count.
+    stage = reachedMin ? 'reach' : 'warmup';
     outSince = null; outDir = null; alerting = false;
     lastTick = performance.now();
     announce('Session started. Alerts arm at ' + settings.min + '.');
@@ -3223,11 +3347,12 @@ $('#posfile').onchange = async e => {
   }
 
   function endSession(){
+    closeStage(Date.now(), null);
     phase = 'done'; endedAt = Date.now();
     alerting = false; outSince = null; outDir = null;
     if (window.NativeBLE) NativeBLE.cancelVibrate();
     else if (navigator.vibrate) navigator.vibrate(0);
-    announce('Session done. ' + parts.length + ' part' + (parts.length === 1 ? '' : 's') +
+    announce('Session done. ' + numbered().length + ' part' + (numbered().length === 1 ? '' : 's') +
       ', ' + spoken(tIn) + ' in range.');
     renderPartsList(); render();
   }
@@ -3333,6 +3458,7 @@ $('#posfile').onchange = async e => {
   $('connect').addEventListener('click', () => {
     isConnected() || wantConnected ? disconnect() : connect();
   });
+  $('coolBtn').addEventListener('click', () => setCool(!cool));
   $('session').addEventListener('click', () => {
     const running = phase === 'active';
     if (NATIVE){
