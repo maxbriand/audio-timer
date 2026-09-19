@@ -51,6 +51,7 @@ public class HrService extends Service {
     public static final String ACTION_SETTINGS = "com.maxbriand.audiotimer.SETTINGS";
     public static final String ACTION_SESSION = "com.maxbriand.audiotimer.SESSION";
     public static final String ACTION_LIVE = "com.maxbriand.audiotimer.LIVE";
+    public static final String ACTION_COOLDOWN = "com.maxbriand.audiotimer.COOLDOWN";
 
     private static final String CHANNEL = "zone_alarm_session";
     private static final int NOTIFICATION_ID = 1;
@@ -90,6 +91,12 @@ public class HrService extends Service {
     private static final long RECONNECT_MS = 2500;
 
     private static final int PHASE_READY = 0, PHASE_ACTIVE = 1, PHASE_DONE = 2;
+    // The stages of a run — see the fields below.
+    private static final int ST_WARMUP = 0, ST_REACH = 1, ST_REST = 2, ST_COOLDOWN = 3, ST_NONE = -1;
+    private static final String[] STAGE_NAMES = { "warmup", "reach", "rest", "cooldown" };
+    // Anything shorter is the heart wavering across a limit, not a part of the run: its
+    // time joins the part before.
+    private static final long MIN_PART_MS = 30000;
 
     private static volatile Listener listener;
     public static void setListener(Listener l) { listener = l; }
@@ -149,16 +156,17 @@ public class HrService extends Service {
     private final long[] tBand = new long[NB];
     private int peak;
     private final JSONArray parts = new JSONArray();
-    private long partStart, partIn;
-    /* Recovery: how long from reaching the range high back down to the range low. It is
-       the exercise log's R column, and nothing measured it until now — the legend still
-       said "hand-timed for now". It runs from the moment a part closes until the rate
-       touches the low set, so it deliberately overlaps the next part, which starts as
-       soon as the rate falls under the high. Never reaching the low leaves it unset:
-       a blank cell, never a guess. */
-    private long recoveryStart;
-    private int recoveryIdx = -1;
-    private boolean above;
+    /* The run is a chain of stages. Warm-up (part 0) lasts from the start tap until the
+       range low is first reached. Then each part is two halves: the reach, up to the range
+       high (toMax — the exercise log's M column), and the rest, back down to the range low
+       (recovery — its R column); touching the low closes the part and opens the next. The
+       cool down is the last stage: once Cool down is pressed (`cool`) the below-range alarm
+       is off, and going under the low opens it instead of another part. A rest that never
+       touches the low stays unset: a blank cell, never a guess. `parts` holds the finished
+       stages, each with its `kind`. */
+    private int stage = ST_WARMUP;
+    private long partStart, maxAt, partIn;
+    private boolean cool;
     // Alerts stay silent until the heart rate has reached the min once —
     // starting a session at rest must not trip the below-range alarm.
     private boolean reachedMin;
@@ -233,6 +241,14 @@ public class HrService extends Service {
             case ACTION_SESSION:
                 if (i.getBooleanExtra("start", false)) startSession();
                 else endSession();
+                break;
+            case ACTION_COOLDOWN:
+                if (phase != PHASE_ACTIVE || stage == ST_WARMUP || stage == ST_COOLDOWN) break;
+                cool = i.getBooleanExtra("on", false);
+                if (cool) {
+                    if ("low".equals(outDir)) { outSince = 0; outDir = null; alerting = false; alerts.cancel(); }
+                    if (isFresh()) stepStages(SystemClock.elapsedRealtime());
+                }
                 break;
             case ACTION_LIVE:
                 boolean on = i.getBooleanExtra("on", false);
@@ -351,35 +367,77 @@ public class HrService extends Service {
         for (int i = 0; i < NB; i++) tBand[i] = 0;
         peak = 0;
         while (parts.length() > 0) parts.remove(0);
-        recoveryStart = 0;
-        recoveryIdx = -1;
         partStart = startedAt;
+        maxAt = 0;
         partIn = 0;
+        cool = false;
         boolean fresh = isFresh();
-        above = fresh && hr >= max;
         reachedMin = fresh && hr >= min;
+        // Already at the range low on the tap: there is no warm-up to count.
+        stage = reachedMin ? ST_REACH : ST_WARMUP;
         outSince = 0; outDir = null; alerting = false;
     }
 
     private void endSession() {
+        if (phase == PHASE_ACTIVE) closeStage(SystemClock.elapsedRealtime(), ST_NONE);
         phase = PHASE_DONE;
         endedAt = SystemClock.elapsedRealtime();
         outSince = 0; outDir = null; alerting = false;
         alerts.cancel();
     }
 
-    private void closePart() {
+    /** A finished stage joins the list — unless it lasted under MIN_PART_MS and there is a
+     *  part before it, in which case its time goes there (to that part's rest, if it has one). */
+    private void pushStage(JSONObject e, long durMs) throws Exception {
+        JSONObject prev = parts.length() > 0 ? parts.getJSONObject(parts.length() - 1) : null;
+        if (prev != null && durMs < MIN_PART_MS) {
+            double dur = durMs / 1000.0;
+            prev.put("dur", prev.optDouble("dur", 0) + dur);
+            if ("part".equals(prev.optString("kind"))) {
+                prev.put("inRange", prev.optDouble("inRange", 0) + e.optDouble("inRange", 0));
+                if (!prev.isNull("recovery")) prev.put("recovery", prev.getDouble("recovery") + dur);
+            }
+        } else parts.put(e);
+    }
+
+    /** Close the stage in progress at `now` and open `next` (ST_NONE at the end of the session). */
+    private void closeStage(long now, int next) {
         try {
-            JSONObject p = new JSONObject();
-            p.put("inRange", partIn / 1000.0);
-            p.put("toMax", (SystemClock.elapsedRealtime() - partStart) / 1000.0);
-            p.put("target", max);
-            parts.put(p);
-            recoveryStart = SystemClock.elapsedRealtime();
-            recoveryIdx = parts.length() - 1;
-        } catch (Exception e) { /* a malformed part must never kill the session */ }
-        above = true;
-        alerts.partDone(vibOn, sndOn);
+            long durMs = now - partStart;
+            JSONObject e = new JSONObject();
+            e.put("dur", durMs / 1000.0);
+            if (stage == ST_WARMUP) {
+                e.put("kind", "warmup");
+                e.put("target", min);
+                if (durMs > 0) pushStage(e, durMs);
+            } else if (stage == ST_COOLDOWN) {
+                e.put("kind", "cooldown");
+                pushStage(e, durMs);
+            } else if (stage == ST_REACH || stage == ST_REST) {
+                e.put("kind", "part");
+                e.put("inRange", partIn / 1000.0);
+                e.put("target", max);
+                e.put("toMax", stage == ST_REST ? (Object) ((maxAt - partStart) / 1000.0) : JSONObject.NULL);
+                e.put("recovery", stage == ST_REST && next != ST_NONE
+                    ? (Object) ((now - maxAt) / 1000.0) : JSONObject.NULL);
+                pushStage(e, durMs);
+            }
+        } catch (Exception ex) { /* a malformed part must never kill the session */ }
+        stage = next;
+        partStart = now;
+        maxAt = 0;
+        partIn = 0;
+    }
+
+    /** The stage machine, one step at a time. */
+    private void stepStages(long now) {
+        if (stage == ST_WARMUP && hr >= min) closeStage(now, ST_REACH);
+        if (stage == ST_REACH) {
+            if (hr >= max) { stage = ST_REST; maxAt = now; alerts.partDone(vibOn, sndOn); }
+            else if (cool && hr < min) closeStage(now, ST_COOLDOWN);
+        } else if (stage == ST_REST && hr <= min) {
+            closeStage(now, cool ? ST_COOLDOWN : ST_REACH);
+        }
     }
 
     // ------------------------------------------------------------------- tick
@@ -421,7 +479,8 @@ public class HrService extends Service {
         String out = hr < min ? "low" : hr > max ? "high" : null;
         // The below-range alarm arms only once the min has been reached —
         // before that, being low is just the warm-up.
-        if ("low".equals(out) && !reachedMin) out = null;
+        // ...and once Cool down is pressed it is off for good.
+        if ("low".equals(out) && (!reachedMin || cool)) out = null;
         if (out == null) {
             outSince = 0; outDir = null; alerting = false;
         } else {
@@ -434,21 +493,11 @@ public class HrService extends Service {
         }
 
         // Only time inside the range counts — anything over the high limit does not.
-        if (hr >= min && hr <= max) { tIn += dt; if (!above) partIn += dt; }
-        // Back down to the low set: the recovery that part owes is complete.
-        if (recoveryStart != 0 && recoveryIdx >= 0 && hr > 0 && hr <= min) {
-            try {
-                parts.getJSONObject(recoveryIdx)
-                     .put("recovery", (SystemClock.elapsedRealtime() - recoveryStart) / 1000.0);
-            } catch (Exception e) { /* the part stays without its recovery, which is blank */ }
-            recoveryStart = 0;
-            recoveryIdx = -1;
-        }
+        if (hr >= min && hr <= max) { tIn += dt; partIn += dt; }
         int bi = bandIndex();
         if (bi >= 0) tBand[bi] += dt;
 
-        if (!above && hr >= max) closePart();
-        else if (above && hr < max) { above = false; partStart = now; partIn = 0; }
+        stepStages(now);
     }
 
     // -------------------------------------------------------------------- BLE
@@ -611,8 +660,14 @@ public class HrService extends Service {
             // `parts` while the UI thread serialises whatever it was handed.
             s.put("parts", new JSONArray(parts.toString()));
             s.put("partIn", partIn / 1000.0);
-            s.put("partElapsed", phase == PHASE_ACTIVE && !above ? (now - partStart) / 1000.0 : 0);
-            s.put("above", above);
+            boolean live = phase == PHASE_ACTIVE && stage != ST_NONE;
+            s.put("partElapsed", live ? (now - partStart) / 1000.0 : 0);
+            // The two halves of the part in progress: the climb (frozen once the high is
+            // reached) and the rest after it.
+            s.put("reach", !live ? 0 : stage == ST_REST ? (maxAt - partStart) / 1000.0 : (now - partStart) / 1000.0);
+            s.put("rest", live && stage == ST_REST ? (now - maxAt) / 1000.0 : 0);
+            s.put("stage", stage >= 0 ? STAGE_NAMES[stage] : "warmup");
+            s.put("cool", cool);
             s.put("reachedMin", reachedMin);
             s.put("out", outDir == null ? JSONObject.NULL : outDir);
             s.put("outFor", outSince == 0 ? 0 : (now - outSince) / 1000.0);
@@ -639,6 +694,14 @@ public class HrService extends Service {
             startForeground(NOTIFICATION_ID, buildNotification());
     }
 
+    /** How many numbered parts are finished — the warm-up and the cool down are not counted. */
+    private int numbered() {
+        int n = 0;
+        for (int i = 0; i < parts.length(); i++)
+            if ("part".equals(parts.optJSONObject(i) == null ? null : parts.optJSONObject(i).optString("kind"))) n++;
+        return n;
+    }
+
     /** Live status in the shade — also the proof the engine is still running. */
     private Notification buildNotification() {
         String text;
@@ -646,7 +709,9 @@ public class HrService extends Service {
         else if (!isFresh()) text = "Waiting for signal…";
         else if (phase != PHASE_ACTIVE) text = hr + " bpm · no session running";
         else if (!reachedMin && hr < min) text = hr + " bpm · warm-up — alerts arm at " + min;
-        else if (outDir == null) text = hr + " bpm · in range · part " + (parts.length() + 1);
+        else if (stage == ST_COOLDOWN || (cool && hr < min)) text = hr + " bpm · cool down";
+        else if (outDir == null) text = hr + " bpm · part " + (numbered() + 1)
+            + (stage == ST_REST ? " · rest down to " + min : " · reach " + max);
         else text = hr + " bpm · " + ("high".equals(outDir) ? "above " + max : "below " + min);
 
         Intent launch = new Intent(this, MainActivity.class);

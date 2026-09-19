@@ -73,6 +73,9 @@ if (Capacitor.isNativePlatform()) {
     },
     start() { ZoneService.session({ start: true }).catch(() => {}); },
     end() { ZoneService.session({ start: false }).catch(() => {}); },
+    // Cool down pressed (or taken back): the below-range alarm goes quiet and the next
+    // drop under the range low opens the cool down instead of another part.
+    cooldown(on) { ZoneService.cooldown({ on }).catch(() => {}); },
     settings(s) { ZoneService.settings(s).catch(() => {}); }
   };
 }
