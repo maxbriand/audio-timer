@@ -47,6 +47,18 @@
   #logsheet,#setsheet,#eventsheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
     display:none;align-items:flex-end;z-index:10}
   #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on{display:flex}
+  /* Settings and the log are full pages, like Live data and the run — not sheets over the
+     player: opaque, edge to edge, one scroll for the whole page, Back at the top. */
+  #logsheet,#setsheet{background:var(--bg);align-items:stretch;z-index:30}
+  #logsheet .sheetbox,#setsheet .sheetbox{
+    max-width:520px;margin:0 auto;max-height:none;height:100%;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;background:var(--bg);border:none;border-radius:0;
+    padding:calc(14px + var(--safe-t)) 18px calc(24px + var(--safe-b))}
+  .pagetop{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .pagetop h2{margin:0}
+  .pagetop button{flex:none;padding:9px 13px;border-radius:10px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);font-size:14px;font-weight:500}
+  .pagetop button:active{background:var(--surface-2)}
 
   /* day-mode event tracking */
   .evcat{margin:16px 2px 8px;font-size:12px;font-weight:600;letter-spacing:.12em;
@@ -82,8 +94,6 @@
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
   .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
-  /* The sheet grew a second section — on a short screen it must scroll, not clip the buttons. */
-  #setsheet .sheetbox{max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .syncin{
     width:100%;padding:11px 12px;border-radius:10px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--text);font-size:14px;margin-bottom:7px;
@@ -100,7 +110,7 @@
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
-  #loglist{max-height:46vh;overflow-y:auto;margin-bottom:6px}
+  #loglist{margin-bottom:6px}
   .logrow{padding:10px 0;border-bottom:1px solid var(--line)}
   .logrow:last-child{border-bottom:0}
   .logday{font-size:14px;font-weight:600}
@@ -709,7 +719,7 @@
 
 <div id="setsheet">
   <div class="sheetbox">
-    <h2>Settings</h2>
+    <div class="pagetop"><button id="closeset">&#8592; Back</button><h2>Settings</h2></div>
     <p>Saved on this phone.</p>
     <div class="setrow"><label>Storage — the audio files kept on this phone</label><span id="storage">—</span></div>
     <div class="setrow"><label>Rewind when resuming</label><div class="chips sm" id="ch-rewind"></div></div>
@@ -772,13 +782,12 @@
       </div>
     </div>
 
-    <div class="sheetfoot"><button id="closeset">Close</button></div>
   </div>
 </div>
 
 <div id="logsheet">
   <div class="sheetbox">
-    <h2>Nights</h2>
+    <div class="pagetop"><button id="closelog">&#8592; Back</button><h2>Nights</h2></div>
     <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
     <div id="logcount"></div>
     <div id="loglist"></div>
@@ -786,7 +795,6 @@
     <div id="cardiolist"></div>
     <div class="sheetfoot">
       <button id="exportcsv">Export CSV</button>
-      <button id="closelog">Close</button>
     </div>
     <div class="sheetfoot">
       <button id="exportpos">Back up positions</button>
@@ -2385,7 +2393,6 @@ async function checkPendingWake(){
 }
 
 $('#closeset').onclick = () => $('#setsheet').classList.remove('on');
-$('#setsheet').onclick = e => { if (e.target.id === 'setsheet') e.currentTarget.classList.remove('on'); };
 
 /* moon/sun screens — moon is night mode (the audio screen); sun is day mode, an empty
    screen for now. Both directions ask for confirmation, and cancelling stays put.
@@ -2654,7 +2661,6 @@ $('#wakesheet').onclick = e => { if (e.target.id === 'wakesheet') e.currentTarge
 
 $('#lognav').onclick = openLog;
 $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
-$('#logsheet').onclick = e => { if (e.target.id === 'logsheet') e.currentTarget.classList.remove('on'); };
 $('#exportcsv').onclick = exportCSV;
 $('#exportpos').onclick = exportPositions;
 $('#importpos').onclick = () => $('#posfile').click();
