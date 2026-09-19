@@ -68,6 +68,19 @@ public class LogUploadPlugin extends Plugin {
     call.resolve();
   }
 
+  /* A run deleted from the log before it went out: unstage it, so the worker never sends it.
+     Nothing staged under that id is not an error — it may have been sent already. */
+  @PluginMethod
+  public void discard(PluginCall call){
+    String id = call.getString("id", "");
+    if (id == null || id.isEmpty()){
+      call.reject("id is required");
+      return;
+    }
+    Outbox.remove(getContext(), id);
+    call.resolve();
+  }
+
   /* What landed while the page was not running, plus the state of the queue for the ⚙ line.
      Reading the ledger clears it, so each id is reported once — the page stamps those runs
      and it is the stamp, not this call, that survives. */

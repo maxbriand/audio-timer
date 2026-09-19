@@ -30,9 +30,13 @@ from datetime import datetime
 from pathlib import Path
 
 MARKER = "[zone-alarm sync]"
-COLUMNS = ["date", "peak", "max_set", "start", "low_set", "total_min", "light_min",
-           "mod_min", "vig_min", "over90_min"] + \
-          [f"{k}{i}" for i in range(1, 7) for k in ("m", "r")] + ["rpe", "note"]
+# The run's whole record: when it started and ended, the settings it ran under (range low
+# and high, alert delay, max and resting bpm), the time in each band from very light (<30 %
+# of reserve) up, the warm-up, each part's reach (mN) and rest (rN), and the cool down.
+COLUMNS = ["date", "peak", "max_set", "start", "end", "low_set", "alert_s", "max_bpm",
+           "rest_bpm", "total_min", "vlight_min", "light_min", "mod_min", "vig_min",
+           "over90_min", "warmup"] + \
+          [f"{k}{i}" for i in range(1, 7) for k in ("m", "r")] + ["cooldown", "rpe", "note"]
 
 if len(sys.argv) < 2:
     sys.exit("usage: exercise-log-fill.py <exercise-log.csv> [cardio-sessions-dir]")
@@ -102,11 +106,26 @@ def row_for(day, sessions):
     row["max_set"] = max(highs) if highs else ""
     row["low_set"] = min(lows) if lows else ""
     row["start"] = min(starts).strftime("%H:%M")
+    ends = []
+    for s in ss:
+        try:
+            ends.append(local(s["ended"]))
+        except (KeyError, ValueError):
+            pass
+    row["end"] = max(ends).strftime("%H:%M") if ends else ""
+    # Settings: only when the day's sessions agree — two values cannot share a cell.
+    for key, field in (("alert_s", "alertDelaySeconds"), ("max_bpm", "hrmax"), ("rest_bpm", "resting")):
+        vals = {s.get(field) for s in ss if isinstance(s.get(field), (int, float))}
+        row[key] = vals.pop() if len(vals) == 1 else ""
     row["total_min"] = minutes(total("durationSeconds"))
+    row["vlight_min"] = minutes(total("veryLightSeconds"))
     for i, key in enumerate(("light_min", "mod_min", "vig_min", "over90_min")):
         row[key] = minutes(bands[i])
 
     # Per-part columns only when the day is a single session — see the module docstring.
+    if one:
+        row["warmup"] = mmss(one.get("warmupSeconds"))
+        row["cooldown"] = mmss(one.get("cooldownSeconds"))
     if one and isinstance(one.get("partsDetail"), list):
         for i, p in enumerate(one["partsDetail"][:6], start=1):
             if isinstance(p, dict):
