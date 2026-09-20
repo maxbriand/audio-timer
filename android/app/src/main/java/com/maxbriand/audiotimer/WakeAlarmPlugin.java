@@ -7,9 +7,10 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /*
- * The page's handle on the wake-up alarm. configure() arms the daily cycle from the goal
- * and the accepted delay (an empty goal turns it off); wokeAt() reports a rise so tomorrow
- * is recomputed by the same rule the "I'm up" button uses; status() hands back the armed
+ * The page's handle on the wake-up alarm. configure() arms it from the goal, the accepted
+ * delay and the last wake-up of the page's log (an empty goal turns it off); wokeAt()
+ * reports a rise, the new last wake-up, so the alarm is recomputed by the same rule the
+ * "I'm up" button uses; status() hands back the armed
  * moment so the page can show the next wake-up; consumeUp() is how the page learns that
  * "I'm up" was pressed while it was not running, and answers with the moment it happened.
  */
@@ -19,7 +20,12 @@ public class WakeAlarmPlugin extends Plugin {
   @PluginMethod
   public void configure(PluginCall call){
     Integer delay = call.getInt("delayMin", 30);
-    WakeAlarm.configure(getContext(), call.getString("goal", ""), delay == null ? 30 : delay);
+    // Epoch ms travel as strings: a JS number that size does not survive getInt/getLong
+    // on every bridge version. Empty or unreadable means the log has no wake-up.
+    long lastWake;
+    try { lastWake = Long.parseLong(call.getString("lastWake", "0")); }
+    catch (NumberFormatException e){ lastWake = 0; }
+    WakeAlarm.configure(getContext(), call.getString("goal", ""), delay == null ? 30 : delay, lastWake);
     status(call);
   }
 

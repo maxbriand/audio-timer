@@ -184,6 +184,23 @@
   .phint{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
   .phint b{color:var(--text);font-weight:600}
 
+  /* Day mode's nav bar: Habits · Running · Strength. It sits in the page's flow under
+     <main>, not fixed — so the full pages (⚙, the log, Live, the run's own settings) cover
+     it like everything else, and only the Running overlay is told to stop above it. */
+  #daynav{display:flex;border-top:1px solid var(--line);background:var(--surface);
+    padding:0 6px var(--safe-b)}
+  #daynav[hidden]{display:none}
+  #daynav button{flex:1;height:58px;background:none;border:0;color:var(--muted);
+    font:inherit;font-size:12px;font-weight:600;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:2px}
+  #daynav button i{font-style:normal;font-size:20px;line-height:1;filter:grayscale(1);opacity:.6}
+  #daynav button.on{color:var(--accent)}
+  #daynav button.on i{filter:none;opacity:1}
+  #habitspage[hidden],#strengthpage[hidden]{display:none}
+  body.daytabs #zoneapp{bottom:calc(58px + var(--safe-b))}
+  body.daytabs .zone .app{padding-bottom:10px}
+  body.daytabs #zoneClose,body.daytabs #zonenav{display:none}   /* the bar is the way in and out */
+
   /* player */
   #player{
     border-top:1px solid var(--line);background:var(--surface);
@@ -491,6 +508,7 @@
   </div>
 </div>
 <div id="sunview">
+ <div id="habitspage">
   <div id="melamiss"></div>
   <div id="wakeline"></div>
   <div id="alarmline"></div>
@@ -501,8 +519,17 @@
   <h3 class="evcat">Issues</h3>
   <div class="eventgrid" id="issuegrid"></div>
   <button class="addevent" id="addissue">+ Add issue</button>
+ </div>
+ <div id="strengthpage" hidden>
+  <div class="empty">🏋️<br><b>Strength</b><br>Nothing here yet — this page is ready for the strength sessions.</div>
+ </div>
 </div>
 </main>
+<nav id="daynav" hidden>
+  <button data-tab="habits" class="on"><i>✅</i>Habits</button>
+  <button data-tab="running"><i>🏃</i>Running</button>
+  <button data-tab="strength"><i>🏋️</i>Strength</button>
+</nav>
 
 <div id="wakesheet">
   <div class="sheetbox">
@@ -762,9 +789,8 @@
       </div>
       <div class="setrow">
         <label>Accepted delay — minutes past the goal that still count as an acceptable rise.
-               Rise from half an hour before that limit onwards, however late, and tomorrow rings
-               30 min earlier than you rose (never before the goal); rise earlier and it rings
-               at the goal.</label>
+               The alarm rings at the goal, unless the last wake-up in the log is later than
+               goal + delay: then it rings at that wake-up's hour minus the delay.</label>
         <input class="syncin" type="number" id="wakedelay" inputmode="numeric" min="0" max="180" step="5" placeholder="30">
       </div>
       <div class="setrow">
@@ -2189,6 +2215,8 @@ async function deleteNight(s){
       (s.uploadedAt ? ' The copy the server already has stays there.' : ''))) return;
   if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
   await delSession(s.id);
+  // A deleted wake-up may have been the one the alarm was derived from: recompute it.
+  if (s.stopReason === 'wake-up' && wakeGoal){ await pushSchedule(); paintSchedule(); }
   openLog(isDayMarker(s) ? 'day' : 'night');
 }
 function deleteRun(r){
@@ -2369,11 +2397,12 @@ $('#setnav').onclick = () => {
    with it. Both alarms are native — they must ring with the page long gone — and the page
    only stores the settings and pushes them across on boot and on save.
 
-   Tomorrow's wake-up is NOT simply the goal: the native side recomputes it at the morning's
-   rise (a rise near or past the accepted limit puts the next one 30 min before it, walking
-   back to the goal half an hour a day; an earlier rise returns to the goal), and keeps that
-   moment armed through every later configure(), so the page asks for the armed moment
-   rather than assuming it — and says it out loud wherever the rise is logged. */
+   The wake-up alarm is NOT simply the goal: it rings at the goal unless the last wake-up
+   in the log is later than goal + accepted delay, in which case it rings at that wake-up's
+   hour minus the delay (11:00 with 09:00 +30 gives 10:30). The log lives here, so every
+   configure() carries the last wake-up across and the native side recomputes from it; the
+   page asks for the armed moment rather than assuming it, and says it out loud wherever
+   the rise is logged. */
 const nativeMelatonin = (() => {
   const C = window.Capacitor;
   return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.MelatoninAlarm) || null;
@@ -2414,10 +2443,19 @@ function deriveBedtime(){
   bedtimeCfg = wakeGoal ? minToHhmm(hhmmToMin(wakeGoal) - sleepMin) : '';
 }
 
+/* The last wake-up in the log — the one fact the alarm rule needs from the page. */
+async function lastWakeAt(){
+  let at = 0;
+  try { for (const x of await allSessions()) if (x.stopReason === 'wake-up' && x.startedAt > at) at = x.startedAt; } catch(_){}
+  return at;
+}
+
 async function pushSchedule(){
   deriveBedtime();
   if (nativeWake){
-    try { await nativeWake.configure({goal: wakeGoal, delayMin: wakeDelay}); } catch(_){}
+    try {
+      await nativeWake.configure({goal: wakeGoal, delayMin: wakeDelay, lastWake: String(await lastWakeAt())});
+    } catch(_){}
   }
   if (nativeMelatonin){
     try {
@@ -2465,7 +2503,7 @@ function nextWakeWhy(){
   if (!nextWakeAt || !wakeGoal) return '';
   const d = new Date(nextWakeAt);
   return d.getHours() * 60 + d.getMinutes() === hhmmToMin(wakeGoal) ? ' — the goal'
-    : ' — 30 min before your last rise, on the way back to ' + wakeGoal;
+    : ' — your last wake-up minus the ' + wakeDelay + ' min accepted (goal ' + wakeGoal + ')';
 }
 
 async function loadSchedule(){
@@ -2577,6 +2615,20 @@ function nightAllowed(){
   const now = new Date();
   return ((now.getHours() * 60 + now.getMinutes() - remind + 1440) % 1440) < 720;
 }
+/* Day mode's three screens. Habits and Strength are pages of the day view; Running is the
+   zone-alarm overlay itself, shown above the bar rather than rebuilt — a run in progress
+   keeps going whichever tab is showing, exactly as it did behind the old ✕. */
+let dayTab = 'habits';
+function showDayTab(t){
+  dayTab = t;
+  $('#habitspage').hidden = t !== 'habits';
+  $('#strengthpage').hidden = t !== 'strength';
+  if (t !== 'running' && location.hash) location.hash = '';   // close a run sub-page through its router
+  document.getElementById('zoneapp').classList.toggle('on', t === 'running');
+  for (const b of $('#daynav').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === t);
+}
+for (const b of $('#daynav').querySelectorAll('button')) b.onclick = () => showDayTab(b.dataset.tab);
+
 function paintModenav(){
   $('#modenav').style.display = (view === 'sun' && !nightAllowed()) ? 'none' : '';
 }
@@ -2591,6 +2643,12 @@ function showView(v){
   paintModenav();
   if (v === 'sun'){ paintEvents(); paintSun(); }
   paintSchedule();                    // both screens carry the next alarm's hour
+  // The day has three screens behind a nav bar and always opens on Habits; the night has
+  // none, and leaving the day closes a Running page that was open as a tab.
+  document.body.classList.toggle('daytabs', v === 'sun');
+  $('#daynav').hidden = v !== 'sun';
+  if (v === 'sun') showDayTab('habits');
+  else if (dayTab === 'running'){ dayTab = 'habits'; document.getElementById('zoneapp').classList.remove('on'); }
   // The mode survives an app restart: closed in day mode, it reopens in day mode.
   setMeta('view', v).catch(() => {});
   syncShake();    // day mode closes the shake watch; night mode reopens it if eligible
@@ -2617,8 +2675,8 @@ async function logWakeUp(note, at){
     const late = Math.round((Date.now() - now) / 60000);
     if (FA) await FA.schedule({minutes: Math.max(1, 45 - late), nightDay: dayKey(now)});
   } catch(_){}
-  /* The rise decides tomorrow's alarm — the native side owns the rule, so it is told the
-     moment and the page then re-reads what it armed. */
+  /* The rise is the log's last wake-up now, and the alarm derives from it — the native
+     side owns the rule, so it is told the moment and the page re-reads what it armed. */
   try {
     if (nativeWake){
       await nativeWake.wokeAt({at: String(now)});
