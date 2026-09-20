@@ -503,6 +503,7 @@
   .zone .uempty{padding:8px 0;font:400 11px/1.5 var(--mono);color:var(--dim)}
   .zone #phoneGrant{margin-top:12px;width:100%;border:none;border-radius:12px;padding:15px 8px;font:700 14px/1 var(--sans);letter-spacing:.04em;background:#E7ECF0;color:#0B0F14}
   .zone #phoneGrant:active{filter:brightness(.9)}
+  .zone #phoneAppInfo{margin-top:8px;width:100%;padding:13px 8px}
   #phoneAccess[hidden],#phoneBody[hidden]{display:none}
 </style>
 </head>
@@ -513,7 +514,7 @@
   <div class="hright">
     <button id="zonenav" aria-label="Zone alarm">🏃</button>
     <button id="livenav" aria-label="Live sensor data">🫀</button>
-    <button id="phonenav" aria-label="Phone use" hidden>📱</button>
+    <button id="phonenav" aria-label="Phone use">📱</button>
     <button id="modenav" aria-label="Day / night mode">🌙</button>
     <button id="setnav" aria-label="Playback settings">⚙️</button>
     <button id="lognav" aria-label="Log">📊</button>
@@ -733,7 +734,7 @@
 </section>
 </div>
 
-<!-- Phone use — Android's own usage log, read back (APK only; the button hides elsewhere) -->
+<!-- Phone use — Android's own usage log, read back. The button is always there; outside the APK the page says why it is empty -->
 <div id="phonewrap" class="zone">
 <section id="phonePage" class="page" role="region" aria-labelledby="phoneTitle">
   <div class="inner">
@@ -747,8 +748,9 @@
     <div class="card" id="phoneAccess" style="margin-top:12px" hidden>
       <div class="cardtitle">Usage access needed</div>
       <p class="cardsub">Android keeps this log by itself, for every app; reading it takes one switch that only you can flip. Turn on <b style="color:var(--txt)">Audio Timer</b> in the list, then come back — the days already in the log show up at once.</p>
-      <p class="cardsub">Switch greyed out? App info → ⋮ → Allow restricted settings, then try again (Android does that to apps installed from an APK).</p>
-      <button id="phoneGrant">Open usage access</button>
+      <p class="cardsub">Switch greyed out, or a "Restricted setting" message? Android does that to apps installed from an APK: open App info → ⋮ → Allow restricted settings, then ask again.</p>
+      <button id="phoneGrant">Allow usage access</button>
+      <button id="phoneAppInfo" class="ghost">Open App info</button>
     </div>
 
     <div id="phoneBody" hidden>
@@ -4320,23 +4322,23 @@ $('#posfile').onchange = async e => {
    over once "Usage access" is granted. This page only reads: nothing is recorded by the app,
    which is why the days before the page existed are already there, and why the detail stops
    where the system's retention does (about a week of events; the History card's totals go
-   much further back). Hosted as a PWA there is no such log, so the button stays hidden. */
+   much further back). The button is always in the header, and the tap is the ask: without
+   the access it opens Android's switch straight away — the nearest thing this permission
+   has to a dialog — over the page that explains it, which is what is left on screen if the
+   answer was no. Hosted as a PWA there is no such log, and the page says so. */
 (() => {
   const el = id => document.getElementById(id);
   const plugin = () => {
     const C = window.Capacitor;
     return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.PhoneUsage) || null;
   };
-  const reveal = () => { if (plugin()) el('phonenav').hidden = false; };
-  reveal();
-  window.addEventListener('load', reveal);
 
   // The window asked of the log starts a few hours before the day, so a screen already on at
   // midnight is known to be on; everything shown is then clipped back to the day itself.
   const LEAD = 3 * 3600000;
   const MERGE = 2000;      // an app's own screens hand over in well under this; a real return does not
   const BACK = 13;         // days the ‹ button will go; the log itself gives up sooner
-  let offset = 0, open = false, histKind = 'day', ticket = 0;
+  let offset = 0, open = false, histKind = 'day', ticket = 0, askOnOpen = false;
 
   const pad = n => String(n).padStart(2, '0');
   const clock = t => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
@@ -4624,7 +4626,8 @@ $('#posfile').onchange = async e => {
     const P = plugin();
     if (!P){
       el('phoneAccess').hidden = true; el('phoneBody').hidden = true;
-      el('phoneNote').textContent = 'Only the installed Android app can read the usage log.';
+      el('phoneNote').textContent = 'Nothing to show here: this page reads Android\'s usage log, and only the installed app (the APK) can reach it — a browser cannot.';
+      askOnOpen = false;
       return;
     }
     let st;
@@ -4633,9 +4636,13 @@ $('#posfile').onchange = async e => {
     el('phoneBody').hidden = !st.granted;
     el('phoneNote').textContent = '';
     if (st.granted){ loadDay(); loadHistory(); }
+    // Once per tap on 📱, never on the way back from Settings: a no must not loop.
+    else if (askOnOpen) P.openSettings().catch(() => {});
+    askOnOpen = false;
   }
 
   el('phoneGrant').onclick = () => { const P = plugin(); if (P) P.openSettings().catch(() => {}); };
+  el('phoneAppInfo').onclick = () => { const P = plugin(); if (P && P.openAppInfo) P.openAppInfo().catch(() => {}); };
   el('phonePrev').onclick = () => { if (offset < BACK){ offset++; loadDay(); } };
   el('phoneNext').onclick = () => { if (offset > 0){ offset--; loadDay(); } };
   el('phoneHistTabs').addEventListener('click', e => {
@@ -4660,7 +4667,9 @@ $('#posfile').onchange = async e => {
   });
   el('phonenav').onclick = () => {
     document.getElementById('zoneapp').classList.remove('on');
+    askOnOpen = true;
     if (location.hash !== '#phone') location.hash = '#phone';
+    else refresh();
   };
   el('phoneBack').onclick = () => { if (location.hash) history.back(); };
   route();
