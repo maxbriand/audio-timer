@@ -37,11 +37,19 @@
   h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
   #storage{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums}
   .hright{display:flex;align-items:center;gap:10px}
-  #setnav,#lognav,#modenav,#livenav,#zonenav{
+  #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav{
     background:var(--surface-2);border:1px solid var(--line);color:var(--accent);
     width:34px;height:34px;border-radius:10px;font-size:16px;line-height:1;flex:none
   }
-  #setnav:active,#lognav:active,#modenav:active,#livenav:active,#zonenav:active{background:var(--line)}
+  #setnav:active,#lognav:active,#modenav:active,#livenav:active,#phonenav:active,#zonenav:active{background:var(--line)}
+  /* Six buttons and the title do not fit a 360 dp phone at full size — 📱 was the one too
+     many. Below 400 px the row tightens instead of wrapping the title onto a second line. */
+  @media (max-width:400px){
+    header{padding-left:14px;padding-right:14px}
+    h1{font-size:17px;white-space:nowrap}
+    .hright{gap:6px}
+    #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav{width:32px;height:32px;font-size:15px}
+  }
   #sunview{display:none}
 
   #logsheet,#setsheet,#eventsheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
@@ -442,8 +450,8 @@
   .zone .cardtitle{font:700 13px/1.2 var(--sans);letter-spacing:.02em;margin-bottom:4px}
   .zone .cardsub{font:400 10.5px/1.5 var(--mono);color:var(--dim);margin-bottom:6px}
   .zone #liveBpm{font:700 44px/1 var(--mono);font-variant-numeric:tabular-nums}
-  .zone #liveNote{margin-top:8px;font:400 11px/1.5 var(--mono);color:#FFDF8E;min-height:0}
-  .zone #liveNote:empty{display:none}
+  .zone #liveNote,.zone #phoneNote{margin-top:8px;font:400 11px/1.5 var(--mono);color:#FFDF8E;min-height:0}
+  .zone #liveNote:empty,.zone #phoneNote:empty{display:none}
 
   /* Embedded as a full-screen overlay over Audio Timer: shown by the 🏃 / 🫀 buttons,
      hidden by its ✕. The page's own settings/live pages stack inside it as before. */
@@ -470,6 +478,32 @@
      own fixed layout is the whole page. Above everything of Audio Timer's. */
   #livewrap{display:contents}
   #livewrap .page{z-index:40}
+  /* 📱 Phone use is Live's neighbour in the header and the same kind of page: a sibling of
+     the overlay under its own .zone wrapper, on the #phone route. Its rows open — an app
+     into its sessions, a screen session into the apps used in it — so they are <details>
+     dressed as .krow. */
+  #phonewrap{display:contents}
+  #phonewrap .page{z-index:40}
+  .zone .daybar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px}
+  .zone .daybar b{font:700 15px/1 var(--sans);letter-spacing:.02em}
+  .zone .daybar .ghost{font-size:16px;padding:8px 16px}
+  .zone .ghost:disabled{opacity:.3}
+  .zone .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0 4px}
+  .zone .tabs .tgl{padding:9px 0;font-size:10.5px}
+  .zone .urow{border-bottom:1px solid var(--line)}
+  .zone .urow:last-child{border-bottom:none}
+  .zone .urow > summary{list-style:none;display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 0;font:500 11px/1.4 var(--mono);letter-spacing:.04em;color:var(--dim);cursor:pointer}
+  .zone .urow > summary::-webkit-details-marker{display:none}
+  .zone .urow > summary span{color:var(--txt);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .zone .urow > summary b{flex:none;color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
+  .zone .urow > summary b i{font-style:normal;color:var(--dim)}
+  .zone .urow[open] > summary span{white-space:normal}
+  .zone .usub{padding:0 0 10px 10px;border-left:1px solid var(--line);margin:0 0 8px 2px;font:400 10.5px/1.7 var(--mono);color:var(--dim);font-variant-numeric:tabular-nums;word-break:break-word}
+  .zone .usub b{color:var(--txt);font-weight:500}
+  .zone .uempty{padding:8px 0;font:400 11px/1.5 var(--mono);color:var(--dim)}
+  .zone #phoneGrant{margin-top:12px;width:100%;border:none;border-radius:12px;padding:15px 8px;font:700 14px/1 var(--sans);letter-spacing:.04em;background:#E7ECF0;color:#0B0F14}
+  .zone #phoneGrant:active{filter:brightness(.9)}
+  #phoneAccess[hidden],#phoneBody[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -479,6 +513,7 @@
   <div class="hright">
     <button id="zonenav" aria-label="Zone alarm">🏃</button>
     <button id="livenav" aria-label="Live sensor data">🫀</button>
+    <button id="phonenav" aria-label="Phone use" hidden>📱</button>
     <button id="modenav" aria-label="Day / night mode">🌙</button>
     <button id="setnav" aria-label="Playback settings">⚙️</button>
     <button id="lognav" aria-label="Log">📊</button>
@@ -693,6 +728,77 @@
       <div class="krow"><span>Serial number</span><b id="liveSerial">—</b></div>
       <div class="krow"><span>Firmware</span><b id="liveFw">—</b></div>
       <div class="krow"><span>Internal recording</span><b style="font-weight:400">on-strap HR/RR store — not readable here (Polar proprietary file protocol)</b></div>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- Phone use — Android's own usage log, read back (APK only; the button hides elsewhere) -->
+<div id="phonewrap" class="zone">
+<section id="phonePage" class="page" role="region" aria-labelledby="phoneTitle">
+  <div class="inner">
+    <div class="pagehead">
+      <button id="phoneBack" class="ghost">&#8592; Back</button>
+      <h2 id="phoneTitle">Phone use</h2>
+    </div>
+    <p class="cardsub">Android's own usage log, read back: every screen-on, every unlock, every app in front. Times only — never what was on the screen, and never why it woke (button, lift or notification look the same).</p>
+    <p id="phoneNote"></p>
+
+    <div class="card" id="phoneAccess" style="margin-top:12px" hidden>
+      <div class="cardtitle">Usage access needed</div>
+      <p class="cardsub">Android keeps this log by itself, for every app; reading it takes one switch that only you can flip. Turn on <b style="color:var(--txt)">Audio Timer</b> in the list, then come back — the days already in the log show up at once.</p>
+      <p class="cardsub">Switch greyed out? App info → ⋮ → Allow restricted settings, then try again (Android does that to apps installed from an APK).</p>
+      <button id="phoneGrant">Open usage access</button>
+    </div>
+
+    <div id="phoneBody" hidden>
+      <div class="daybar">
+        <button id="phonePrev" class="ghost" aria-label="Previous day">&#8249;</button>
+        <b id="phoneDay">Today</b>
+        <button id="phoneNext" class="ghost" aria-label="Next day" disabled>&#8250;</button>
+      </div>
+
+      <div class="card">
+        <div class="cardtitle">Screen</div>
+        <div class="krow"><span>Screen turned on</span><b id="puOns">—</b></div>
+        <div class="krow"><span>Unlocked</span><b id="puUnlocks">—</b></div>
+        <div class="krow"><span>Glances (on, never unlocked)</span><b id="puGlances">—</b></div>
+        <div class="krow"><span>Screen-on time</span><b id="puScreenMs">—</b></div>
+        <div class="krow"><span>Of which unlocked</span><b id="puUseMs">—</b></div>
+        <div class="krow"><span>Average session</span><b id="puAvg">—</b></div>
+        <div class="krow"><span>Longest session</span><b id="puLongest">—</b></div>
+        <div class="krow"><span>First screen-on</span><b id="puFirst">—</b></div>
+        <div class="krow"><span>Last screen-off</span><b id="puLast">—</b></div>
+        <div class="krow"><span>Notifications</span><b id="puNotif">—</b></div>
+        <div class="krow"><span>Shutdowns / startups</span><b id="puBoots">—</b></div>
+      </div>
+
+      <div class="card">
+        <div class="cardtitle">Apps <span class="cardsub" style="display:inline">— time in front · times opened</span></div>
+        <div id="phoneApps"></div>
+      </div>
+
+      <div class="card">
+        <div class="cardtitle">Timeline <span class="cardsub" style="display:inline">— every screen session, newest first</span></div>
+        <div id="phoneTimeline"></div>
+      </div>
+
+      <div class="card">
+        <div class="cardtitle">History</div>
+        <p class="cardsub">The system's own totals, which outlive the event log above: days for about a week, weeks for a month, months for half a year, years for two. Its buckets, not the calendar's — each row shows its real bounds.</p>
+        <div class="tabs" id="phoneHistTabs">
+          <button class="tgl" data-kind="day" aria-pressed="true">Days</button>
+          <button class="tgl" data-kind="week" aria-pressed="false">Weeks</button>
+          <button class="tgl" data-kind="month" aria-pressed="false">Months</button>
+          <button class="tgl" data-kind="year" aria-pressed="false">Years</button>
+        </div>
+        <div id="phoneHist"></div>
+      </div>
+
+      <div class="card">
+        <div class="cardtitle">Raw log <span class="cardsub" style="display:inline">— every event of the day, by kind</span></div>
+        <div id="phoneRaw"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -4206,6 +4312,358 @@ $('#posfile').onchange = async e => {
     if (location.hash) location.hash = '';
     root.classList.remove('on');
   };
+})();
+
+/* ---------- 📱 phone use ----------
+   Android keeps a usage log of its own — every screen-on and -off, every lock and unlock,
+   every app that came to the front, to the millisecond — and the PhoneUsage plugin hands it
+   over once "Usage access" is granted. This page only reads: nothing is recorded by the app,
+   which is why the days before the page existed are already there, and why the detail stops
+   where the system's retention does (about a week of events; the History card's totals go
+   much further back). Hosted as a PWA there is no such log, so the button stays hidden. */
+(() => {
+  const el = id => document.getElementById(id);
+  const plugin = () => {
+    const C = window.Capacitor;
+    return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.PhoneUsage) || null;
+  };
+  const reveal = () => { if (plugin()) el('phonenav').hidden = false; };
+  reveal();
+  window.addEventListener('load', reveal);
+
+  // The window asked of the log starts a few hours before the day, so a screen already on at
+  // midnight is known to be on; everything shown is then clipped back to the day itself.
+  const LEAD = 3 * 3600000;
+  const MERGE = 2000;      // an app's own screens hand over in well under this; a real return does not
+  const BACK = 13;         // days the ‹ button will go; the log itself gives up sooner
+  let offset = 0, open = false, histKind = 'day', ticket = 0;
+
+  const pad = n => String(n).padStart(2, '0');
+  const clock = t => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
+  const dmy = (t, o) => new Date(t).toLocaleDateString(undefined, o || { weekday: 'short', day: 'numeric', month: 'short' });
+  function dur(ms){
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + ' s';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + ' min ' + pad(s % 60) + ' s';
+    return Math.floor(m / 60) + ' h ' + pad(m % 60) + ' min';
+  }
+  function dayBounds(off){
+    const n = new Date();
+    const a = new Date(n.getFullYear(), n.getMonth(), n.getDate() - off).getTime();
+    const b = new Date(n.getFullYear(), n.getMonth(), n.getDate() - off + 1).getTime();
+    return [a, Math.min(b, Date.now())];
+  }
+
+  /* The log is a flat list of moments; a session is two of them paired. Screen: on → off.
+     Unlocked: keyguard hidden → shown (or the screen going off), and a screen that comes on
+     with the keyguard already away is unlocked from its first second. App: resumed → paused
+     — of the same activity, because inside one app the next screen resumes before or after
+     the last one pauses, and only the top one leaving means the app left; two stretches of
+     one app a breath apart are one visit. */
+  function digest(r, dayStart, dayEnd){
+    const base = +r.from, end = +r.to;
+    const span = (a, b) => Math.max(0, Math.min(b, dayEnd) - Math.max(a, dayStart));
+    const screens = [], visits = [], boots = [];
+    const notif = new Map(), taps = new Map(), shortcuts = new Map();
+    let scr = null, sawScreen = false, locked = null, cur = null, last = null, prevT = base;
+    let ons = 0, unlocks = 0, firstOn = null;
+
+    const closeApp = t => { if (cur){ cur.end = t; visits.push(cur); last = cur; cur = null; } };
+    const useStop = t => { if (scr && scr.useFrom != null){ scr.useMs += span(scr.useFrom, t); scr.useFrom = null; } };
+    const closeScreen = (t, stillOn) => {
+      if (!scr) return;
+      useStop(t); scr.off = t; scr.stillOn = !!stillOn; screens.push(scr); scr = null;
+    };
+    const openScreen = (t, assumed) => {
+      scr = { on: t, off: null, assumed, unlockAt: null, useMs: 0, useFrom: locked === false ? t : null };
+    };
+    const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
+
+    for (const [dt, type, pi, ci] of r.ev){
+      const t = base + dt, inDay = t >= dayStart;
+      switch (type){
+        case 15:                                   // screen on
+          closeScreen(t); sawScreen = true;        // an "on" straight after an "on": the log lost an "off"
+          openScreen(t, false);
+          if (inDay){ ons++; if (firstOn === null) firstOn = t; }
+          break;
+        case 16:                                   // screen off
+          if (!scr && !sawScreen) openScreen(base, true);   // it was on since before the window
+          sawScreen = true;
+          closeApp(t); closeScreen(t);
+          break;
+        case 18:                                   // keyguard hidden = unlocked
+          locked = false;
+          if (inDay) unlocks++;
+          if (scr){ if (scr.unlockAt === null) scr.unlockAt = t; if (scr.useFrom === null) scr.useFrom = t; }
+          break;
+        case 17:                                   // keyguard shown = locked
+          locked = true; useStop(t);
+          break;
+        case 1:                                    // activity resumed
+          if (cur && cur.pi === pi){ cur.top = ci; if (ci >= 0) cur.cls.add(ci); break; }
+          closeApp(t);
+          if (last && last.pi === pi && t - last.end < MERGE && visits[visits.length - 1] === last){
+            visits.pop(); cur = last; cur.end = null; cur.top = ci;
+          } else cur = { pi, start: t, end: null, top: ci, cls: new Set() };
+          if (ci >= 0) cur.cls.add(ci);
+          break;
+        case 2:                                    // activity paused
+          if (cur && cur.pi === pi && cur.top === ci) closeApp(t);
+          break;
+        case 12: if (inDay) bump(notif, pi); break;
+        case 7:  if (inDay) bump(taps, pi); break;
+        case 8:  if (inDay) bump(shortcuts, pi); break;
+        case 26:                                   // shutdown
+          closeApp(t); closeScreen(t); locked = true;
+          if (inDay) boots.push({ t, up: false });
+          break;
+        case 27:                                   // startup — anything still open died unlogged
+          closeApp(prevT); closeScreen(prevT); locked = true; last = null;
+          if (inDay) boots.push({ t, up: true });
+          break;
+      }
+      prevT = t;
+    }
+    closeApp(end); closeScreen(end, true);
+
+    const day = { screens: [], apps: [], boots, ons, unlocks, firstOn, counts: r.counts || {} };
+    for (const s of screens){
+      s.ms = span(s.on, s.off);
+      if (s.ms > 0 || (s.on >= dayStart && s.on <= dayEnd)) day.screens.push(s);
+    }
+    const byApp = new Map();
+    const app = pi => {
+      let a = byApp.get(pi);
+      if (!a){
+        const k = r.pkgs[pi] || { p: '?', label: '?' };
+        a = { pi, p: k.p, label: k.home ? 'Home screen' : k.label, home: !!k.home, ms: 0, visits: [], cls: new Set(),
+              notif: 0, taps: 0, shortcuts: 0 };
+        byApp.set(pi, a);
+      }
+      return a;
+    };
+    for (const v of visits){
+      v.ms = span(v.start, v.end);
+      if (v.ms <= 0) continue;
+      const a = app(v.pi);
+      a.ms += v.ms; a.visits.push(v);
+      for (const c of v.cls) a.cls.add(r.cls[c]);
+    }
+    for (const [pi, n] of notif) if (pi >= 0) app(pi).notif = n;
+    for (const [pi, n] of taps) if (pi >= 0) app(pi).taps = n;
+    for (const [pi, n] of shortcuts) if (pi >= 0) app(pi).shortcuts = n;
+    day.apps = [...byApp.values()].sort((a, b) => b.ms - a.ms || b.notif - a.notif);
+    day.notif = [...notif.values()].reduce((a, b) => a + b, 0);
+
+    // Which apps were in front during which screen session — both lists run oldest first.
+    const dayVisits = visits.filter(v => v.ms > 0);
+    let vi = 0;
+    for (const s of day.screens){
+      s.visits = [];
+      while (vi < dayVisits.length && dayVisits[vi].end <= s.on) vi++;
+      for (let j = vi; j < dayVisits.length && dayVisits[j].start < s.off; j++) s.visits.push(dayVisits[j]);
+    }
+    day.screenMs = day.screens.reduce((a, s) => a + s.ms, 0);
+    day.useMs = day.screens.reduce((a, s) => a + s.useMs, 0);
+    day.glances = day.screens.filter(s => s.on >= dayStart && !s.assumed && s.useMs === 0 && s.unlockAt === null).length;
+    day.longest = day.screens.reduce((a, s) => (!a || s.ms > a.ms ? s : a), null);
+    const lastS = day.screens[day.screens.length - 1];
+    day.lastOff = lastS ? (lastS.stillOn ? null : lastS.off) : null;
+    day.stillOn = !!(lastS && lastS.stillOn);
+    day.label = pi => (byApp.get(pi) || app(pi)).label;
+    return day;
+  }
+
+  // ---- rendering. Names come from other apps' manifests: text nodes only, never markup.
+  const node = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  function row(left, right, dim){
+    const d = node('details', 'urow'), s = node('summary');
+    s.append(node('span', '', left));
+    const b = node('b', '', right);
+    if (dim) b.append(' ', node('i', '', dim));
+    s.append(b); d.append(s);
+    const body = node('div', 'usub');
+    d.append(body);
+    return [d, body];
+  }
+  const line = (body, strong, rest) => {
+    const p = node('div');
+    if (strong) p.append(node('b', '', strong), ' ');
+    p.append(rest || '');
+    body.append(p);
+  };
+  const fill = (box, rows, empty) => {
+    box.replaceChildren(...(rows.length ? rows : [node('div', 'uempty', empty)]));
+  };
+
+  function paintDay(day, dayStart, sdk){
+    const set = (id, v) => { el(id).textContent = v; };
+    const noScreen = sdk < 28;               // Android 8 and below log apps but not the screen
+    set('puOns', noScreen ? 'not logged before Android 9' : day.ons + ' ×');
+    set('puUnlocks', noScreen ? '—' : day.unlocks + ' ×');
+    set('puGlances', noScreen ? '—' : day.glances + ' ×');
+    set('puScreenMs', noScreen ? '—' : dur(day.screenMs));
+    set('puUseMs', noScreen ? '—' : dur(day.useMs));
+    set('puAvg', day.screens.length ? dur(day.screenMs / day.screens.length) : '—');
+    set('puLongest', day.longest ? dur(day.longest.ms) + ' at ' + clock(Math.max(day.longest.on, dayStart)).slice(0, 5) : '—');
+    set('puFirst', day.firstOn === null ? '—' : clock(day.firstOn));
+    set('puLast', day.stillOn ? 'on now' : day.lastOff === null ? '—' : clock(day.lastOff));
+    set('puNotif', day.notif ? String(day.notif) : '0');
+    set('puBoots', day.boots.length
+      ? day.boots.map(b => (b.up ? '↑ ' : '↓ ') + clock(b.t).slice(0, 5)).join(' · ')
+      : 'none');
+
+    fill(el('phoneApps'), day.apps.map(a => {
+      const [d, body] = row(a.label, a.ms ? dur(a.ms) : '—', a.visits.length ? a.visits.length + '×' : '');
+      line(body, null, a.p);
+      const extra = [];
+      if (a.notif) extra.push(a.notif + ' notification' + (a.notif > 1 ? 's' : ''));
+      if (a.taps) extra.push(a.taps + ' interaction' + (a.taps > 1 ? 's' : '') + ' from outside the app');
+      if (a.shortcuts) extra.push(a.shortcuts + ' shortcut' + (a.shortcuts > 1 ? 's' : ''));
+      if (extra.length) line(body, null, extra.join(' · '));
+      for (const v of a.visits.slice().reverse())
+        line(body, clock(Math.max(v.start, dayStart)) + ' → ' + clock(v.end), dur(v.ms));
+      if (a.cls.size) line(body, null, 'screens: ' + [...a.cls].map(c => String(c).split('.').pop()).join(', '));
+      return d;
+    }), 'No app came to the front.');
+
+    fill(el('phoneTimeline'), day.screens.slice().reverse().map(s => {
+      const from = Math.max(s.on, dayStart);
+      const kind = s.unlockAt !== null || s.useMs > 0 ? 'unlocked' : 'glance';
+      const [d, body] = row(clock(from) + ' → ' + (s.stillOn ? 'now' : clock(s.off)), dur(s.ms), kind);
+      if (s.on < dayStart) line(body, null, 'on since ' + (s.assumed ? 'before ' : '') + clock(s.on) + ' the day before');
+      if (s.unlockAt !== null) line(body, 'unlocked', clock(s.unlockAt) + (s.unlockAt - s.on >= 1000 ? ' — ' + dur(s.unlockAt - s.on) + ' after the screen' : ''));
+      else if (s.useMs > 0) line(body, 'already unlocked', '');
+      for (const v of s.visits) line(body, clock(Math.max(v.start, dayStart)), day.label(v.pi) + ' — ' + dur(v.ms));
+      if (!s.visits.length) line(body, null, 'no app in front — lock screen or notifications only');
+      return d;
+    }), noScreen ? 'Screen events start with Android 9.' : 'The screen never came on.');
+
+    const names = {1:'Activity resumed', 2:'Activity paused', 5:'Configuration change (rotation, …)', 7:'User interaction',
+      8:'Shortcut used', 9:'Share target chosen', 10:'Notification seen', 11:'Standby bucket changed',
+      12:'Notification posted', 13:'Slice pinned (privileged)', 14:'Slice pinned', 15:'Screen on', 16:'Screen off',
+      17:'Keyguard shown (locked)', 18:'Keyguard hidden (unlocked)', 19:'Foreground service started',
+      20:'Foreground service stopped', 21:'Foreground service continuing', 22:'Foreground service rollover',
+      23:'Activity stopped', 24:'Activity destroyed', 25:'Flush to disk', 26:'Device shutdown', 27:'Device startup',
+      28:'User unlocked', 29:'User stopped', 30:'Locus id set', 31:'App component used'};
+    fill(el('phoneRaw'), Object.keys(day.counts).map(Number).sort((a, b) => a - b).map(k => {
+      const r = node('div', 'krow');
+      r.append(node('span', '', (names[k] || 'Event type ' + k) + ' · ' + k), node('b', '', String(day.counts[k])));
+      return r;
+    }), 'The log holds nothing for this day.');
+  }
+
+  async function loadDay(){
+    const P = plugin(); if (!P) return;
+    const mine = ++ticket;
+    const [a, b] = dayBounds(offset);
+    el('phoneDay').textContent = offset === 0 ? 'Today' : offset === 1 ? 'Yesterday' : dmy(a);
+    el('phoneNext').disabled = offset === 0;
+    el('phonePrev').disabled = offset >= BACK;
+    el('phoneNote').textContent = 'Reading the log…';
+    try {
+      const [r, st] = await Promise.all([
+        P.events({ from: String(a - LEAD), to: String(b), countFrom: String(a) }), P.status()]);
+      if (mine !== ticket) return;             // a newer day was asked for meanwhile
+      const day = digest(r, a, b);
+      paintDay(day, a, st.sdk || 99);
+      el('phoneNote').textContent = r.ev.length || offset === 0 ? ''
+        : 'Nothing in the log for this day — Android keeps the detailed events for about a week. History, below, reaches further.';
+    } catch(e){
+      if (mine !== ticket) return;
+      el('phoneNote').textContent = 'Could not read the usage log: ' + (e && e.message || e);
+    }
+  }
+
+  // How far back each kind of bucket is worth asking for — the system keeps no more.
+  const REACH = { day: 10 * 86400000, week: 5 * 7 * 86400000, month: 7 * 31 * 86400000, year: 3 * 366 * 86400000 };
+  function bucketName(kind, from, to){
+    if (kind === 'year') return String(new Date(from).getFullYear());
+    if (kind === 'month') return dmy(from, { month: 'long', year: 'numeric' });
+    if (kind === 'week') return dmy(from, { day: 'numeric', month: 'short' }) + ' → ' + dmy(to, { day: 'numeric', month: 'short' });
+    return dmy(from);
+  }
+  async function loadHistory(){
+    const P = plugin(); if (!P) return;
+    const kind = histKind, box = el('phoneHist'), now = Date.now();
+    fill(box, [], 'Reading…');
+    try {
+      const r = await P.totals({ interval: kind, from: String(now - REACH[kind]), to: String(now) });
+      if (kind !== histKind) return;
+      const homes = new Set(r.homes || []);
+      fill(box, (r.buckets || []).slice().reverse().map(b => {
+        const apps = (b.apps || []).slice().sort((x, y) => y.ms - x.ms);
+        const appMs = apps.reduce((a, x) => a + (homes.has(x.p) ? 0 : x.ms), 0);
+        const on = b.screenOn, un = b.unlocked;
+        const [d, body] = row(bucketName(kind, +b.from, +b.to), on ? dur(on.ms) : dur(appMs),
+          on ? on.n + '× on' + (un ? ' · ' + un.n + '× unl.' : '') : 'in apps');
+        line(body, null, dmy(+b.from, { day: 'numeric', month: 'short' }) + ' ' + clock(+b.from).slice(0, 5) + ' → ' +
+                         dmy(+b.to, { day: 'numeric', month: 'short' }) + ' ' + clock(+b.to).slice(0, 5));
+        if (on) line(body, 'screen on', on.n + ' × · ' + dur(on.ms));
+        if (un) line(body, 'unlocked', un.n + ' × · ' + dur(un.ms));
+        line(body, 'in apps', dur(appMs) + ' (home screen left out)');
+        const big = apps.filter(x => x.ms >= 60000);
+        for (const x of big.slice(0, 30)) line(body, dur(x.ms), homes.has(x.p) ? 'Home screen' : x.label);
+        const rest = apps.length - Math.min(big.length, 30);
+        if (rest > 0) line(body, null, '+ ' + rest + ' more, under a minute each or further down');
+        return d;
+      }), 'The system kept no totals for this range.');
+    } catch(e){
+      if (kind === histKind) fill(box, [], 'Could not read the totals: ' + (e && e.message || e));
+    }
+  }
+
+  async function refresh(){
+    const P = plugin();
+    if (!P){
+      el('phoneAccess').hidden = true; el('phoneBody').hidden = true;
+      el('phoneNote').textContent = 'Only the installed Android app can read the usage log.';
+      return;
+    }
+    let st;
+    try { st = await P.status(); } catch(e){ st = { granted: false }; }
+    el('phoneAccess').hidden = !!st.granted;
+    el('phoneBody').hidden = !st.granted;
+    el('phoneNote').textContent = '';
+    if (st.granted){ loadDay(); loadHistory(); }
+  }
+
+  el('phoneGrant').onclick = () => { const P = plugin(); if (P) P.openSettings().catch(() => {}); };
+  el('phonePrev').onclick = () => { if (offset < BACK){ offset++; loadDay(); } };
+  el('phoneNext').onclick = () => { if (offset > 0){ offset--; loadDay(); } };
+  el('phoneHistTabs').addEventListener('click', e => {
+    const b = e.target.closest('button[data-kind]');
+    if (!b || b.dataset.kind === histKind) return;
+    histKind = b.dataset.kind;
+    for (const t of el('phoneHistTabs').children) t.setAttribute('aria-pressed', t === b);
+    loadHistory();
+  });
+
+  // A hash route, like Live: Android's back button closes the page. Coming back from the
+  // Settings switch is a visibility change — that is when a fresh grant gets noticed.
+  function route(){
+    const now = location.hash === '#phone';
+    el('phonePage').classList.toggle('open', now);
+    if (now && !open){ open = true; offset = 0; refresh(); }
+    else if (!now) open = false;
+  }
+  window.addEventListener('hashchange', route);
+  document.addEventListener('visibilitychange', () => {
+    if (open && document.visibilityState === 'visible') refresh();
+  });
+  el('phonenav').onclick = () => {
+    document.getElementById('zoneapp').classList.remove('on');
+    if (location.hash !== '#phone') location.hash = '#phone';
+  };
+  el('phoneBack').onclick = () => { if (location.hash) history.back(); };
+  route();
 })();
 
 /* ---------- boot ---------- */
