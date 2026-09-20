@@ -38,9 +38,10 @@ import java.util.TreeMap;
  * Nothing here records anything: the system already keeps the log for every app on the
  * phone, and this only reads it back, which is why it works for the days before the page
  * existed. The price is the "Usage access" switch in Settings, which only the user can flip
- * (status / openSettings), and the system's own retention: the event log (events) reaches
- * back about a week, the aggregated buckets (totals) much further — days for a week, weeks
- * for a month, months for half a year, years for two.
+ * (status / openSettings, and openAppInfo for when Android greys the switch out), and the
+ * system's own retention: the event log (events) reaches back about a week, the aggregated
+ * buckets (totals) much further — days for a week, weeks for a month, months for half a
+ * year, years for two.
  *
  * The page does the reading of the log (sessions, pickups, per-app time); this side only
  * fetches, because the rules for pairing events are easier to get right — and to change —
@@ -104,6 +105,20 @@ public class PhoneUsagePlugin extends Plugin {
         c.startActivity(i);
       } catch (Exception ignored) {}
     }
+    call.resolve();
+  }
+
+  /* The way round a greyed-out switch. Android refuses this kind of access to an app that
+     came from an APK until "Allow restricted settings" is ticked, and that entry lives in
+     the ⋮ menu of the app's own info screen — this opens that screen. */
+  @PluginMethod
+  public void openAppInfo(PluginCall call){
+    try {
+      Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + getContext().getPackageName()));
+      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      getContext().startActivity(i);
+    } catch (Exception ignored) {}
     call.resolve();
   }
 
