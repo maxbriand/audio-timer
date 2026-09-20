@@ -9,29 +9,26 @@ import android.content.SharedPreferences;
 import java.util.Calendar;
 
 /*
- * The wake-up alarm — a clock that walks the rise back towards its goal.
+ * The wake-up alarm — a clock that rings at the goal unless the last rise was too late.
  *
  * Two numbers are set in ⚙: the goal wake-up time, and the accepted delay, the number of
- * minutes past it that still count as an acceptable rise. Tomorrow's alarm is decided at
- * the moment of the rise, by one rule (Maxime, 2026-09-09, widened 2026-09-19):
+ * minutes past it that still count as an acceptable rise. The alarm is derived from the
+ * last wake-up in the log, by one rule (Maxime, 2026-09-20):
  *
- *   rose from 30 min before goal+delay onwards  →  tomorrow rings 30 min before that rise
- *   rose earlier than that                      →  tomorrow rings at the goal
+ *   last wake-up later than goal + delay  →  rings at that wake-up's hour − delay
+ *   anything else, or no wake-up at all   →  rings at the goal
  *
- * So a late morning is never thrown straight back at the goal: 11:00 gives 10:30, then
- * 10:00, half an hour at a time until the goal is reached. The result is clamped so it can
- * never fall EARLIER than the goal: the goal is the destination, not a floor to undercut,
- * and without the clamp a rise at the goal itself would keep advancing the alarm
- * indefinitely.
+ * So with 09:00 and 30 min: a rise at 11:00 gives 10:30, 10:35 gives 10:05, 09:40 gives
+ * 09:10, and 09:30 sharp — still accepted — gives 09:00. The pulled-back hour is always
+ * past the goal, because the rise it comes from was more than the delay past it. Naps are
+ * not part of the protocol, so the last wake-up is taken as it is, whatever its hour.
  *
- * Only the morning's rise decides. The first rise of the day that falls in the morning
- * (from 3 h before the goal to 6 h past goal+delay) settles tomorrow, and every later rise
- * that day — a nap, a second "I'm up" for the same morning — leaves it alone. A rise
- * outside the morning (04:00, back to bed) settles nothing, so the real one still counts.
- *
- * What is armed stays armed: the page pushes its settings on every launch and the phone
- * re-arms on boot, and neither may replace a rise-derived alarm with the plain goal. Only
- * a changed goal or delay, or an armed moment already past, falls back to the goal.
+ * The log lives in the page, so the page hands the last wake-up over with every
+ * configure() — on each launch, on save, and when a wake-up entry is deleted — and the
+ * alarm is recomputed from it every time: same log, same alarm. It is kept here too, for
+ * the two moments the page is not running: "I'm up" on the ring, and the re-arm on boot.
+ * The alarm always falls on a day AFTER the wake-up it is derived from — a rise at 08:00
+ * must not make today's 09:00 ring an hour later.
  *
  * Snoozing is allowed once. The second ring offers only "I'm up", which is the rise: it
  * takes the app to day mode, where the wake-up row is written like any other.
@@ -44,12 +41,8 @@ final class WakeAlarm {
   private static final String KEY_SNOOZED = "snoozed";  // this ring has been snoozed once
   private static final String KEY_PENDING = "pendingUp";// "I'm up" pressed, page not told yet
   private static final String KEY_UP_AT = "upAt";       // when it was pressed
-  private static final String KEY_DECIDED = "decidedDay";// day whose morning rise set tomorrow
+  private static final String KEY_LAST_WAKE = "lastWake";// epoch ms of the last logged wake-up
   static final long SNOOZE_MS = 10 * 60 * 1000L;
-  static final int WINDOW_MIN = 30;                     // "more or less 30 minutes around"
-  static final int ADVANCE_MIN = 30;                    // how much a late rise pulls back
-  static final int MORNING_EARLY_MIN = 180;             // a morning starts 3 h before the goal
-  static final int MORNING_LATE_MIN = 360;              // and ends 6 h past goal + delay
 
   private WakeAlarm(){}
 
@@ -91,78 +84,63 @@ final class WakeAlarm {
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
   }
 
-  /* The page pushes goal + delay on boot and on save; an empty goal is the off switch. */
-  static void configure(Context c, String goal, int delay){
+  /* The page pushes goal + delay + the last wake-up of its log on every launch, on save and
+     when a wake-up entry is deleted; an empty goal is the off switch. While an "I'm up" is
+     still waiting to be written into the log, the page's last wake-up is one rise behind,
+     so the one kept here stands until the page has caught up. */
+  static void configure(Context c, String goal, int delay, long lastWake){
     if (goal == null || goal.isEmpty() || minutesOf(goal) < 0){
       prefs(c).edit().clear().apply();
       ((AlarmManager) c.getSystemService(Context.ALARM_SERVICE)).cancel(ring(c));
       return;
     }
-    boolean same = goal.equals(goal(c)) && delay == delayMin(c);
-    prefs(c).edit().putString(KEY_GOAL, goal).putInt(KEY_DELAY, delay).apply();
-    if (same) rearm(c); else scheduleNext(c);
+    SharedPreferences.Editor e = prefs(c).edit().putString(KEY_GOAL, goal).putInt(KEY_DELAY, delay);
+    if (!prefs(c).getBoolean(KEY_PENDING, false)) e.putLong(KEY_LAST_WAKE, lastWake);
+    e.apply();
+    schedule(c);
   }
 
-  /* Keep what is armed. The page calls configure() on every launch and the boot receiver
-     runs after every restart; if either fell back to the plain schedule, the alarm a rise
-     decided in the morning would be back at the goal by the evening (and a running snooze
-     would be lost). So a moment still ahead is armed again as it is, and only one already
-     past gives way to the next goal time. */
-  static void rearm(Context c){
-    long at = nextAt(c);
-    if (at > System.currentTimeMillis()) arm(c, at, snoozed(c));
-    else scheduleNext(c);
-  }
-
-  /** The plain schedule: the next goal time still ahead. */
-  static void scheduleNext(Context c){
-    int goalMin = minutesOf(goal(c));
-    if (goalMin < 0) return;
-    Calendar cal = Calendar.getInstance();
-    cal.set(Calendar.HOUR_OF_DAY, goalMin / 60);
-    cal.set(Calendar.MINUTE, goalMin % 60);
-    cal.set(Calendar.SECOND, 0);
-    cal.set(Calendar.MILLISECOND, 0);
-    if (cal.getTimeInMillis() <= System.currentTimeMillis()) cal.add(Calendar.DAY_OF_YEAR, 1);
-    arm(c, cal.getTimeInMillis(), false);
-  }
-
-  /* The rise happened: decide tomorrow's alarm from it and arm that instead. Called from
-     the "I'm up" button and from the page's day-mode switch, so whichever records the
-     rise, the next morning is set by the same rule. */
-  static long wokeAt(Context c, long wokeMillis){
+  /* Arm the alarm the rule gives for the last wake-up kept here. A snooze still counting
+     down is this morning's ring, not tomorrow's alarm, and is armed again as it is — an app
+     launch or a reboot in those ten minutes must not swallow it. */
+  static long schedule(Context c){
     int goalMin = minutesOf(goal(c));
     if (goalMin < 0) return 0;
-    Calendar w = Calendar.getInstance();
-    w.setTimeInMillis(wokeMillis);
-    int wokeMin = w.get(Calendar.HOUR_OF_DAY) * 60 + w.get(Calendar.MINUTE);
-    int acceptedMin = (goalMin + delayMin(c) + 1440) % 1440;
-    int late = circDiff(wokeMin, acceptedMin);              // minutes past the accepted limit
-
-    // Only the first morning rise of the day decides; a nap's rise must not move the alarm
-    // into the afternoon, and must not undo what the morning settled either.
-    int day = w.get(Calendar.YEAR) * 1000 + w.get(Calendar.DAY_OF_YEAR);
-    boolean morning = circDiff(wokeMin, goalMin) >= -MORNING_EARLY_MIN && late <= MORNING_LATE_MIN;
-    if (prefs(c).getInt(KEY_DECIDED, 0) == day && nextAt(c) > System.currentTimeMillis()){
+    long now = System.currentTimeMillis();
+    if (snoozed(c) && nextAt(c) > now){
+      arm(c, nextAt(c), true);
       return nextAt(c);
     }
-    if (morning) prefs(c).edit().putInt(KEY_DECIDED, day).apply();
-
-    int target;
-    if (morning && late >= -WINDOW_MIN){
-      target = (wokeMin - ADVANCE_MIN + 1440) % 1440;
-      if (circDiff(target, goalMin) < 0) target = goalMin;   // never earlier than the goal
-    } else {
-      target = goalMin;
+    long lastWake = prefs(c).getLong(KEY_LAST_WAKE, 0);
+    int target = goalMin;
+    Calendar cal = Calendar.getInstance();
+    if (lastWake > 0){
+      Calendar w = Calendar.getInstance();
+      w.setTimeInMillis(lastWake);
+      int wokeMin = w.get(Calendar.HOUR_OF_DAY) * 60 + w.get(Calendar.MINUTE);
+      int acceptedMin = (goalMin + delayMin(c)) % 1440;
+      // Strictly later than the accepted limit: a rise ON the limit is still accepted.
+      if (circDiff(wokeMin, acceptedMin) > 0) target = (wokeMin - delayMin(c) + 1440) % 1440;
+      // Never the day of the wake-up itself; a wake-up in the future (a clock change) is
+      // ignored for the date rather than pushing the alarm days away.
+      if (lastWake <= now){ cal.setTimeInMillis(lastWake); cal.add(Calendar.DAY_OF_YEAR, 1); }
     }
+    cal.set(Calendar.HOUR_OF_DAY, target / 60);
+    cal.set(Calendar.MINUTE, target % 60);
+    cal.set(Calendar.SECOND, 0);
+    cal.set(Calendar.MILLISECOND, 0);
+    while (cal.getTimeInMillis() <= now) cal.add(Calendar.DAY_OF_YEAR, 1);
+    arm(c, cal.getTimeInMillis(), false);
+    return cal.getTimeInMillis();
+  }
 
-    w.set(Calendar.HOUR_OF_DAY, target / 60);
-    w.set(Calendar.MINUTE, target % 60);
-    w.set(Calendar.SECOND, 0);
-    w.set(Calendar.MILLISECOND, 0);
-    w.add(Calendar.DAY_OF_YEAR, 1);                          // the alarm clock of tomorrow
-    arm(c, w.getTimeInMillis(), false);
-    return w.getTimeInMillis();
+  /* A rise, reported by the "I'm up" button or by the page's day-mode switch: it is the
+     last wake-up now, and the alarm follows from it by the same rule as everywhere else. */
+  static long wokeAt(Context c, long wokeMillis){
+    if (minutesOf(goal(c)) < 0) return 0;
+    // The rise ends the morning: a snooze still pending has nothing left to ring for.
+    prefs(c).edit().putLong(KEY_LAST_WAKE, wokeMillis).putBoolean(KEY_SNOOZED, false).apply();
+    return schedule(c);
   }
 
   /** Snooze — allowed once per ring; the flag is what makes the next ring offer one button. */
