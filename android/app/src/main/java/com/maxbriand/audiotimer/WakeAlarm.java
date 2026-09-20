@@ -154,6 +154,7 @@ final class WakeAlarm {
   static void up(Context c, long at){
     prefs(c).edit().putBoolean(KEY_PENDING, true).putLong(KEY_UP_AT, at).apply();
     wokeAt(c, at);
+    FatigueChecks.wokeAt(c, at);      // the checks hung on the rise start counting from here
   }
 
   static long consumeUp(Context c){
@@ -172,5 +173,7 @@ final class WakeAlarm {
     PendingIntent show = PendingIntent.getActivity(c, 31, open,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), ring(c));
+    // A new alarm is a new bedtime: the fatigue checks hung on it move with it.
+    if (!isSnooze) FatigueChecks.rearm(c);
   }
 }

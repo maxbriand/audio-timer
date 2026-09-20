@@ -55,6 +55,23 @@
             android:turnScreenOn="true"
             android:launchMode="singleInstance" />
 
+        <!-- Fatigue tracking (⚙ → Day): any number of checks a day, hung on the last wake-up
+             or on the next bedtime. The receiver fires the ring; FatigueCheckActivity is the
+             check itself — strap test, PVT, fatigue question — allowed over the lock screen
+             like the alarm it is. BootReceiver re-arms them. -->
+        <receiver
+            android:name=".FatigueCheckReceiver"
+            android:exported="false" />
+        <activity
+            android:name=".FatigueCheckActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleInstance" />
+
         <!-- Zone alarm (the embedded cardio app): its session engine — H10 subscription,
              zone detection, alerts, timers — runs in this foreground service so nothing
              stops when the page is throttled or the screen goes off. -->

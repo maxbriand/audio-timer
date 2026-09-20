@@ -71,6 +71,23 @@ CARDIO_FIELDS = (
 )
 
 
+# POST /fatigue files the fatigue checks (strap test, PVT, fatigue question) the same way,
+# and for the same reason: a row of theirs in an audio day file would be read as part of a
+# night. The body carries them under "checks", not "sessions", on purpose — a receiver that
+# predates this route answers 400 to a body without "sessions" instead of filing them as
+# nights. One row per check run; `anchor` + `offsetMin` say when in the day it sits, and
+# `column` is that same fact as the suffix a results column is named with ("+5min",
+# "-1h sleep"): what was tracked comes from `steps` (strap: hr, rmssd · pvt · question:
+# score), so a column is "<what> <column>" — e.g. "HRV +5min", "Fatigue -1h sleep". Rows
+# with `test` true are runs of the Test button and belong in no column.
+_fatigue_env = os.environ.get("AUDIO_TIMER_FATIGUE_DIR")
+FATIGUE_ROOT = Path(_fatigue_env).expanduser() if _fatigue_env else ROOT.parent / "fatigue-checks"
+FATIGUE_FIELDS = (
+    "id", "started", "ended", "localDay", "checkId", "label", "anchor", "offsetMin",
+    "column", "test", "dueAt", "steps",
+)
+
+
 def day_key(session: dict) -> str:
     """Which day file a night belongs in.
 
@@ -212,23 +229,27 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError):
             return self.reply(400, {"error": "bad json"})
 
-        sessions = body.get("sessions")
+        route = self.path.rstrip("/")
+        fatigue = route == "/fatigue"
+        sessions = body.get("checks" if fatigue else "sessions")
         if not isinstance(sessions, list):
-            return self.reply(400, {"error": "no sessions"})
+            return self.reply(400, {"error": "no checks" if fatigue else "no sessions"})
 
         device = body.get("device")
         device = device if isinstance(device, str) else ""
 
-        cardio = self.path.rstrip("/") == "/cardio"
+        cardio = route == "/cardio"
         try:
-            accepted = (store(device, sessions, CARDIO_ROOT, CARDIO_FIELDS, "zone-alarm")
-                        if cardio else store(device, sessions))
+            accepted = (store(device, sessions, FATIGUE_ROOT, FATIGUE_FIELDS, "fatigue-checks") if fatigue
+                        else store(device, sessions, CARDIO_ROOT, CARDIO_FIELDS, "zone-alarm") if cardio
+                        else store(device, sessions))
         except Exception as e:  # noqa: BLE001 — a 5xx is what keeps the night on the phone
             print(f"! {e}", file=sys.stderr, flush=True)
             return self.reply(500, {"error": "could not store"})
 
         print(f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} "
-              f"{len(accepted)}/{len(sessions)} stored{' (cardio)' if cardio else ''}", flush=True)
+              f"{len(accepted)}/{len(sessions)} stored"
+              f"{' (fatigue)' if fatigue else ' (cardio)' if cardio else ''}", flush=True)
         self.reply(200, {"accepted": accepted})
 
     def log_message(self, *args) -> None:

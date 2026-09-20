@@ -101,6 +101,15 @@ public class HrService extends Service {
     private static volatile Listener listener;
     public static void setListener(Listener l) { listener = l; }
 
+    /** One Heart Rate Measurement packet, decoded: the rate, and the beat-to-beat intervals
+     *  it carried (ms, possibly none). The fatigue check's strap test listens here — it runs
+     *  in its own activity, with the page gone, so it cannot ride the page's live stream. */
+    public interface BeatListener {
+        void onBeats(int bpm, float[] rrMs);
+    }
+    private static volatile BeatListener beatListener;
+    public static void setBeatListener(BeatListener l) { beatListener = l; }
+
     private static volatile boolean running;
     /** Lets the plugin address a live engine without ever starting one by accident. */
     public static boolean isRunning() { return running; }
@@ -636,6 +645,22 @@ public class HrService extends Service {
             lastSampleAt = SystemClock.elapsedRealtime();
             connected = true;
         });
+        BeatListener bl = beatListener;
+        if (bl != null) bl.onBeats(value, rrOf(v, wide));
+    }
+
+    /** The RR intervals of a Heart Rate Measurement, in ms. After the flags and the rate
+     *  comes the energy field when bit 3 says so, then — bit 4 — the intervals themselves,
+     *  uint16 each, in 1/1024 s. */
+    private static float[] rrOf(byte[] v, boolean wide) {
+        int flags = v[0] & 0xff;
+        int i = wide ? 3 : 2;
+        if ((flags & 0x08) != 0) i += 2;
+        if ((flags & 0x10) == 0 || i + 1 >= v.length) return new float[0];
+        float[] out = new float[(v.length - i) / 2];
+        for (int n = 0; n < out.length; n++, i += 2)
+            out[n] = ((v[i] & 0xff) | ((v[i + 1] & 0xff) << 8)) * 1000f / 1024f;
+        return out;
     }
 
     // ------------------------------------------------------------------ output

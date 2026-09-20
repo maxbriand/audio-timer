@@ -43,17 +43,26 @@ import java.util.UUID;
  *
  * "Not now" stops the ringing and writes nothing: a skipped morning is a blank diary cell,
  * never a guessed one.
+ *
+ * The question itself (buildQuestion) and the row it stages (stageRow) are shared with
+ * FatigueCheckActivity, whose last step is this very question — one question, one row
+ * shape, wherever it is asked from.
  */
 public class AlarmActivity extends Activity {
-  private static final int BG = Color.parseColor("#10141a");
-  private static final int SURFACE = Color.parseColor("#1b222c");
-  private static final int TEXT = Color.parseColor("#e8ecf2");
-  private static final int MUTED = Color.parseColor("#8a94a3");
-  private static final int ACCENT = Color.parseColor("#7cc4ff");
+  static final int BG = Color.parseColor("#10141a");
+  static final int SURFACE = Color.parseColor("#1b222c");
+  static final int TEXT = Color.parseColor("#e8ecf2");
+  static final int MUTED = Color.parseColor("#8a94a3");
+  static final int ACCENT = Color.parseColor("#7cc4ff");
+
+  /** What the question hands back: a score with its note, or nothing at all. */
+  interface Answer {
+    void onScore(int score, String note);
+    void onSkip();
+  }
 
   private MediaPlayer player;
   private Vibrator vibrator;
-  private EditText note;
 
   @Override
   protected void onCreate(Bundle savedInstanceState){
@@ -70,9 +79,9 @@ public class AlarmActivity extends Activity {
     ring();
   }
 
-  private int dp(int v){
+  static int dp(Context c, int v){
     return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
-      getResources().getDisplayMetrics()));
+      c.getResources().getDisplayMetrics()));
   }
 
   private void buildUi(){
@@ -80,9 +89,24 @@ public class AlarmActivity extends Activity {
     root.setOrientation(LinearLayout.VERTICAL);
     root.setBackgroundColor(BG);
     root.setGravity(Gravity.CENTER);
-    root.setPadding(dp(28), dp(28), dp(28), dp(28));
+    root.setPadding(dp(this, 28), dp(this, 28), dp(this, 28), dp(this, 28));
+    buildQuestion(this, root, "45 minutes since you got up — 10 is the maximum fatigue.",
+      "A note about the night (optional)", "Not now", new Answer(){
+        @Override public void onScore(int score, String n){ answer(score, n); }
+        @Override public void onSkip(){ dismiss(); }
+      });
+    ScrollView sv = new ScrollView(this);
+    sv.setBackgroundColor(BG);
+    sv.setFillViewport(true);
+    sv.addView(root);
+    setContentView(sv);
+  }
 
-    TextView title = new TextView(this);
+  /* The question: a 1–10 grid, a free note, a way out. Filled into `root`, so whoever asks
+     decides what surrounds it. */
+  static void buildQuestion(final Context c, LinearLayout root, String subtitle, String noteHint,
+                            String skipLabel, final Answer cb){
+    TextView title = new TextView(c);
     title.setText("How tired are you?");
     title.setTextColor(TEXT);
     title.setTextSize(26);
@@ -90,32 +114,34 @@ public class AlarmActivity extends Activity {
     title.setGravity(Gravity.CENTER);
     root.addView(title);
 
-    TextView sub = new TextView(this);
-    sub.setText("45 minutes since you got up — 10 is the maximum fatigue.");
+    TextView sub = new TextView(c);
+    sub.setText(subtitle);
     sub.setTextColor(MUTED);
     sub.setTextSize(15);
     sub.setGravity(Gravity.CENTER);
-    sub.setPadding(0, dp(10), 0, dp(28));
+    sub.setPadding(0, dp(c, 10), 0, dp(c, 28));
     root.addView(sub);
 
-    GridLayout grid = new GridLayout(this);
+    final EditText note = new EditText(c);
+    GridLayout grid = new GridLayout(c);
     grid.setColumnCount(5);
     for (int score = 1; score <= 10; score++){
       final int s = score;
-      Button b = new Button(this);
+      Button b = new Button(c);
       b.setText(String.valueOf(score));
       b.setTextSize(20);
       b.setTextColor(score >= 8 ? ACCENT : TEXT);
       GradientDrawable bg = new GradientDrawable();
       bg.setColor(SURFACE);
-      bg.setCornerRadius(dp(14));
+      bg.setCornerRadius(dp(c, 14));
       b.setBackground(bg);
       GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-      lp.width = dp(56);
-      lp.height = dp(56);
-      lp.setMargins(dp(5), dp(5), dp(5), dp(5));
+      lp.width = dp(c, 56);
+      lp.height = dp(c, 56);
+      lp.setMargins(dp(c, 5), dp(c, 5), dp(c, 5), dp(c, 5));
       b.setLayoutParams(lp);
-      b.setOnClickListener(v -> answer(s));
+      b.setOnClickListener(v -> cb.onScore(s,
+        note.getText() == null ? "" : note.getText().toString().trim()));
       grid.addView(b);
     }
     LinearLayout.LayoutParams glp =
@@ -128,37 +154,30 @@ public class AlarmActivity extends Activity {
     /* The night note lives here (moved from the wake-up sheet, 2026-09-05): the fatigue
        check is the morning's one question, so the free-text observation about the night
        rides the same answer. Optional — an empty field stays an empty diary cell. */
-    note = new EditText(this);
-    note.setHint("A note about the night (optional)");
+    note.setHint(noteHint);
     note.setHintTextColor(MUTED);
     note.setTextColor(TEXT);
     note.setTextSize(15);
     GradientDrawable nbg = new GradientDrawable();
     nbg.setColor(SURFACE);
-    nbg.setCornerRadius(dp(14));
+    nbg.setCornerRadius(dp(c, 14));
     note.setBackground(nbg);
-    note.setPadding(dp(14), dp(12), dp(14), dp(12));
+    note.setPadding(dp(c, 14), dp(c, 12), dp(c, 14), dp(c, 12));
     note.setMaxLines(3);
     LinearLayout.LayoutParams nlp =
       new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                                     LinearLayout.LayoutParams.WRAP_CONTENT);
-    nlp.setMargins(0, dp(24), 0, 0);
+    nlp.setMargins(0, dp(c, 24), 0, 0);
     note.setLayoutParams(nlp);
     root.addView(note);
 
-    Button skip = new Button(this);
-    skip.setText("Not now");
+    Button skip = new Button(c);
+    skip.setText(skipLabel);
     skip.setTextColor(MUTED);
     skip.setBackgroundColor(Color.TRANSPARENT);
-    skip.setPadding(0, dp(30), 0, 0);
-    skip.setOnClickListener(v -> dismiss());
+    skip.setPadding(0, dp(c, 30), 0, 0);
+    skip.setOnClickListener(v -> cb.onSkip());
     root.addView(skip);
-
-    ScrollView sv = new ScrollView(this);
-    sv.setBackgroundColor(BG);
-    sv.setFillViewport(true);
-    sv.addView(root);
-    setContentView(sv);
   }
 
   /* Loud on the alarm stream, like the clock app: unaffected by the media volume the player
@@ -201,11 +220,10 @@ public class AlarmActivity extends Activity {
     nm.cancel(FatigueAlarmReceiver.NOTIF_ID);
   }
 
-  private void answer(int score){
+  private void answer(int score, String n){
     quiet();
     try {
-      String n = note != null && note.getText() != null ? note.getText().toString().trim() : "";
-      stageRow(score, n);
+      stageRow(this, score, n, FatigueAlarm.nightDay(this));
       UploadWorker.schedule(this);
     } catch (Exception ignored){}    // staging failed: better a lost score than a stuck alarm
     finish();
@@ -217,14 +235,14 @@ public class AlarmActivity extends Activity {
   }
 
   /* The same shape the page's uploadBody() sends, so the receiver files it like any other
-     row — plus the one new field. localDay is the wake-up's own day, carried through prefs
-     from the moment of scheduling, so the score lands in the same day file as its night. */
-  private void stageRow(int score, String noteText) throws Exception {
+     row — plus the one new field. localDay is the day the score is filed under: for the
+     morning's answer the wake-up's own day, so it lands in the same day file as its night;
+     empty means today. */
+  static void stageRow(Context c, int score, String noteText, String day) throws Exception {
     SimpleDateFormat iso = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
     iso.setTimeZone(TimeZone.getTimeZone("UTC"));
     String now = iso.format(new Date());
-    String day = FatigueAlarm.nightDay(this);
-    if (day.isEmpty()){
+    if (day == null || day.isEmpty()){
       day = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
     }
     String id = UUID.randomUUID().toString();
@@ -246,7 +264,7 @@ public class AlarmActivity extends Activity {
     o.put("note", noteText == null ? "" : noteText);
     o.put("minutesUntouchedBeforeStop", 0);
     o.put("fatigueScore", score);
-    Outbox.put(this, id, o.toString());
+    Outbox.put(c, id, o.toString());
   }
 
   @Override
