@@ -96,10 +96,9 @@
   #evthumbs:empty{margin-top:0}
   #evthumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
   #evsave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
-  #wakeline,#lightline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
   #alarmline{font-size:15px;color:var(--muted);padding:4px 2px 16px;line-height:1.5}   /* heads ⚙'s Sleep page */
   #melamiss{display:none;font-size:13.5px;color:var(--danger);padding:2px 2px 12px;line-height:1.5}
-  #wakeline b,#lightline b,#alarmline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+  #alarmline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
   .setrow{margin-bottom:14px}
   .setrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
   .setsplit{border-top:1px solid var(--line);margin:18px 0 14px;padding-top:16px}
@@ -452,17 +451,6 @@
   #zoneapp.on{display:flex}
   .zone .app{padding-top:calc(14px + var(--safe-t))}
   .zone .page .inner{padding-top:calc(14px + var(--safe-t))}
-  /* The strap's Connect / Disconnect lives on the run screen, beside Start (it left ⚙ on
-     2026-09-20, when 🫀 learned to connect by itself). Primary until the strap is on, then
-     it steps back to a quiet Disconnect and Start takes over. */
-  .zone .runbtns{display:flex;gap:8px;margin-top:16px}
-  .zone .runbtns #session{margin-top:0;flex:1 1 0}
-  .zone #connect{flex:1 1 0;border:none;border-radius:12px;padding:16px 8px;font:700 15px/1 var(--sans);
-    letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
-  .zone #connect.quiet{flex:0 0 auto;padding:16px 14px;font-weight:500;font-size:13px;
-    background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
-  .zone #connect:active{filter:brightness(.9)}
-  .zone #connect:focus-visible{outline:2px solid #fff;outline-offset:2px}
   .zone #hint{font-size:12px;color:var(--mut, var(--txt));opacity:.7;margin-top:10px;line-height:1.4;text-align:center}
   .zone #hint:empty{display:none}
   /* The cardio main screen fits the screen — no scrolling. The hero (numeral + band)
@@ -522,8 +510,6 @@
 <div id="sunview">
  <div id="habitspage">
   <div id="melamiss"></div>
-  <div id="wakeline"></div>
-  <div id="lightline"></div>
   <h3 class="evcat">Issues</h3>
   <div class="eventgrid" id="issuegrid"></div>
   <button class="addevent" id="addissue">+ Add issue</button>
@@ -598,10 +584,11 @@
     </div>
     <button id="coolBtn" class="ghost" aria-pressed="false" hidden>Cool down</button>
     <div id="hint"></div>
-    <div class="runbtns">
-      <button id="connect">Connect sensor</button>
-      <button id="session">Start session</button>
-    </div>
+    <!-- #connect is no longer shown anywhere (2026-09-20): Start session and 🫀 connect the
+         strap themselves and it is released when nothing uses it. The element stays because
+         zone-alarm's script keeps its label and state on it. -->
+    <button id="connect" hidden>Connect sensor</button>
+    <button id="session">Start session</button>
   </div>
 
 </div>
@@ -2178,7 +2165,6 @@ async function deleteDayEntry(l, sessions){
       if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
       await delSession(s.id);
     }
-    paintSun();
   }
   openLog('day');
 }
@@ -2769,40 +2755,18 @@ async function logWakeUp(note, at){
   uploadSoon();
 }
 
-/* Today's wake-up (the latest one), shown at the top of the day screen with its note —
-   the visible proof that the note written at the switch was saved. Below it, today's
-   daylight: the walk IS the daylight log, so the line shows the first morning-walk
-   marker of the day (the diary reads the same rows for its Morning light column). */
-async function paintSun(){
-  /* A swallowed ring is invisible by nature, so the day screen says it out loud: the
-     reminder was armed, its moment passed, and the receiver never got to show it. */
+/* The top of the day screen carries one thing only: the warning for a melatonin ring the
+   system swallowed. A swallowed ring is invisible by nature, so it is said out loud — the
+   reminder was armed, its moment passed, and the receiver never got to show it. (The
+   "Woke at" and "Daylight since" lines lived here until 2026-09-20; the log's ☀️ Day part
+   shows both, so they left.) */
+function paintSun(){
   const mm = $('#melamiss');
   if (melatoninMissedAt){
     mm.textContent = '⚠️ Melatonin reminder never rang (was set for '
       + fmtClock(melatoninMissedAt) + ') — check MIUI autostart & battery settings.';
     mm.style.display = 'block';
   } else { mm.style.display = 'none'; mm.textContent = ''; }
-  const today = dayKey(Date.now());
-  const all = await allSessions();
-  const el = $('#wakeline');
-  const w = all
-    .filter(s => s.stopReason === 'wake-up' && dayKey(s.startedAt) === today)
-    .sort((a, b) => b.startedAt - a.startedAt)[0];
-  if (w){
-    el.innerHTML = '☀️ Woke at <b></b>';
-    el.querySelector('b').textContent = fmtClock(w.startedAt);
-    if (w.note) el.append(' — ' + w.note);
-    el.style.display = 'block';
-  } else { el.style.display = 'none'; el.textContent = ''; }
-  const ll = $('#lightline');
-  const d = all
-    .filter(s => s.stopReason === 'morning-walk' && dayKey(s.startedAt) === today)
-    .sort((a, b) => a.startedAt - b.startedAt)[0];
-  if (d){
-    ll.innerHTML = '🌞 Daylight since <b></b>';
-    ll.querySelector('b').textContent = fmtClock(d.startedAt);
-    ll.style.display = 'block';
-  } else { ll.style.display = 'none'; ll.textContent = ''; }
 }
 /* ---------- day-mode event tracking ----------
    Event types are created once (morning walk, headache, …); logging an occurrence is one
@@ -2934,7 +2898,6 @@ $('#evsave').onclick = async () => {
       speed: 1, stopReason: markerReason, stopPosition: 0, listenedSeconds: 0,
       lastInteraction: logAt, note: note
     });
-    paintSun();               // the daylight line at the top of the day screen
     uploadSoon();
     if (markerReason === 'morning-walk'){
       // The walk is logged: a reminder still counting down has nothing left to say.
@@ -3342,14 +3305,14 @@ $('#posfile').onchange = async e => {
     btn.textContent = phase === 'active' ? 'End session'
       : phase === 'done' ? 'New session' : 'Start session';
     // Connect is the primary action until the strap is on; then starting is.
-    btn.classList.toggle('quiet', phase === 'active' || !connected);
+    btn.classList.toggle('quiet', phase === 'active');   // Start connects the strap itself
     const line = $('stateline');
     if (!connected){
       setState('idle');
       zoneRoot.classList.remove('pulsing');
       line.innerHTML = '<span class="sub">' + (wantConnected ? 'reconnecting…'
-        : phase === 'active' ? 'no sensor — connect to keep tracking'
-        : 'connect your sensor, then start') + '</span>';
+        : phase === 'active' ? 'no sensor — tap here to reconnect'
+        : 'start the session — the strap connects first') + '</span>';
       return;
     }
     if (hr <= 0){
@@ -3715,8 +3678,10 @@ $('#posfile').onchange = async e => {
 
   async function connectNative(){
     try {
-      $('hint').textContent = 'Choose your H10 in the list…';
-      await NativeBLE.requestDevice();
+      if (!(NativeBLE.hasDevice && NativeBLE.hasDevice())){
+        $('hint').textContent = 'Choose your H10 in the list…';
+        await NativeBLE.requestDevice();
+      } else $('hint').textContent = 'Looking for your H10…';
       wantConnected = true;
       await subscribeNative();
     } catch(e){
@@ -3770,20 +3735,56 @@ $('#posfile').onchange = async e => {
   $('connect').addEventListener('click', () => {
     isConnected() || wantConnected ? disconnect() : connect();
   });
-  // The 🫀 door needs the strap before it opens Live: it asks here rather than reaching in.
-  window.ZoneConn = { isConnected, wanted: () => wantConnected, connect };
+  /* There is no Connect button any more: whoever needs the strap — Start session, the 🫀
+     door — asks for it here and gets true once it is really connected. On the APK that is
+     the service's state push, not connect() returning, hence the wait; a dropped link that
+     is already being looked for is waited on rather than answered with a second picker.
+     A remembered strap that cannot be reached is forgotten, so the next try gets the picker
+     back instead of looking for a strap that is gone. */
+  let ensuring = false;
+  async function ensureConnected(){
+    if (isConnected()) return true;
+    if (ensuring) return false;
+    ensuring = true;
+    try {
+      const remembered = !!(window.NativeBLE && NativeBLE.hasDevice && NativeBLE.hasDevice());
+      toast(wantConnected || remembered ? 'Looking for the Polar H10…' : 'Connecting the Polar H10…');
+      if (!wantConnected) await connect();
+      for (let i = 0; i < 48 && !isConnected() && (i < 8 || wantConnected); i++)
+        await new Promise(r => setTimeout(r, 250));
+      if (isConnected()) return true;
+      const why = $('hint').textContent;
+      if (phase !== 'active'){
+        disconnect();                                 // stop looking — nothing is using it
+        if (remembered) NativeBLE.forgetDevice();
+      }
+      toast(remembered ? 'Polar H10 not found — try again to pick it from the list.'
+          : (why && !/^(Choose|Looking)/.test(why)) ? why : 'Polar H10 not connected.');
+      return false;
+    } finally { ensuring = false; }
+  }
+  /* And it is let go when nothing uses it: connected, the screen is kept awake and the
+     service holds the link, which is only worth it during a session or on the Live page. */
+  function releaseIfIdle(){
+    if (phase !== 'active' && !liveOpen && (isConnected() || wantConnected)) disconnect();
+  }
+  window.ZoneConn = { isConnected, ensure: ensureConnected };
+  $('stateline').addEventListener('click', () => { if (phase === 'active' && !isConnected()) ensureConnected(); });
   $('coolBtn').addEventListener('click', () => setCool(!cool));
-  $('session').addEventListener('click', () => {
+  $('session').addEventListener('click', async () => {
     const running = phase === 'active';
+    // Starting needs the strap, and asks for it; a session that could not get it does not start.
+    if (!running && !(await ensureConnected())) return;
     if (NATIVE){
       // The service answers with a state push straight away, so the button
       // never waits on the next tick to change.
       if (running){ NativeSession.end(); askRpe(logEnd()); }
       else { NativeSession.start(); logStart(); }
-      return;
-    }
-    if (running){ endSession(); askRpe(logEnd()); }
+    } else if (running){ endSession(); askRpe(logEnd()); }
     else { startSession(); logStart(); }
+    // The end of the session is the end of the strap's job. On the APK the phase flips with
+    // the service's next state push, so the check waits for it.
+    if (running) setTimeout(releaseIfIdle, 1500);
   });
 
   // 0–10, the Borg CR10 range the exercise log's rpe column expects.
@@ -4102,7 +4103,7 @@ $('#posfile').onchange = async e => {
 
   async function startStreams(){
     if (streamsOn || streamsFailed) return;
-    if (!isConnected()){ $('liveNote').textContent = 'Sensor not connected — go back and tap 🫀 to connect it.'; return; }
+    if (!isConnected()){ $('liveNote').textContent = 'Sensor not connected — go back and tap 🫀 again.'; return; }
     streamsOn = true;
     $('liveNote').textContent = '';
     if (window.NativeBLE){ if (NativeBLE.liveMode) NativeBLE.liveMode(true); return; }
@@ -4150,6 +4151,7 @@ $('#posfile').onchange = async e => {
     } else if (!liveNow && liveOpen){
       liveOpen = false;
       stopStreams();
+      releaseIfIdle();                  // Live was the only thing using the strap
     }
   }
   window.addEventListener('hashchange', route);
@@ -4196,23 +4198,9 @@ $('#posfile').onchange = async e => {
     root.classList.remove('on');
     if (location.hash !== '#live') location.hash = '#live';
   };
-  let liveBusy = false;
   document.getElementById('livenav').onclick = async () => {
     const Z = window.ZoneConn;
-    if (!Z || Z.isConnected()) return openLive();
-    if (liveBusy) return;                       // a second tap must not open a second picker
-    liveBusy = true;
-    try {
-      toast(Z.wanted() ? 'Looking for the Polar H10…' : 'Connecting the Polar H10…');
-      if (!Z.wanted()) await Z.connect();       // the picker, then the connection itself
-      // The APK learns it is connected from the service's next state push, not from
-      // connect() returning — and a dropped link needs a moment to be found again.
-      for (let i = 0; i < 48 && !Z.isConnected() && (i < 8 || Z.wanted()); i++)
-        await new Promise(r => setTimeout(r, 250));
-      if (Z.isConnected()) openLive();
-      else toast(document.getElementById('hint').textContent ||
-                 'Polar H10 not connected — Live data opens once it is.');
-    } finally { liveBusy = false; }
+    if (!Z || await Z.ensure()) openLive();   // ensure() says why when it stays shut
   };
   document.getElementById('zoneClose').onclick = () => {
     if (location.hash) location.hash = '';
