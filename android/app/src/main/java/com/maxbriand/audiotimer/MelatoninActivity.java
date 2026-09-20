@@ -98,7 +98,7 @@ public class MelatoninActivity extends Activity {
     TextView sub = new TextView(this);
     String bt = MelatoninAlarm.bedtime(this);
     sub.setText(bt.isEmpty() ? "Time to take it."
-                             : "5 h before your " + bt + " bedtime — take it now.");
+                             : MelatoninAlarm.leadLabel(this) + " before your " + bt + " bedtime — take it now.");
     sub.setTextColor(MUTED);
     sub.setTextSize(15);
     sub.setGravity(Gravity.CENTER);

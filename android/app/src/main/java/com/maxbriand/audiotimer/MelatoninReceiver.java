@@ -67,7 +67,7 @@ public class MelatoninReceiver extends BroadcastReceiver {
       : new Notification.Builder(c).setPriority(Notification.PRIORITY_MAX);
     b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
      .setContentTitle("Melatonin — 0.5 mg now")
-     .setContentText("5 h before your " + MelatoninAlarm.bedtime(c) + " bedtime.")
+     .setContentText(MelatoninAlarm.leadLabel(c) + " before your " + MelatoninAlarm.bedtime(c) + " bedtime.")
      .setCategory(Notification.CATEGORY_ALARM)
      .setOngoing(true)
      .setContentIntent(fullPi)

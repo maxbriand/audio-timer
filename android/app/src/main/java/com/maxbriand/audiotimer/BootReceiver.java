@@ -50,7 +50,7 @@ public class BootReceiver extends BroadcastReceiver {
     if (!MelatoninAlarm.bedtime(c).isEmpty()){
       long next = MelatoninAlarm.nextAt(c);
       long missedBy = System.currentTimeMillis() - next;
-      if (next != 0 && missedBy > 0 && missedBy < MelatoninAlarm.LEAD_MIN * 60000L){
+      if (next != 0 && missedBy > 0 && missedBy < Math.max(30, MelatoninAlarm.leadMin(c)) * 60000L){
         MelatoninReceiver.show(c);
       }
       MelatoninAlarm.scheduleNext(c);

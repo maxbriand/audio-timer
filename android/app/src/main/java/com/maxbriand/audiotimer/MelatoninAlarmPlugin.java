@@ -21,9 +21,21 @@ public class MelatoninAlarmPlugin extends Plugin {
   @PluginMethod
   public void configure(PluginCall call){
     long missed = MelatoninAlarm.missedFire(getContext());
-    MelatoninAlarm.configure(getContext(), call.getString("bedtime", ""));
+    Integer lead = call.getInt("leadMin", MelatoninAlarm.LEAD_DEFAULT);
+    MelatoninAlarm.configure(getContext(), call.getString("bedtime", ""),
+      lead == null ? MelatoninAlarm.LEAD_DEFAULT : lead);
     JSObject ret = new JSObject();
     ret.put("missedAt", missed);
     call.resolve(ret);
+  }
+
+  /* The dose was logged on the day screen: silence a ring in progress and withdraw
+     tonight's if it was still ahead. The page keeps the record; nothing is staged here. */
+  @PluginMethod
+  public void dosed(PluginCall call){
+    ((android.app.NotificationManager) getContext().getSystemService(android.content.Context.NOTIFICATION_SERVICE))
+      .cancel(MelatoninReceiver.NOTIF_ID);
+    MelatoninAlarm.dosed(getContext());
+    call.resolve();
   }
 }
