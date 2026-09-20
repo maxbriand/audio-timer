@@ -15,7 +15,12 @@ if (Capacitor.isNativePlatform()) {
   const HR_SERVICE = numberToUUID(0x180d);
   const BATT_SERVICE = numberToUUID(0x180f);
 
+  // The strap's address outlives the page: the app now connects by itself (Start session,
+  // 🫀), and a picker on every connection would be a tax. It is forgotten when a connection
+  // to it fails, so a changed or re-paired strap gets the picker back.
+  const DEVICE_KEY = 'za-device';
   let deviceId = null;
+  try { deviceId = localStorage.getItem(DEVICE_KEY) || null; } catch (_) {}
 
   window.NativeBLE = {
     // Picker only — it scans and returns the strap's address. The GATT
@@ -28,6 +33,14 @@ if (Capacitor.isNativePlatform()) {
         optionalServices: [BATT_SERVICE]
       });
       deviceId = device.deviceId;
+      try { localStorage.setItem(DEVICE_KEY, deviceId); } catch (_) {}
+    },
+
+    hasDevice() { return !!deviceId; },
+
+    forgetDevice() {
+      deviceId = null;
+      try { localStorage.removeItem(DEVICE_KEY); } catch (_) {}
     },
 
     // Hands the address to the service, which connects, subscribes, and keeps
