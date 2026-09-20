@@ -41,11 +41,23 @@ that saves the exact moment it stops.
   next time the phone has internet — **with the app closed**, which is what makes it work on
   a phone whose SIM comes out at night — and is then cleared from the phone once the server
   has confirmed it and two weeks have passed. Also in [SETUP.md](SETUP.md).
-- **Fatigue alarm** (APK only): logging the wake-up arms a real alarm clock for 45 minutes
-  later — it rings over the lock screen like the classic alarm, survives a reboot, and asks
-  for a 1–10 fatigue score (10 = maximum). The answer rides the upload pipeline like any
-  other row and becomes the diary's Fatigue column; dismissing it leaves the cell blank.
-  Going back to night mode before it rings withdraws it.
+- **Fatigue tracking** (⚙ → Day, APK only): any number of checks a day, each a delay
+  **after the last wake-up** or **before the next sleep time** (next alarm − sleep
+  duration). A check is a real alarm clock — it rings over the lock screen, survives a
+  reboot — and runs up to three steps, always in this order, each with its own Skip:
+  the **strap test** (the H10's heart rate from its first beat, five calm minutes, the last
+  three recorded: average HR, and RMSSD over every beat-to-beat interval), the **PVT**
+  (done on the computer; the phone only asks when it is over), and the **fatigue question**
+  (1–10, 10 = maximum). One check is one entry in the log's ☀️ Day part, and one row on
+  the server: `POST /fatigue`, filed in `fatigue-checks/` beside the night log, never in
+  it. Each row carries `anchor` + `offsetMin` and the column suffix made from them
+  (`+5min`, `-1h sleep`), so a results column is "what + when" — `HRV +5min`,
+  `Fatigue -1h sleep`. The question's answer also still rides the night pipeline as its
+  own row and becomes the diary's Fatigue column (the first score after the night). Every
+  check has a **Test** button that runs it now and logs it, marked as a test — a test's
+  answer is not uploaded, so it can never become a morning's score. The list starts with
+  the one check the app always had — the question, 45 minutes after the rise. Going back to
+  night mode withdraws the morning checks still counting down.
 - **Day-mode logging** in two categories — **Habits** (things done: walk, stretching) and
   **Issues** (things suffered: headache, back pain). Create a type once, log an occurrence
   with one tap plus an optional note and photos; the recorded moment is the tap, not the

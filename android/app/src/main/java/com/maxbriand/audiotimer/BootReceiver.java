@@ -55,5 +55,8 @@ public class BootReceiver extends BroadcastReceiver {
       }
       MelatoninAlarm.scheduleNext(c);
     }
+
+    // Fatigue tracking: after the wake-up alarm, whose armed hour gives the bedtime.
+    FatigueChecks.onBoot(c);
   }
 }

@@ -52,9 +52,10 @@
   }
   #sunview{display:none}
 
-  #logsheet,#setsheet,#eventsheet,#wakesheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
+  #logsheet,#setsheet,#eventsheet,#wakesheet,#fcsheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
     display:none;align-items:flex-end;z-index:10}
-  #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on{display:flex}
+  #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on,#fcsheet.on{display:flex}
+  #fcsheet{z-index:35}     /* opened from ⚙, which is a full page at 30 */
   /* Settings and the log are full pages, like Live data and the run — not sheets over the
      player: opaque, edge to edge, one scroll for the whole page, Back at the top. */
   #logsheet,#setsheet{background:var(--bg);align-items:stretch;z-index:30}
@@ -124,6 +125,22 @@
   #upstatus,#wakestatus,#melastatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
+  .chips.two{grid-template-columns:repeat(2,1fr);gap:6px}
+  .chips.three{grid-template-columns:repeat(3,1fr);gap:6px}
+  /* ⚙ → Day → Fatigue tracking: one row per check, the sheet above edits one. */
+  .fcrow{display:flex;align-items:center;gap:8px;padding:11px 12px;margin-bottom:7px;
+    border-radius:12px;background:var(--surface-2);border:1px solid var(--line)}
+  .fcrow .fcmain{flex:1;min-width:0}
+  .fcrow b{display:block;font-size:14.5px;font-weight:600}
+  .fcrow span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+  .fcrow button{flex:none;padding:9px 12px;border-radius:10px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);font-size:13px;font-weight:600}
+  .fcrow button.fctest{color:var(--accent);border-color:var(--accent-dim)}
+  .fcrow button:active{background:var(--line)}
+  #fcstatus,#fcwhen{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:6px;line-height:1.5}
+  #fcsave,#fctest{color:var(--accent);border-color:var(--accent-dim)}
+  #fcdelete{color:var(--danger)}
+  #fcdelete[hidden]{display:none}
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
   #loglist{margin-bottom:6px}
@@ -567,10 +584,42 @@
 <div id="wakesheet">
   <div class="sheetbox">
     <h2>Switch to day mode?</h2>
-    <p>Your wake-up time will be logged. The night note moved to the fatigue check — it asks 45 minutes from now.</p>
+    <p id="wakesheettext">Your wake-up time will be logged.</p>
     <div class="sheetfoot">
       <button id="wakego">Log wake-up</button>
       <button id="wakecancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="fcsheet">
+  <div class="sheetbox">
+    <h2 id="fctitle">Fatigue check</h2>
+    <p>When it rings, and what it asks. The steps always run in this order: strap test, PVT, fatigue question.</p>
+    <div class="setrow"><label>Counted</label>
+      <div class="chips two" id="fcanchor">
+        <button class="chip sm" data-anchor="wake">After wake-up</button>
+        <button class="chip sm" data-anchor="sleep">Before sleep</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <label>Delay — minutes, or h:mm (5 is five minutes, 1:00 is one hour)</label>
+      <input class="syncin" type="text" id="fcoffset" inputmode="numeric" maxlength="5"
+             placeholder="5" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="setrow"><label>Steps</label>
+      <div class="chips three" id="fcsteps">
+        <button class="chip sm" data-step="strap">Strap test</button>
+        <button class="chip sm" data-step="pvt">PVT</button>
+        <button class="chip sm" data-step="question">Question</button>
+      </div>
+    </div>
+    <div id="fcwhen"></div>
+    <div class="sheetfoot">
+      <button id="fcsave">Save</button>
+      <button id="fctest">Test</button>
+      <button id="fcdelete">Delete</button>
+      <button id="fcclose">Close</button>
     </div>
   </div>
 </div>
@@ -877,6 +926,18 @@
              placeholder="05:00" autocomplete="off" spellcheck="false">
       <div id="melastatus"></div>
     </div>
+    <div class="setsplit">
+      <div class="setrow">
+        <label>Fatigue tracking — checks that ring during the day, each a delay after the last
+               wake-up or before the next sleep time (next alarm − sleep duration). A check runs
+               its steps in order — strap test (5 calm minutes; HR and HRV over the last 3),
+               PVT (on the computer), fatigue question — each with its own Skip, and lands as
+               one entry in the log's ☀️ Day part (needs the APK)</label>
+        <div id="fclist"></div>
+        <button class="addevent" id="fcadd">+ Add a fatigue check</button>
+        <div id="fcstatus"></div>
+      </div>
+    </div>
     </section>
 
     <section class="setcat" data-cat="server" hidden>
@@ -944,7 +1005,7 @@
       <button class="chip sm" data-part="night">🌙 Night</button>
     </div>
     <div id="logday">
-      <p>What the day screen recorded: the rise, the habits and the issues with their notes and pictures.</p>
+      <p>What the day recorded: the rise, the fatigue checks (strap test, PVT, question — one entry each), the habits and the issues with their notes and pictures.</p>
       <div id="daycount"></div>
       <div id="daylist"></div>
       <h3 id="cardiohead" hidden>Cardio</h3>
@@ -972,7 +1033,7 @@
 'use strict';
 
 /* ---------- storage ---------- */
-const DB_NAME = 'audio-timer', DB_VER = 4;
+const DB_NAME = 'audio-timer', DB_VER = 5;
 let _db;
 function openDB(){
   return new Promise((res, rej) => {
@@ -994,6 +1055,10 @@ function openDB(){
       // they were born with — "issues" — because renaming a store means migrating data.
       if (!d.objectStoreNames.contains('issues')) d.createObjectStore('issues', {keyPath:'id'});
       if (!d.objectStoreNames.contains('issuelogs')) d.createObjectStore('issuelogs', {keyPath:'id'});
+      // Fatigue tracking: one record per check run — strap test, PVT, fatigue question. Not
+      // in `sessions`: everything there rides the upload, and the server reads every row of
+      // a day file as part of a night.
+      if (!d.objectStoreNames.contains('fatiguechecks')) d.createObjectStore('fatiguechecks', {keyPath:'id'});
     };
     // Without this, a second copy of the app (a stray Chrome tab alongside the installed
     // one) holds the old version open and the upgrade blocks forever with no error.
@@ -2215,7 +2280,14 @@ async function renderDay(sessions){
   let cats = {};
   try { for (const ev of await allEvents()) cats[ev.id] = ev.cat === 'habit' ? 'habit' : 'issue'; } catch(_){}
   const pinnedTaps = new Set(logs.filter(l => PINNED_MARKER[l.issueId]).map(l => PINNED_MARKER[l.issueId] + '@' + l.at));
+  let checks = [];
+  try { checks = await allFatigueChecks(); } catch(_){}
   const items = [
+    // A fatigue check is one entry, whatever it was made of — its lines say the rest.
+    ...checks.map(k => ({
+      del: () => deleteFatigueCheck(k), at: k.at, title: '🩺 Fatigue check' + (k.test ? ' — test' : ''),
+      note: '', photos: [], kind: 'check', lines: fatigueCheckLines(k)
+    })),
     ...logs.map(l => ({
       del: () => deleteDayEntry(l, sessions), at: l.at, title: l.issue || 'Event', note: l.note, photos: l.photos || [],
       kind: PINNED_MARKER[l.issueId] ? 'habit' : (cats[l.issueId] || 'entry')
@@ -2237,6 +2309,7 @@ async function renderDay(sessions){
     n('issue') && n('issue') + (n('issue') === 1 ? ' issue' : ' issues'),
     n('habit') && n('habit') + (n('habit') === 1 ? ' habit' : ' habits'),
     n('rise') && n('rise') + (n('rise') === 1 ? ' rise' : ' rises'),
+    n('check') && n('check') + (n('check') === 1 ? ' fatigue check' : ' fatigue checks'),
     n('entry') && n('entry') + ' from deleted buttons'
   ].filter(Boolean).join(' · ');
   for (const it of items){
@@ -2244,7 +2317,10 @@ async function renderDay(sessions){
     el.className = 'logrow';
     el.innerHTML = '<div class="logday"></div><div class="logmeta"></div><div class="logpics"></div>';
     el.querySelector('.logday').textContent = fmtDay(it.at) + ' · ' + fmtClock(it.at) + ' · ' + it.title;
-    el.querySelector('.logmeta').textContent =
+    if (it.lines){
+      el.querySelector('.logmeta').style.whiteSpace = 'pre-line';
+      el.querySelector('.logmeta').textContent = it.lines.join('\n');
+    } else el.querySelector('.logmeta').textContent =
       [it.kind !== 'rise' && it.kind !== 'entry' && it.kind, it.note && '“' + it.note + '”']
         .filter(Boolean).join(' · ') || (it.kind === 'rise' ? 'rise' : 'no note');
     for (const blob of it.photos){
@@ -2260,6 +2336,33 @@ async function renderDay(sessions){
     el.appendChild(delButton(it.del));
     box.appendChild(el);
   }
+}
+
+/* Everything a fatigue check collected, one line per step it was given. A step that was not
+   done says so — skipped, or (the strap test) too few beats — and never shows a number. */
+function fatigueCheckLines(k){
+  const st = k.steps || {}, out = [];
+  out.push((k.label || 'fatigue check') + ' (' + fcColumn(k) + ')' +
+    (k.dueAt ? ' · due ' + fmtClock(k.dueAt) + ', started ' + fmtClock(k.at) : ' · started ' + fmtClock(k.at)) +
+    (upCfg && upCfg.url ? (k.syncedAt ? ' · on the server' : ' · waiting for the server') : ''));
+  const r = st.strap;
+  if (r) out.push('Strap — ' + (r.status === 'done'
+    ? 'HR ' + r.hr + ' bpm · HRV ' + r.rmssd + ' ms (RMSSD) · ' + r.beats + ' beats' +
+      (r.dropped ? ', ' + r.dropped + ' left out' : '') +
+      (r.from && r.to ? ' · ' + fmtClock(r.from) + '–' + fmtClock(r.to) : '')
+    : r.status === 'failed' ? 'too few beats (' + (r.beats || 0) + ') — no result' : 'skipped'));
+  const v = st.pvt;
+  if (v) out.push('PVT — ' + (v.status === 'done' ? 'done' + (v.at ? ' at ' + fmtClock(v.at) : '') : 'skipped'));
+  const q = st.question;
+  if (q) out.push('Fatigue — ' + (q.status === 'done'
+    ? q.score + '/10' + (q.note ? ' · “' + q.note + '”' : '') + (k.test ? ' · not sent to the server (test)' : '')
+    : 'skipped'));
+  return out;
+}
+async function deleteFatigueCheck(k){
+  if (!confirm('Delete this fatigue check from the log?')) return;
+  await delFatigueCheck(k.id);
+  openLog('day');
 }
 
 /* A day entry goes with its pictures. A walk also has its twin in the sessions store (the
@@ -2604,6 +2707,238 @@ async function pushMelatonin(){
   } catch(_){}
 }
 
+/* ---------- fatigue tracking (⚙ → Day) ----------
+   Any number of checks a day. Each hangs on one of the day's two fixed points — a delay
+   AFTER the last wake-up, or a delay BEFORE the next sleep time (the next alarm minus the
+   sleep duration of ⚙ → Sleep) — and is made of up to three steps, always run in the same
+   order: strap test, PVT, fatigue question. This replaces the single question that rang 45
+   minutes after the rise: it is the list's default first entry now, editable like the rest.
+
+   The list lives here; the clocks, the ring and the check itself are native (FatigueChecks),
+   because they must work with the page long gone. So this side only pushes — the list, the
+   last wake-up, the night's length, the strap's address — on every launch and whenever one
+   of those moves, reads back what got armed so ⚙ shows each check's real next ring, and
+   fetches the finished records into the log (its own store: the sessions store rides the
+   upload, and the server reads every row there as part of a night). */
+const nativeFatigue = (() => {
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueChecks) || null;
+})();
+const FC_MAX = 20;           // the native side has that many alarm slots
+const FC_DEFAULT = [{id: 'morning', anchor: 'wake', offsetMin: 45, strap: false, pvt: false, question: true}];
+let fatigueChecks = [], fcLoaded = false, fcArmed = {}, fcEdit = null;
+
+// The same words the native ring and record use: "5 min after wake-up", "1 h 30 before sleep".
+function fcLabel(k){
+  const m = Math.max(0, k.offsetMin | 0), sleep = k.anchor === 'sleep';
+  if (!m) return sleep ? 'at sleep time' : 'at wake-up';
+  const d = m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + String(m % 60).padStart(2, '0') : '');
+  return d + (sleep ? ' before sleep' : ' after wake-up');
+}
+/* The same fact as a column suffix — "+5min", "+1h30", "-1h sleep" — so a results column can
+   be named "<what> <when>": "HRV +5min", "Fatigue -1h sleep". */
+function fcColumn(k){
+  const m = Math.max(0, k.offsetMin | 0), sleep = k.anchor === 'sleep';
+  const d = m < 60 ? m + 'min' : Math.floor(m / 60) + 'h' + (m % 60 ? String(m % 60).padStart(2, '0') : '');
+  return (sleep ? '-' : '+') + d + (sleep ? ' sleep' : '');
+}
+const fcSteps = k => [k.strap && 'strap test', k.pvt && 'PVT', k.question && 'fatigue question']
+  .filter(Boolean).join(' · ') || 'no step';
+// In day order: the morning's checks by their delay, then the evening's, furthest from bed first.
+const fcOrder = (a, b) => (a.anchor === 'sleep') - (b.anchor === 'sleep') ||
+  (a.anchor === 'sleep' ? b.offsetMin - a.offsetMin : a.offsetMin - b.offsetMin);
+
+/* A delay: a bare number is minutes ("5", "90"), anything with a colon or an h is h:mm
+   ("1:00", "1h30", "1h"). Not parseDur — there a bare 5 is five hours, which suits the
+   length of a night and would be absurd here. */
+function parseOffset(v){
+  const t = String(v || '').trim().toLowerCase().replace(/\s+/g, '');
+  let m = /^(\d{1,2})[:h](\d{0,2})$/.exec(t);
+  if (m) return (+m[1]) * 60 + (+(m[2] || 0));
+  m = /^(\d{1,3})(?:min|m)?$/.exec(t);
+  return m ? +m[1] : NaN;
+}
+const offsetText = m => m < 60 ? String(m) : Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
+
+function whenLabel(ms){
+  const d = new Date(ms), today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - today) / 86400e3);
+  return (days === 0 ? 'today' : days === 1 ? 'tomorrow' : d.toLocaleDateString(undefined, {weekday: 'short'})) +
+    ' ' + fmtClock(ms);
+}
+
+async function loadFatigueChecks(){
+  let saved;
+  try { saved = await getMeta('fatigueChecks'); } catch(_){}
+  // Never saved: the one check the app always had. An empty list is a choice, and is kept.
+  fatigueChecks = Array.isArray(saved) ? saved : FC_DEFAULT.map(k => Object.assign({}, k));
+  fcLoaded = true;
+}
+
+const strapAddress = () => { try { return localStorage.getItem('za-device') || ''; } catch(_){ return ''; } };
+
+async function pushFatigueChecks(){
+  if (!fcLoaded) return;                // the schedule is pushed at boot before anything else
+  if (nativeFatigue){
+    try {
+      const st = await nativeFatigue.configure({checks: JSON.stringify(fatigueChecks),
+        lastWake: String(await lastWakeAt()), sleepMin: sleepMin, strap: strapAddress()});
+      fcArmed = (st && st.armed) || {};
+    } catch(_){}
+  }
+  paintFatigueChecks();
+}
+async function refreshFatigueStatus(){
+  if (!nativeFatigue || !fcLoaded) return;
+  try { const st = await nativeFatigue.status(); fcArmed = (st && st.armed) || {}; } catch(_){}
+  paintFatigueChecks();
+}
+
+function paintFatigueChecks(){
+  const box = $('#fclist');
+  box.textContent = '';
+  for (const k of fatigueChecks){
+    const row = document.createElement('div'); row.className = 'fcrow';
+    const main = document.createElement('div'); main.className = 'fcmain';
+    const b = document.createElement('b'); b.textContent = fcLabel(k);
+    const sub = document.createElement('span');
+    const at = Number(fcArmed[k.id] || 0);
+    sub.textContent = fcSteps(k) + ' · ' + (at ? 'rings ' + whenLabel(at)
+      : !nativeFatigue ? 'kept'
+      : k.anchor === 'sleep' ? (wakeGoal ? 'rings before the next sleep time' : 'needs a wake-up time in ⚙ Sleep')
+      : 'rings after the next wake-up');
+    main.append(b, sub);
+    const t = document.createElement('button'); t.className = 'fctest'; t.textContent = 'Test';
+    t.onclick = () => testFatigueCheck(k);
+    const e = document.createElement('button'); e.textContent = 'Edit';
+    e.onclick = () => openFcSheet(k);
+    row.append(main, t, e);
+    box.append(row);
+  }
+  $('#fcadd').style.display = fatigueChecks.length >= FC_MAX ? 'none' : '';
+  $('#fcstatus').textContent = !nativeFatigue ? 'Needs the APK to ring — in a browser the list is only kept.'
+    : !fatigueChecks.length ? 'No check set — nothing will ring.' : '';
+}
+
+async function testFatigueCheck(k){
+  if (!k.strap && !k.pvt && !k.question) return toast('Pick at least one step');
+  if (!nativeFatigue) return toast('Needs the APK — the check is a screen of the installed app');
+  try {
+    await nativeFatigue.test({id: k.id, anchor: k.anchor, offsetMin: k.offsetMin, strap: !!k.strap,
+      pvt: !!k.pvt, question: !!k.question, strapAddress: strapAddress()});
+  } catch(err){ toast('Could not start the test: ' + (err && err.message || 'error')); }
+}
+
+function paintFcSheet(){
+  for (const b of $('#fcanchor').querySelectorAll('.chip')) b.classList.toggle('on', b.dataset.anchor === fcEdit.anchor);
+  for (const b of $('#fcsteps').querySelectorAll('.chip')) b.classList.toggle('on', !!fcEdit[b.dataset.step]);
+  const m = parseOffset($('#fcoffset').value);
+  $('#fcwhen').textContent = isNaN(m) ? '' : 'Rings ' + fcLabel({anchor: fcEdit.anchor, offsetMin: m}) +
+    (fcEdit.anchor === 'sleep'
+      ? (bedtimeCfg ? ' — sleep time is ' + bedtimeCfg + ' (next alarm − ' + fmtDur(sleepMin) + ')' : ' — set a wake-up time in ⚙ Sleep first')
+      : ' — counted from the wake-up you log (or "I\'m up" on the alarm)') + '.';
+}
+function openFcSheet(k){
+  fcEdit = k ? Object.assign({}, k) : {id: uid(), anchor: 'wake', offsetMin: 5, strap: true, pvt: true, question: true, isNew: true};
+  $('#fctitle').textContent = k ? 'Edit fatigue check' : 'New fatigue check';
+  $('#fcoffset').value = offsetText(fcEdit.offsetMin);
+  $('#fcdelete').hidden = !k;
+  paintFcSheet();
+  $('#fcsheet').classList.add('on');
+}
+const closeFcSheet = () => { $('#fcsheet').classList.remove('on'); fcEdit = null; };
+
+/* The sheet's state as a check, or a toast saying what is wrong with it. */
+function readFcSheet(){
+  const m = parseOffset($('#fcoffset').value);
+  if (isNaN(m) || m > 720){ toast('Write the delay as minutes or h:mm, 12 h at most'); return null; }
+  if (!fcEdit.strap && !fcEdit.pvt && !fcEdit.question){ toast('Pick at least one step'); return null; }
+  return {id: fcEdit.id, anchor: fcEdit.anchor, offsetMin: m, strap: !!fcEdit.strap, pvt: !!fcEdit.pvt, question: !!fcEdit.question};
+}
+
+$('#fcadd').onclick = () => openFcSheet(null);
+$('#fcclose').onclick = closeFcSheet;
+$('#fcsheet').onclick = e => { if (e.target.id === 'fcsheet') closeFcSheet(); };
+$('#fcanchor').onclick = e => { const b = e.target.closest('.chip'); if (b){ fcEdit.anchor = b.dataset.anchor; paintFcSheet(); } };
+$('#fcsteps').onclick = e => { const b = e.target.closest('.chip'); if (b){ fcEdit[b.dataset.step] = !fcEdit[b.dataset.step]; paintFcSheet(); } };
+$('#fcoffset').oninput = paintFcSheet;
+$('#fcsave').onclick = async () => {
+  const k = readFcSheet(); if (!k) return;
+  fatigueChecks = fatigueChecks.filter(x => x.id !== k.id).concat(k).sort(fcOrder);
+  await setMeta('fatigueChecks', fatigueChecks);
+  closeFcSheet();
+  await pushFatigueChecks();
+  const at = Number(fcArmed[k.id] || 0);
+  toast('Fatigue check saved — ' + (at ? 'rings ' + whenLabel(at) : fcLabel(k)));
+};
+$('#fctest').onclick = () => { const k = readFcSheet(); if (k) testFatigueCheck(k); };   // tried before it is kept
+$('#fcdelete').onclick = async () => {
+  if (!confirm('Delete this fatigue check? The checks already in the log stay there.')) return;
+  fatigueChecks = fatigueChecks.filter(x => x.id !== fcEdit.id);
+  await setMeta('fatigueChecks', fatigueChecks);
+  closeFcSheet();
+  await pushFatigueChecks();
+  toast('Fatigue check deleted');
+};
+
+/* A finished check waits on the native side until it is safely in the log here: fetched,
+   written, and only then acknowledged — a record dropped between the two would be a test
+   that never happened. Runs at launch and whenever the app comes back to the front, which
+   is exactly what the end of a check (a Test included) looks like from here. */
+async function collectFatigueResults(){
+  if (!nativeFatigue) return;
+  try {
+    const r = await nativeFatigue.results();
+    const list = (r && r.results) || [];
+    if (!list.length) return;
+    for (const k of list) await putFatigueCheck(k);
+    await nativeFatigue.ack({ids: list.map(k => k.id)});
+    pushFatigueLog();
+    if ($('#logsheet').classList.contains('on')) openLog('day');
+    const last = list[list.length - 1];
+    toast('Fatigue check' + (last.test ? ' (test)' : '') + ' logged — see 📊 → ☀️ Day');
+  } catch(_){}
+}
+
+/* The checks go to the server too — same host and token as everything else, on their own
+   route (/fatigue) and into their own folder there, away from the night log. Like cardio:
+   the whole log every time, upserted by id on the other side, so a row the server lost
+   heals itself; syncedAt is bookkeeping for the log line, never a reason to hold a row
+   back. Each row carries `anchor` + `offsetMin` and the column suffix made from them, which
+   is what lets a results column be built per check later. Tests go up flagged as tests.
+   The body says "checks", not "sessions": a receiver older than this route refuses that
+   outright instead of filing the rows as nights. */
+let fatiguePushing = false;
+async function pushFatigueLog(){
+  if (fatiguePushing || !upCfg || !upCfg.url) return;
+  const url = upCfg.url.replace(/\/+$/, '') + '/fatigue';
+  if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url)) return;
+  let all = [];
+  try { all = await allFatigueChecks(); } catch(_){ return; }
+  if (!all.length) return;
+  fatiguePushing = true;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {'Authorization': 'Bearer ' + (upCfg.token || ''), 'Content-Type': 'application/json'},
+      body: JSON.stringify({device: 'audio-timer', checks: all.map(k => ({
+        id: k.id, started: new Date(k.at).toISOString(),
+        ended: new Date(k.endedAt || k.at).toISOString(), localDay: k.localDay || dayKey(k.at),
+        checkId: k.checkId, label: k.label, anchor: k.anchor, offsetMin: k.offsetMin | 0,
+        column: fcColumn(k), test: !!k.test, dueAt: k.dueAt || 0, steps: k.steps || {}
+      }))})
+    });
+    const out = await res.json().catch(() => ({}));
+    if (res.ok && Array.isArray(out.accepted)){
+      const now = Date.now();
+      for (const k of all) if (out.accepted.includes(k.id) && !k.syncedAt){ k.syncedAt = now; await putFatigueCheck(k); }
+      if ($('#logsheet').classList.contains('on')) openLog('day');
+    }
+  } catch(_){ /* offline: kept, retried on the next launch, foreground or network */ }
+  fatiguePushing = false;
+}
+addEventListener('online', pushFatigueLog);
+
 /* The last wake-up in the log — the one fact the alarm rule needs from the page. */
 async function lastWakeAt(){
   let at = 0;
@@ -2620,6 +2955,7 @@ async function pushSchedule(){
   }
   await refreshNextWake();
   await pushMelatonin();
+  await pushFatigueChecks();          // the evening checks hang on the bedtime this just moved
 }
 
 /* The armed moment comes from the native side, which owns the rule. Without the APK there
@@ -2668,7 +3004,7 @@ async function loadSchedule(){
   deriveBedtime();
   // A set schedule is pushed on every boot; an empty one is pushed only by the explicit
   // Turn off — a lost meta read must never silently switch the alarms off.
-  if (wakeGoal) await pushSchedule(); else await refreshNextWake();
+  if (wakeGoal) await pushSchedule(); else { await refreshNextWake(); await pushFatigueChecks(); }
 }
 
 function paintSchedule(){
@@ -2743,6 +3079,7 @@ $('#wakeoff').onclick = async () => {
   deriveBedtime();
   if (nativeWake){ try { await nativeWake.configure({goal: '', delayMin: wakeDelay}); } catch(_){} }
   if (nativeMelatonin){ try { await nativeMelatonin.configure({bedtime: ''}); } catch(_){} }
+  await pushFatigueChecks();          // no alarm, no bedtime: the evening checks have nothing to hang on
   paintSchedule();
   paintModenav();                     // no bedtime, no gate — the button is back all day
   toast('Wake-up and melatonin alarms off');
@@ -2837,17 +3174,11 @@ async function logWakeUp(note, at){
     lastInteraction: now, note: note || ''
   });
   let said = 'Wake-up logged — ' + fmtClock(now);
-  /* Getting up also arms the fatigue check: 45 minutes from now the phone rings like an
-     alarm clock and asks for a 1–10 score, which rides the same upload pipeline as this
-     row. Only the APK can ring with the page gone, so in a browser this is simply skipped. */
-  try {
-    const C = window.Capacitor;
-    const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
-    // 45 minutes from the RISE, not from this moment: a rise reported late (the alarm's
-    // "I'm up" opening the app) must not push the fatigue check past its window.
-    const late = Math.round((Date.now() - now) / 60000);
-    if (FA) await FA.schedule({minutes: Math.max(1, 45 - late), nightDay: dayKey(now)});
-  } catch(_){}
+  /* Getting up also starts the morning's fatigue checks (⚙ → Day): each rings its delay
+     after the RISE, not after this moment — a rise reported late (the alarm's "I'm up"
+     opening the app) must not push a check past its window. Only the APK can ring with the
+     page gone, so in a browser this is simply skipped. */
+  try { if (nativeFatigue){ const st = await nativeFatigue.wokeAt({at: String(now)}); fcArmed = (st && st.armed) || {}; } } catch(_){}
   /* The rise is the log's last wake-up now, and the alarm derives from it — the native
      side owns the rule, so it is told the moment and the page re-reads what it armed. */
   try {
@@ -2859,6 +3190,7 @@ async function logWakeUp(note, at){
       if (nextWakeAt) said += ' · next alarm ' + nextWakeLabel();
     }
   } catch(_){}
+  await refreshFatigueStatus();        // the alarm moved, and the evening checks with it
   toast(said);
   uploadSoon();
 }
@@ -2895,6 +3227,9 @@ const delEvent    = async id => req((await os('issues','readwrite')).delete(id))
 const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
 const delEventLog = async id => req((await os('issuelogs','readwrite')).delete(id));
 const allEventLogs = async () => req((await os('issuelogs','readonly')).getAll());
+const putFatigueCheck = async k => req((await os('fatiguechecks','readwrite')).put(k));
+const delFatigueCheck = async id => req((await os('fatiguechecks','readwrite')).delete(id));
+const allFatigueChecks = async () => req((await os('fatiguechecks','readonly')).getAll());
 
 /* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
    toggling it off just stops painting the button — walks already logged stay logged.
@@ -3030,15 +3365,21 @@ $('#eventsheet').onclick = e => { if (e.target.id === 'eventsheet') closeEventSh
 $('#modenav').onclick = () => {
   if (view === 'audio'){
     // The confirmation is the sheet itself; the night note now rides the fatigue answer.
+    const due = fatigueChecks.filter(k => k.anchor !== 'sleep').map(fcLabel);
+    $('#wakesheettext').textContent = 'Your wake-up time will be logged.' +
+      (due.length && nativeFatigue ? ' Fatigue check' + (due.length > 1 ? 's' : '') + ' will ring ' + due.join(', ') + '.' : '');
     $('#wakesheet').classList.add('on');
   } else {
     if (!confirm('Switch to night mode?')) return;
-    /* Back to bed means the morning is over: a fatigue alarm still counting down from the
-       last rise would ring into the nap, so it is withdrawn. The next rise re-arms it. */
+    /* Back to bed means the morning is over: a fatigue check still counting down from the
+       last rise would ring into the nap, so those are withdrawn. The next rise re-arms them.
+       (FatigueAlarm is the single 45-minute question they replaced — one may still be
+       pending from before the update.) */
     try {
       const C = window.Capacitor;
       const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
       if (FA) FA.cancel();
+      if (nativeFatigue) nativeFatigue.cancelWake().then(st => { fcArmed = (st && st.armed) || {}; paintFatigueChecks(); }).catch(() => {});
       const WA = C.Plugins.WalkAlarm;
       if (WA) WA.cancel();
     } catch(_){}
@@ -4706,11 +5047,16 @@ $('#posfile').onchange = async e => {
 (async () => {
   await loadSettings();
   await loadUpCfg();
+  await loadFatigueChecks();          // before the schedule: pushing it pushes these too
   await loadSchedule();
   paintSchedule();
   await checkPendingWake();
+  await collectFatigueResults();
+  pushFatigueLog();
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkPendingWake();
+    // A fatigue check runs in a screen of its own; coming back from it (or from anywhere)
+    // is when its record is fetched into the log.
+    if (document.visibilityState === 'visible'){ checkPendingWake(); collectFatigueResults(); refreshFatigueStatus(); pushFatigueLog(); }
   });
   await render();
   showStorage();
