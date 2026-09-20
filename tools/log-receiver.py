@@ -88,6 +88,19 @@ FATIGUE_FIELDS = (
 )
 
 
+# POST /night files the tracked nights — heart rate, HRV and sleeping position, one epoch a
+# minute from the switch to night mode to the wake-up — in a folder of their own, under the
+# body key "nights" (same reasons as /fatigue). `localDay` is the evening the night began.
+# An epoch: t (ms, start of the minute), hr (mean bpm), rmssd (ms, over that minute's
+# beat-to-beat intervals; absent under 20 of them), rr / drop (intervals kept / left out),
+# pos (the position held longest: back, stomach, left, right, upright, headdown, between,
+# moving), sec (seconds per position), mov (seconds moving); {"t":…, "off":true} is a minute
+# the strap said nothing in.
+_night_env = os.environ.get("AUDIO_TIMER_NIGHT_DIR")
+NIGHT_ROOT = Path(_night_env).expanduser() if _night_env else ROOT.parent / "night-tracking"
+NIGHT_FIELDS = ("id", "started", "ended", "localDay", "summary", "epochs")
+
+
 def day_key(session: dict) -> str:
     """Which day file a night belongs in.
 
@@ -230,10 +243,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {"error": "bad json"})
 
         route = self.path.rstrip("/")
-        fatigue = route == "/fatigue"
-        sessions = body.get("checks" if fatigue else "sessions")
+        fatigue, night = route == "/fatigue", route == "/night"
+        key = "checks" if fatigue else "nights" if night else "sessions"
+        sessions = body.get(key)
         if not isinstance(sessions, list):
-            return self.reply(400, {"error": "no checks" if fatigue else "no sessions"})
+            return self.reply(400, {"error": "no " + key})
 
         device = body.get("device")
         device = device if isinstance(device, str) else ""
@@ -241,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
         cardio = route == "/cardio"
         try:
             accepted = (store(device, sessions, FATIGUE_ROOT, FATIGUE_FIELDS, "fatigue-checks") if fatigue
+                        else store(device, sessions, NIGHT_ROOT, NIGHT_FIELDS, "night-tracking") if night
                         else store(device, sessions, CARDIO_ROOT, CARDIO_FIELDS, "zone-alarm") if cardio
                         else store(device, sessions))
         except Exception as e:  # noqa: BLE001 — a 5xx is what keeps the night on the phone
@@ -249,7 +264,7 @@ class Handler(BaseHTTPRequestHandler):
 
         print(f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} "
               f"{len(accepted)}/{len(sessions)} stored"
-              f"{' (fatigue)' if fatigue else ' (cardio)' if cardio else ''}", flush=True)
+              f"{' (fatigue)' if fatigue else ' (night)' if night else ' (cardio)' if cardio else ''}", flush=True)
         self.reply(200, {"accepted": accepted})
 
     def log_message(self, *args) -> None:

@@ -58,6 +58,16 @@ that saves the exact moment it stops.
   answer is not uploaded, so it can never become a morning's score. The list starts with
   the one check the app always had — the question, 45 minutes after the rise. Going back to
   night mode withdraws the morning checks still counting down.
+- **Night tracking** (APK only): switching to night mode asks "track this night?". Yes
+  connects the H10 and the strap's service — not the page, which Android freezes long before
+  morning — records one line a minute until the wake-up is logged: average **HR**, **HRV**
+  (RMSSD over the minute's beat-to-beat intervals) and **sleeping position** (back, stomach,
+  left, right, upright… from the strap's accelerometer at 25 Hz, the Live page's own rule),
+  with the seconds spent in each and the seconds spent moving. Every line goes to disk as it
+  is made, and a service the system kills picks the same night up again; a minute the strap
+  said nothing in is written as such, never filled in. The night shows in the log's 🌙 Night
+  part (totals, then hour by hour) and goes to the server on its own route — `POST /night`,
+  filed in `night-tracking/`.
 - **Day-mode logging** in two categories — **Habits** (things done: walk, stretching) and
   **Issues** (things suffered: headache, back pain). Create a type once, log an occurrence
   with one tap plus an optional note and photos; the recorded moment is the tap, not the
