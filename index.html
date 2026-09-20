@@ -54,6 +54,14 @@
     max-width:520px;margin:0 auto;max-height:none;height:100%;overflow-y:auto;
     -webkit-overflow-scrolling:touch;background:var(--bg);border:none;border-radius:0;
     padding:calc(14px + var(--safe-t)) 18px calc(24px + var(--safe-b))}
+  /* ⚙ has a bottom bar of its own — one category of settings at a time — so its page is a
+     column: the scrolling box above, the bar under it. */
+  #setsheet{flex-direction:column}
+  #setsheet .sheetbox{flex:1 1 auto;min-height:0;height:auto;width:100%;padding-bottom:24px}
+  #setcats{flex:none;width:100%;max-width:520px;margin:0 auto}
+  .setcat[hidden]{display:none}
+  .setcat > .setsplit:first-child{border-top:0;margin-top:0;padding-top:0}
+  .setcat > p{margin-top:0}
   .pagetop{display:flex;align-items:center;gap:12px;margin-bottom:8px}
   .pagetop h2{margin:0}
   .pagetop button{flex:none;padding:9px 13px;border-radius:10px;border:1px solid var(--line);
@@ -187,15 +195,15 @@
   /* Day mode's nav bar: Habits · Running · Strength. It sits in the page's flow under
      <main>, not fixed — so the full pages (⚙, the log, Live, the run's own settings) cover
      it like everything else, and only the Running overlay is told to stop above it. */
-  #daynav{display:flex;border-top:1px solid var(--line);background:var(--surface);
+  #daynav,#setcats{display:flex;border-top:1px solid var(--line);background:var(--surface);
     padding:0 6px var(--safe-b)}
   #daynav[hidden]{display:none}
-  #daynav button{flex:1;height:58px;background:none;border:0;color:var(--muted);
+  #daynav button,#setcats button{flex:1;height:58px;background:none;border:0;color:var(--muted);
     font:inherit;font-size:12px;font-weight:600;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:2px}
-  #daynav button i{font-style:normal;font-size:20px;line-height:1;filter:grayscale(1);opacity:.6}
-  #daynav button.on{color:var(--accent)}
-  #daynav button.on i{filter:none;opacity:1}
+  #daynav button i,#setcats button i{font-style:normal;font-size:20px;line-height:1;filter:grayscale(1);opacity:.6}
+  #daynav button.on,#setcats button.on{color:var(--accent)}
+  #daynav button.on i,#setcats button.on i{filter:none;opacity:1}
   #habitspage[hidden],#strengthpage[hidden]{display:none}
   body.daytabs #zoneapp{bottom:calc(58px + var(--safe-b))}
   body.daytabs .zone .app{padding-bottom:10px}
@@ -415,9 +423,6 @@
   #session{margin-top:16px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
   .zone #session.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
   .zone #session:focus-visible{outline:2px solid #fff;outline-offset:2px}
-  .zone #connect{margin-top:10px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
-  .zone #connect.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
-  .zone #connect:focus-visible{outline:2px solid #fff;outline-offset:2px}
   .zone #hint{margin-top:10px;font:400 11.5px/1.5 var(--mono);color:var(--dim);text-align:center;min-height:16px}
 
   .zone .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -446,13 +451,19 @@
   #zoneapp.on{display:flex}
   .zone .app{padding-top:calc(14px + var(--safe-t))}
   .zone .page .inner{padding-top:calc(14px + var(--safe-t))}
-  /* Polar H10 row in ⚙ — zone-alarm's connect button, driven by its script, restyled here */
-  #setsheet #connect{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);
-    background:var(--accent);color:#141414;font-size:15px;font-weight:600}
-  #setsheet #connect.quiet{background:var(--surface-2);color:var(--text);font-weight:500}
-  #setsheet #connect:active{filter:brightness(.9)}
-  #setsheet #hint{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.4}
-  #setsheet #hint:empty{display:none}
+  /* The strap's Connect / Disconnect lives on the run screen, beside Start (it left ⚙ on
+     2026-09-20, when 🫀 learned to connect by itself). Primary until the strap is on, then
+     it steps back to a quiet Disconnect and Start takes over. */
+  .zone .runbtns{display:flex;gap:8px;margin-top:16px}
+  .zone .runbtns #session{margin-top:0;flex:1 1 0}
+  .zone #connect{flex:1 1 0;border:none;border-radius:12px;padding:16px 8px;font:700 15px/1 var(--sans);
+    letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
+  .zone #connect.quiet{flex:0 0 auto;padding:16px 14px;font-weight:500;font-size:13px;
+    background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
+  .zone #connect:active{filter:brightness(.9)}
+  .zone #connect:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .zone #hint{font-size:12px;color:var(--mut, var(--txt));opacity:.7;margin-top:10px;line-height:1.4;text-align:center}
+  .zone #hint:empty{display:none}
   /* The cardio main screen fits the screen — no scrolling. The hero (numeral + band)
      is the part that gives: it shrinks with the viewport, and the numeral is sized by
      the screen's height as much as its width. The settings/live pages inside keep
@@ -586,7 +597,11 @@
       <button id="partsBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="partsDlg">Parts <b id="partsCount">0</b></button>
     </div>
     <button id="coolBtn" class="ghost" aria-pressed="false" hidden>Cool down</button>
-    <button id="session">Start session</button>
+    <div id="hint"></div>
+    <div class="runbtns">
+      <button id="connect">Connect sensor</button>
+      <button id="session">Start session</button>
+    </div>
   </div>
 
 </div>
@@ -745,7 +760,8 @@
 <div id="setsheet">
   <div class="sheetbox">
     <div class="pagetop"><button id="closeset">&#8592; Back</button><h2>Settings</h2></div>
-    <p>Saved on this phone.</p>
+    <section class="setcat" data-cat="night">
+    <p>Night audio — how playback behaves. Saved on this phone.</p>
     <div class="setrow"><label>Storage — the audio files kept on this phone</label><span id="storage">—</span></div>
     <div class="setrow"><label>Rewind when resuming</label><div class="chips sm" id="ch-rewind"></div></div>
     <div class="setrow"><label>Fade in when a session starts</label><div class="chips sm" id="ch-fadeIn"></div></div>
@@ -753,17 +769,14 @@
     <div class="setrow"><label>Arm the last timer automatically</label><div class="chips sm" id="ch-autoArm"></div></div>
     <div class="setrow"><label>Shake to skip — while audio is playing, a shake jumps to the next chapter. A shake on paused audio always resumes, toggle or not.</label><div class="chips sm" id="ch-shakeSkip"></div></div>
     <div class="setrow" id="shakehealthrow" style="display:none"><label>Night shake watch — whether the screen-off watch can survive the phone going idle</label><div class="chips sm"><button class="chip sm" id="shakehealth"></button></div></div>
+    </section>
+    <section class="setcat" data-cat="day" hidden>
+    <p>Day — what the day screen offers and reminds you of.</p>
     <div class="setrow"><label>Morning walk — pins a ☀️ Morning walk event at the top of the day screen</label><div class="chips sm" id="ch-morningWalk"></div></div>
     <div class="setrow"><label>Morning light reminder — rings 30 min after the wake-up if no walk is logged yet; its Done button logs the walk (needs the APK)</label><div class="chips sm" id="ch-walkReminder"></div></div>
+    </section>
 
-    <div class="setsplit">
-      <div class="setrow">
-        <label>Polar H10 — the chest strap behind 🏃 zone alarm and 🫀 live data. Connect it here; the
-               session engine keeps the link with the screen off.</label>
-        <button id="connect">Connect sensor</button>
-        <div id="hint"></div>
-      </div>
-    </div>
+    <section class="setcat" data-cat="server" hidden>
     <div class="setsplit">
       <div class="setrow">
         <label>Server upload — sends each finished night to your own server the next time the
@@ -780,7 +793,9 @@
         <button id="upforget">Forget</button>
       </div>
     </div>
+    </section>
 
+    <section class="setcat" data-cat="sleep" hidden>
     <div class="setsplit">
       <div class="setrow">
         <label>Wake-up time — the goal. An alarm rings at it over the lock screen like a clock:
@@ -806,8 +821,15 @@
         <button id="wakeoff">Turn off</button>
       </div>
     </div>
+    </section>
 
   </div>
+  <nav id="setcats">
+    <button data-cat="night" class="on"><i>🌙</i>Night audio</button>
+    <button data-cat="sleep"><i>⏰</i>Sleep</button>
+    <button data-cat="day"><i>☀️</i>Day</button>
+    <button data-cat="server"><i>☁️</i>Server</button>
+  </nav>
 </div>
 
 <div id="logsheet">
@@ -2381,8 +2403,16 @@ function buildSettings(){
     });
   }
 }
+/* ⚙ shows one category at a time, picked on its bottom bar; it always opens on the first. */
+function showSetCat(cat){
+  for (const sec of $('#setsheet').querySelectorAll('.setcat')) sec.hidden = sec.dataset.cat !== cat;
+  for (const b of $('#setcats').querySelectorAll('button')) b.classList.toggle('on', b.dataset.cat === cat);
+  $('#setsheet').querySelector('.sheetbox').scrollTop = 0;
+}
+for (const b of $('#setcats').querySelectorAll('button')) b.onclick = () => showSetCat(b.dataset.cat);
 $('#setnav').onclick = () => {
   buildSettings(); paintUpload(); paintSchedule(); paintShakeHealth();
+  showSetCat('night');
   $('#setsheet').classList.add('on');
 };
 
@@ -3257,7 +3287,7 @@ $('#posfile').onchange = async e => {
       zoneRoot.classList.remove('pulsing');
       line.innerHTML = '<span class="sub">' + (wantConnected ? 'reconnecting…'
         : phase === 'active' ? 'no sensor — connect to keep tracking'
-        : 'connect your sensor in ⚙ settings, then start') + '</span>';
+        : 'connect your sensor, then start') + '</span>';
       return;
     }
     if (hr <= 0){
@@ -4010,7 +4040,7 @@ $('#posfile').onchange = async e => {
 
   async function startStreams(){
     if (streamsOn || streamsFailed) return;
-    if (!isConnected()){ $('liveNote').textContent = 'Connect the sensor in ⚙ settings to see live data.'; return; }
+    if (!isConnected()){ $('liveNote').textContent = 'Sensor not connected — go back and tap 🫀 to connect it.'; return; }
     streamsOn = true;
     $('liveNote').textContent = '';
     if (window.NativeBLE){ if (NativeBLE.liveMode) NativeBLE.liveMode(true); return; }
