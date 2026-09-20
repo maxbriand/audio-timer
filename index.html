@@ -96,7 +96,8 @@
   #evthumbs:empty{margin-top:0}
   #evthumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
   #evsave,#wakego{color:var(--accent);border-color:var(--accent-dim)}
-  #wakeline,#lightline,#alarmline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
+  #wakeline,#lightline{display:none;font-size:13.5px;color:var(--muted);padding:2px 2px 12px;line-height:1.5}
+  #alarmline{font-size:15px;color:var(--muted);padding:4px 2px 16px;line-height:1.5}   /* heads ⚙'s Sleep page */
   #melamiss{display:none;font-size:13.5px;color:var(--danger);padding:2px 2px 12px;line-height:1.5}
   #wakeline b,#lightline b,#alarmline b{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
   .setrow{margin-bottom:14px}
@@ -113,7 +114,7 @@
   #nextwake b{color:var(--accent);font-weight:600}
   #cardiohead{margin:18px 0 8px;font-size:15px;font-weight:650}
   #cardiohead[hidden]{display:none}
-  #upstatus,#wakestatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
+  #upstatus,#wakestatus,#melastatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
   .chip.sm{padding:11px 0;font-size:13.5px}
@@ -522,14 +523,13 @@
  <div id="habitspage">
   <div id="melamiss"></div>
   <div id="wakeline"></div>
-  <div id="alarmline"></div>
   <div id="lightline"></div>
-  <h3 class="evcat">Habits</h3>
-  <div class="eventgrid" id="habitgrid"></div>
-  <button class="addevent" id="addhabit">+ Add habit</button>
   <h3 class="evcat">Issues</h3>
   <div class="eventgrid" id="issuegrid"></div>
   <button class="addevent" id="addissue">+ Add issue</button>
+  <h3 class="evcat">Habits</h3>
+  <div class="eventgrid" id="habitgrid"></div>
+  <button class="addevent" id="addhabit">+ Add habit</button>
  </div>
  <div id="strengthpage" hidden>
   <div class="empty">🏋️<br><b>Strength</b><br>Nothing here yet — this page is ready for the strength sessions.</div>
@@ -774,6 +774,14 @@
     <p>Day — what the day screen offers and reminds you of.</p>
     <div class="setrow"><label>Morning walk — pins a ☀️ Morning walk event at the top of the day screen</label><div class="chips sm" id="ch-morningWalk"></div></div>
     <div class="setrow"><label>Morning light reminder — rings 30 min after the wake-up if no walk is logged yet; its Done button logs the walk (needs the APK)</label><div class="chips sm" id="ch-walkReminder"></div></div>
+    <div class="setrow"><label>Melatonin — pins a 💊 Melatonin event at the top of the day screen, and rings the reminder before bed (needs the APK)</label><div class="chips sm" id="ch-melatonin"></div></div>
+    <div class="setrow" id="melaleadrow">
+      <label>Melatonin delay — how long before bedtime the dose is taken, as hh:mm (5:00 is five hours).
+             The reminder rings at morning alarm − sleep duration − this delay.</label>
+      <input class="syncin" type="text" id="melalead" inputmode="numeric" maxlength="5"
+             placeholder="05:00" autocomplete="off" spellcheck="false">
+      <div id="melastatus"></div>
+    </div>
     </section>
 
     <section class="setcat" data-cat="server" hidden>
@@ -796,6 +804,7 @@
     </section>
 
     <section class="setcat" data-cat="sleep" hidden>
+    <div id="alarmline"></div>
     <div class="setsplit">
       <div class="setrow">
         <label>Wake-up time — the goal. An alarm rings at it over the lock screen like a clock:
@@ -1195,7 +1204,9 @@ audio.preload = 'metadata';
 let current = null, objUrl = null, seeking = false, lastSave = 0, loading = false;
 
 /* ---------- settings ---------- */
-const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, shakeSkip: false, morningWalk: false, walkReminder: false};
+const DEFAULTS = {rewind: 10, fadeIn: 15, autoArm: true, speed: 1, shakeSkip: false, morningWalk: false, walkReminder: false,
+  // The reminder existed before its toggle did, always on at 5 h: the defaults keep it so.
+  melatonin: true, melatoninLead: 300};
 let settings = Object.assign({}, DEFAULTS);
 const TARGET_VOL = 1;
 
@@ -2086,7 +2097,7 @@ function fmtDay(ms){
    and the day's entries had no reader at all before this page showed them. The zero-length
    marker rows the day screen writes into the sessions store (wake-up, morning-walk,
    screens-off) belong to the day; everything else in that store is a night. */
-const DAY_MARKERS = {'wake-up': '☀️ Woke up', 'morning-walk': '☀️ Morning walk', 'screens-off': '📵 Screens off'};
+const DAY_MARKERS = {'wake-up': '☀️ Woke up', 'morning-walk': '☀️ Morning walk', 'melatonin': '💊 Melatonin', 'screens-off': '📵 Screens off'};
 const isDayMarker = s => Object.prototype.hasOwnProperty.call(DAY_MARKERS, s.stopReason);
 
 function showLogPart(part){
@@ -2108,14 +2119,14 @@ async function renderDay(sessions){
   try { logs = await allEventLogs(); } catch(_){}
   let cats = {};
   try { for (const ev of await allEvents()) cats[ev.id] = ev.cat === 'habit' ? 'habit' : 'issue'; } catch(_){}
-  const walkTaps = new Set(logs.filter(l => l.issueId === MORNING_WALK.id).map(l => l.at));
+  const pinnedTaps = new Set(logs.filter(l => PINNED_MARKER[l.issueId]).map(l => PINNED_MARKER[l.issueId] + '@' + l.at));
   const items = [
     ...logs.map(l => ({
       del: () => deleteDayEntry(l, sessions), at: l.at, title: l.issue || 'Event', note: l.note, photos: l.photos || [],
-      kind: l.issueId === MORNING_WALK.id ? 'habit' : (cats[l.issueId] || 'entry')
+      kind: PINNED_MARKER[l.issueId] ? 'habit' : (cats[l.issueId] || 'entry')
     })),
     ...sessions.filter(isDayMarker)
-      .filter(s => !(s.stopReason === 'morning-walk' && walkTaps.has(s.startedAt)))
+      .filter(s => !pinnedTaps.has(s.stopReason + '@' + s.startedAt))
       .map(s => ({del: () => deleteNight(s), at: s.startedAt, title: DAY_MARKERS[s.stopReason], note: s.note, photos: [],
                   kind: s.stopReason === 'wake-up' ? 'rise' : 'habit'}))
   ].sort((a, b) => b.at - a.at);
@@ -2161,8 +2172,9 @@ async function renderDay(sessions){
 async function deleteDayEntry(l, sessions){
   if (!confirm('Delete this entry' + ((l.photos || []).length ? ' and its pictures' : '') + '?')) return;
   await delEventLog(l.id);
-  if (l.issueId === MORNING_WALK.id){
-    for (const s of sessions.filter(x => x.stopReason === 'morning-walk' && x.startedAt === l.at)){
+  const twin = PINNED_MARKER[l.issueId];
+  if (twin){
+    for (const s of sessions.filter(x => x.stopReason === twin && x.startedAt === l.at)){
       if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
       await delSession(s.id);
     }
@@ -2380,7 +2392,8 @@ const SETTING_CHOICES = {
   autoArm: {values: [false, true],        labels: ['off', 'on']},
   shakeSkip: {values: [false, true],      labels: ['off', 'on']},
   morningWalk: {values: [false, true],    labels: ['off', 'on']},
-  walkReminder: {values: [false, true],   labels: ['off', 'on']}
+  walkReminder: {values: [false, true],   labels: ['off', 'on']},
+  melatonin: {values: [false, true],      labels: ['off', 'on']}
 };
 function buildSettings(){
   for (const key of Object.keys(SETTING_CHOICES)){
@@ -2396,8 +2409,10 @@ function buildSettings(){
         await saveSettings();
         applySettings();
         buildSettings();
-        // The morning-walk toggle changes what the day screen shows behind the sheet.
+        // The pin toggles change what the day screen shows behind the sheet.
         if (view === 'sun') paintEvents();
+        // Melatonin off withdraws its reminder, on arms it: the native side is told now.
+        if (key === 'melatonin'){ await pushSchedule(); paintSchedule(); paintModenav(); }
       };
       box.appendChild(b);
     });
@@ -2420,8 +2435,12 @@ $('#setnav').onclick = () => {
    Three numbers are set in ⚙ — the goal wake-up time, the accepted delay past it, and how
    long the night should be — and the rest is derived from them (Maxime, 2026-09-09):
 
-     bedtime   = goal − sleep duration
-     melatonin = bedtime − 5 h          (the chronobiotic timing for the 0.5 mg dose)
+     bedtime   = morning alarm − sleep duration
+     melatonin = bedtime − melatonin delay   (⚙ → Day; 5 h by default, the chronobiotic
+                                              timing for the 0.5 mg dose)
+
+   The morning alarm is the ARMED one, not just the goal (Maxime, 2026-09-20): a late rise
+   that pushes tomorrow's alarm to 10:30 moves the bedtime and the dose with it.
 
    so there is no separate bedtime to keep in step: moving the goal moves the whole evening
    with it. Both alarms are native — they must ring with the page long gone — and the page
@@ -2452,7 +2471,8 @@ const hhmmToMin = t => { const [h, m] = String(t).split(':').map(Number); return
 const minToHhmm = m => String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0') +
   ':' + String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0');
 const fmtDur = m => Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0');
-function reminderClock(t){ return minToHhmm(hhmmToMin(t) - 300); }   // 5 h before bed
+const melaLead = () => { const l = parseInt(settings.melatoninLead, 10); return isNaN(l) ? 300 : l; };
+function reminderClock(t){ return minToHhmm(hhmmToMin(t) - melaLead()); }   // the delay before bed
 
 /* A duration, not a clock time: <input type="time"> renders as an AM/PM picker wherever
    the locale says so, and "9:00 PM" means nothing as the length of a night. So it is plain
@@ -2469,8 +2489,25 @@ function parseDur(v){
   return NaN;
 }
 
+/* From the armed alarm's hour when the native side has one, else from the goal. */
 function deriveBedtime(){
-  bedtimeCfg = wakeGoal ? minToHhmm(hhmmToMin(wakeGoal) - sleepMin) : '';
+  let wakeMin = wakeGoal ? hhmmToMin(wakeGoal) : NaN;
+  if (wakeGoal && nextWakeAt){ const d = new Date(nextWakeAt); wakeMin = d.getHours() * 60 + d.getMinutes(); }
+  bedtimeCfg = wakeGoal ? minToHhmm(wakeMin - sleepMin) : '';
+}
+
+/* The melatonin alarm follows the bedtime, so it is pushed AFTER the wake-up alarm has been
+   armed and read back. The toggle off pushes an empty bedtime — the native off switch. */
+async function pushMelatonin(){
+  deriveBedtime();
+  if (!nativeMelatonin) return;
+  try {
+    const r = await nativeMelatonin.configure({bedtime: settings.melatonin ? bedtimeCfg : '', leadMin: melaLead()});
+    if (r && r.missedAt){
+      melatoninMissedAt = r.missedAt;
+      toast('⚠️ Melatonin reminder never rang — check MIUI autostart & battery');
+    }
+  } catch(_){}
 }
 
 /* The last wake-up in the log — the one fact the alarm rule needs from the page. */
@@ -2487,16 +2524,8 @@ async function pushSchedule(){
       await nativeWake.configure({goal: wakeGoal, delayMin: wakeDelay, lastWake: String(await lastWakeAt())});
     } catch(_){}
   }
-  if (nativeMelatonin){
-    try {
-      const r = await nativeMelatonin.configure({bedtime: bedtimeCfg});
-      if (r && r.missedAt){
-        melatoninMissedAt = r.missedAt;
-        toast('⚠️ Melatonin reminder never rang — check MIUI autostart & battery');
-      }
-    } catch(_){}
-  }
   await refreshNextWake();
+  await pushMelatonin();
 }
 
 /* The armed moment comes from the native side, which owns the rule. Without the APK there
@@ -2549,13 +2578,20 @@ async function loadSchedule(){
 }
 
 function paintSchedule(){
+  // ⚙ → Day: the delay only means something with the reminder on.
+  $('#melaleadrow').style.display = settings.melatonin ? '' : 'none';
+  if (document.activeElement !== $('#melalead')) $('#melalead').value = minToHhmm(melaLead());
+  $('#melastatus').textContent = !wakeGoal ? 'No wake-up time set in Sleep — nothing to ring before.'
+    : 'Rings at ' + reminderClock(bedtimeCfg) + ' — bed at ' + bedtimeCfg + ' (' + fmtDur(sleepMin) +
+      ' before the morning alarm), minus ' + fmtDur(melaLead()) +
+      (nativeMelatonin ? '' : ' · needs the APK to actually ring');
   $('#waketime').value = wakeGoal;
   $('#wakedelay').value = wakeDelay;
   $('#sleepdur').value = minToHhmm(sleepMin);
   $('#wakestatus').textContent = !wakeGoal ? 'Off.'
-    : 'Next alarm ' + nextWakeLabel() + ' · goal ' + wakeGoal + ' (+' + wakeDelay +
+    : 'Goal ' + wakeGoal + ' (+' + wakeDelay +
       ' min accepted) · ' + fmtDur(sleepMin) + ' in bed from ' + bedtimeCfg +
-      ' · melatonin ' + reminderClock(bedtimeCfg) +
+      ' · melatonin ' + (settings.melatonin ? reminderClock(bedtimeCfg) : 'off') +
       (nativeWake ? '' : ' · needs the APK to actually ring');
   const nw = $('#nextwake');
   if (wakeGoal && nextWakeAt){
@@ -2563,15 +2599,16 @@ function paintSchedule(){
     nw.querySelector('b').textContent = nextWakeLabel();
     nw.style.display = 'block';
   } else { nw.style.display = 'none'; nw.textContent = ''; }
-  /* The day screen says it too: the rise is logged there, and that is the moment the next
-     alarm is decided — the hour must be readable without a trip to night mode or ⚙. */
+  /* The armed hour and why it is that hour head ⚙'s Sleep page — the one place it is kept
+     on screen (it left the day screen on 2026-09-20; the wake-up toast still says it once,
+     at the moment the rise decides it). */
   const al = $('#alarmline');
   if (wakeGoal && nextWakeAt){
     al.innerHTML = '⏰ Next alarm <b></b>';
     al.querySelector('b').textContent = nextWakeLabel();
     al.append(nextWakeWhy());
-    al.style.display = 'block';
-  } else { al.style.display = 'none'; al.textContent = ''; }
+  } else al.textContent = '⏰ Alarm off — set a wake-up time below.';
+  al.style.display = 'block';
 }
 
 $('#wakesave').onclick = async () => {
@@ -2589,6 +2626,18 @@ $('#wakesave').onclick = async () => {
   paintSchedule();
   paintModenav();                     // the derived bedtime moves the 🌙 window with it
   toast('Wake-up alarm set — rings ' + nextWakeLabel());
+};
+/* The melatonin delay saves itself when the field is left — a duration like the night's. */
+$('#melalead').onchange = async () => {
+  const m = parseDur($('#melalead').value);
+  if (isNaN(m)){ $('#melalead').value = minToHhmm(melaLead()); return toast('Write the delay as hh:mm, like 5:00'); }
+  settings.melatoninLead = Math.min(720, Math.max(0, m));
+  await saveSettings();
+  $('#melalead').value = minToHhmm(melaLead());
+  await pushSchedule();
+  paintSchedule();
+  paintModenav();                     // the 🌙 window opens at the reminder
+  if (wakeGoal && settings.melatonin) toast('Melatonin reminder — rings at ' + reminderClock(bedtimeCfg));
 };
 $('#sleepdur').onblur = () => {
   const m = parseDur($('#sleepdur').value);
@@ -2641,7 +2690,7 @@ let view = 'audio';
 function nightAllowed(){
   if (!bedtimeCfg) return true;
   const [h, m] = bedtimeCfg.split(':').map(Number);
-  const remind = ((h * 60 + m) - 300 + 1440) % 1440;
+  const remind = ((h * 60 + m) - melaLead() + 1440) % 1440;
   const now = new Date();
   return ((now.getHours() * 60 + now.getMinutes() - remind + 1440) % 1440) < 720;
 }
@@ -2711,6 +2760,7 @@ async function logWakeUp(note, at){
     if (nativeWake){
       await nativeWake.wokeAt({at: String(now)});
       await refreshNextWake();
+      await pushMelatonin();              // the alarm may have moved: bedtime and dose follow
       paintSchedule();
       if (nextWakeAt) said += ' · next alarm ' + nextWakeLabel();
     }
@@ -2780,6 +2830,12 @@ const allEventLogs = async () => req((await os('issuelogs','readonly')).getAll()
    blue-light cutoff, so the button is gone. The diary still reads any "screens-off"
    marker, so a future source can fill that column without touching the reader.) */
 const MORNING_WALK = {id: 'morning-walk', name: '☀️ Morning walk'};
+/* 💊 Melatonin is pinned the same way, by its ⚙ → Day toggle. Its marker row is the one the
+   reminder's own "Taken ✓" stages natively, so the diary reads a dose the same whichever
+   button recorded it. */
+const MELATONIN = {id: 'melatonin', name: '💊 Melatonin'};
+// Pinned habits and the marker row each one also writes into the sessions store.
+const PINNED_MARKER = {[MORNING_WALK.id]: 'morning-walk', [MELATONIN.id]: 'melatonin'};
 
 let events = [], logEvent = null, logAt = 0, logPhotos = [];
 
@@ -2787,6 +2843,7 @@ async function paintEvents(){
   events = (await allEvents()).sort((a, b) => a.name.localeCompare(b.name));
   const habits = events.filter(ev => ev.cat === 'habit');
   const others = events.filter(ev => ev.cat !== 'habit');
+  if (settings.melatonin) habits.unshift(MELATONIN);
   if (settings.morningWalk) habits.unshift(MORNING_WALK);
   fillEventGrid($('#habitgrid'), habits);
   fillEventGrid($('#issuegrid'), others);
@@ -2798,8 +2855,8 @@ function fillEventGrid(grid, list){
     b.className = 'eventbtn';
     b.textContent = ev.name;
     b.onclick = () => openEventSheet(ev);
-    // The walk is painted by its ⚙ toggle, not stored here — nothing to delete.
-    if (ev.id !== MORNING_WALK.id){
+    // The pinned habits are painted by their ⚙ toggles, not stored here — nothing to delete.
+    if (!PINNED_MARKER[ev.id]){
       const x = document.createElement('span');
       x.className = 'evdel';
       x.textContent = '✕';
@@ -2869,7 +2926,7 @@ $('#evsave').onclick = async () => {
      the daylight log (the diary's Morning light column) and the screens-off tap is the
      blue-light cutoff (the diary's screens_off column). Other events (and the photos,
      always) stay local. */
-  const markerReason = logEvent.id === MORNING_WALK.id ? 'morning-walk' : null;
+  const markerReason = PINNED_MARKER[logEvent.id] || null;
   if (markerReason){
     await putSession({
       id: uid(), startedAt: logAt, endedAt: logAt, trackStart: '', trackEnd: '',
@@ -2886,6 +2943,11 @@ $('#evsave').onclick = async () => {
         const WA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.WalkAlarm;
         if (WA) WA.cancel();
       } catch(_){}
+    }
+    if (markerReason === 'melatonin' && nativeMelatonin){
+      // The dose is logged: a ring in progress goes quiet and tonight's, if still ahead,
+      // is withdrawn — the native side re-arms for tomorrow.
+      try { await nativeMelatonin.dosed(); } catch(_){}
     }
   }
   toast(logEvent.name + ' logged — ' + fmtClock(logAt));

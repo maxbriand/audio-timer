@@ -16,14 +16,19 @@ import java.util.TimeZone;
 import java.util.UUID;
 
 /*
- * The daily melatonin reminder, anchored to the bedtime set in ⚙.
+ * The daily melatonin reminder, anchored to the bedtime the page derives.
  *
- * The dose is chronobiotic, not hypnotic: 0.5 mg taken ~5 hours before bedtime is what
- * shifts the clock, so the reminder time is DERIVED (bedtime − 5 h) rather than set
- * directly — moving the bedtime in the settings moves the reminder with it.
+ * The dose is chronobiotic, not hypnotic: 0.5 mg taken hours before bedtime is what shifts
+ * the clock, so the reminder time is DERIVED rather than set directly (Maxime, 2026-09-20):
+ *
+ *   reminder = morning alarm − sleep duration − melatonin delay
+ *
+ * The page does the first subtraction (the bedtime it pushes already follows the armed
+ * morning alarm, not just the goal) and hands over the delay, set in ⚙ → Day beside the
+ * Melatonin toggle; 5 h is the default. Moving any of the three moves the reminder.
  *
  * Unlike the fatigue alarm this one recurs: every fire re-arms the next day's, and only
- * clearing the bedtime in ⚙ stops the cycle. "Taken" is the sole way to silence a ring
+ * an empty bedtime — the Melatonin toggle off, or no wake-up time — stops the cycle. "Taken" is the sole way to silence a ring
  * for good (it also stages a zero-length "melatonin" row into the outbox, so the moment
  * of the dose reaches the day files like everything else); snooze is 10 minutes.
  */
@@ -32,7 +37,9 @@ final class MelatoninAlarm {
   private static final String KEY_BEDTIME = "bedtime";   // "HH:MM", empty = off
   private static final String KEY_NEXT = "nextAt";       // epoch ms of the armed fire
   private static final String KEY_SHOWN = "shownAt";     // epoch ms of the last actual ring
-  static final long LEAD_MIN = 5 * 60;                   // reminder sits 5 h before bed
+  private static final String KEY_LEAD = "leadMin";      // minutes before bed, set in ⚙ → Day
+  private static final String KEY_SKIP = "skipUntil";    // dose already logged: no ring before this
+  static final int LEAD_DEFAULT = 5 * 60;                // the chronobiotic default, 5 h before bed
   static final long SNOOZE_MS = 10 * 60 * 1000L;
 
   private MelatoninAlarm(){}
@@ -43,6 +50,13 @@ final class MelatoninAlarm {
 
   static String bedtime(Context c){ return prefs(c).getString(KEY_BEDTIME, ""); }
   static long nextAt(Context c){ return prefs(c).getLong(KEY_NEXT, 0); }
+  static int leadMin(Context c){ return prefs(c).getInt(KEY_LEAD, LEAD_DEFAULT); }
+
+  /** "5 h" / "4 h 30" — the delay as the ring says it. */
+  static String leadLabel(Context c){
+    int l = leadMin(c);
+    return (l / 60) + " h" + (l % 60 == 0 ? "" : " " + String.format(Locale.US, "%02d", l % 60));
+  }
 
   /* The receiver stamps every ring it actually shows; a fire time that passed without a
      stamp is a ring the system swallowed (MIUI force-stop clearing the alarm, autostart
@@ -66,17 +80,18 @@ final class MelatoninAlarm {
 
   /* The page pushes the bedtime on every boot and on every save; an empty one is the
      off switch. Idempotent, so the boot push cannot double-arm anything. */
-  static void configure(Context c, String bedtime){
+  static void configure(Context c, String bedtime, int leadMin){
     if (bedtime == null || bedtime.isEmpty()){
       prefs(c).edit().clear().apply();
       ((AlarmManager) c.getSystemService(Context.ALARM_SERVICE)).cancel(ring(c));
       return;
     }
-    prefs(c).edit().putString(KEY_BEDTIME, bedtime).apply();
+    prefs(c).edit().putString(KEY_BEDTIME, bedtime)
+      .putInt(KEY_LEAD, Math.max(0, Math.min(12 * 60, leadMin))).apply();
     scheduleNext(c);
   }
 
-  /* Arm the next bedtime−5h that is still ahead — today's if it has not passed, else
+  /* Arm the next bedtime − delay that is still ahead — today's if it has not passed, else
      tomorrow's. A bedtime after midnight puts the reminder on the evening before it. */
   static void scheduleNext(Context c){
     String bt = bedtime(c);
@@ -89,16 +104,28 @@ final class MelatoninAlarm {
     } catch (Exception e){
       return;                                   // an unparseable bedtime arms nothing
     }
-    long remindMin = ((h * 60L + m) - LEAD_MIN + 1440) % 1440;
+    long remindMin = ((h * 60L + m) - leadMin(c) + 1440) % 1440;
     Calendar cal = Calendar.getInstance();
     cal.set(Calendar.HOUR_OF_DAY, (int)(remindMin / 60));
     cal.set(Calendar.MINUTE, (int)(remindMin % 60));
     cal.set(Calendar.SECOND, 0);
     cal.set(Calendar.MILLISECOND, 0);
-    if (cal.getTimeInMillis() <= System.currentTimeMillis()){
-      cal.add(Calendar.DAY_OF_YEAR, 1);
-    }
+    // Past, or already answered by a dose logged on the day screen: the one after it.
+    long floor = Math.max(System.currentTimeMillis(), prefs(c).getLong(KEY_SKIP, 0));
+    while (cal.getTimeInMillis() <= floor) cal.add(Calendar.DAY_OF_YEAR, 1);
     arm(c, cal.getTimeInMillis());
+  }
+
+  /* The dose was logged from the day screen's 💊 Melatonin button (the page writes its own
+     row, so nothing is staged here). If that was ahead of tonight's ring — within 12 h of
+     it — the ring has nothing left to ask, and it stays withdrawn through every re-arm
+     (launch, boot) until its moment has safely passed. */
+  static void dosed(Context c){
+    long next = nextAt(c), now = System.currentTimeMillis();
+    if (next > now && next - now < 12 * 3600_000L){
+      prefs(c).edit().putLong(KEY_SKIP, next + 6 * 3600_000L).apply();
+    }
+    scheduleNext(c);
   }
 
   static void snooze(Context c){
