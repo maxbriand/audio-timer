@@ -93,6 +93,64 @@ public class ZoneServicePlugin extends Plugin {
         call.resolve();
     }
 
+    /* Night tracking (NightTrack): nightStart once the strap is connected, nightStop at the
+       wake-up. The recorded night stays on the native side until the page has it in its log:
+       nightPending lists the finished ones, nightRead hands one over, nightAck lets go of it. */
+    @PluginMethod
+    public void nightStart(PluginCall call) {
+        String deviceId = call.getString("deviceId", "");
+        Intent i = new Intent(getContext(), HrService.class).setAction(HrService.ACTION_NIGHT)
+            .putExtra("on", true).putExtra("deviceId", deviceId);
+        startService(i, true);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void nightStop(PluginCall call) {
+        Context c = getContext();
+        if (HrService.isRunning()) {
+            send(new Intent(c, HrService.class).setAction(HrService.ACTION_NIGHT).putExtra("on", false));
+        } else if (NightTrack.on(c)) {
+            // The service died in the night and was never restarted: close the night here,
+            // with what it had written.
+            NightTrack.end(c);
+            NightTrack.reset();
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void nightStatus(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("on", NightTrack.on(getContext()));
+        r.put("start", String.valueOf(NightTrack.startedAt(getContext())));
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void nightPending(PluginCall call) {
+        JSObject r = new JSObject();
+        try { r.put("nights", new JSArray(NightTrack.pending(getContext()).toString())); }
+        catch (Exception e) { r.put("nights", new JSArray()); }
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void nightRead(PluginCall call) {
+        JSObject r = new JSObject();
+        try {
+            long start = Long.parseLong(call.getString("start", "0"));
+            r.put("epochs", new JSArray(NightTrack.read(getContext(), start).toString()));
+        } catch (Exception e) { r.put("epochs", new JSArray()); }
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void nightAck(PluginCall call) {
+        try { NightTrack.ack(getContext(), Long.parseLong(call.getString("start", "0"))); } catch (Exception ignored) {}
+        call.resolve();
+    }
+
     @PluginMethod
     public void disconnect(PluginCall call) {
         send(new Intent(getContext(), HrService.class).setAction(HrService.ACTION_DISCONNECT));

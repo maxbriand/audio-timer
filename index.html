@@ -52,9 +52,9 @@
   }
   #sunview{display:none}
 
-  #logsheet,#setsheet,#eventsheet,#wakesheet,#fcsheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
+  #logsheet,#setsheet,#eventsheet,#wakesheet,#fcsheet,#nightsheet{position:fixed;inset:0;background:rgba(0,0,0,.6);
     display:none;align-items:flex-end;z-index:10}
-  #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on,#fcsheet.on{display:flex}
+  #logsheet.on,#setsheet.on,#eventsheet.on,#wakesheet.on,#fcsheet.on,#nightsheet.on{display:flex}
   #fcsheet{z-index:35}     /* opened from ⚙, which is a full page at 30 */
   /* Settings and the log are full pages, like Live data and the run — not sheets over the
      player: opaque, edge to edge, one scroll for the whole page, Back at the top. */
@@ -141,6 +141,11 @@
   #fcsave,#fctest{color:var(--accent);border-color:var(--accent-dim)}
   #fcdelete{color:var(--danger)}
   #fcdelete[hidden]{display:none}
+  #nighttrack{color:var(--accent);border-color:var(--accent-dim)}
+  #nighttrack[hidden]{display:none}
+  #nightsheet .sheetfoot{flex-direction:column}
+  #trackline{display:none;font-size:13px;color:var(--muted);padding:2px 2px 10px;line-height:1.5;font-variant-numeric:tabular-nums}
+  #trackline b{color:var(--accent);font-weight:600}
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
   #loglist{margin-bottom:6px}
@@ -541,6 +546,7 @@
 <main>
 <div id="audioview">
   <div id="nextwake"></div>
+  <div id="trackline"></div>
   <div class="empty" id="empty">
     No audio yet.<br>Tap <b>Add audio</b> and pick files from your phone.<br>
     They're stored inside this app — no internet needed.
@@ -588,6 +594,18 @@
     <div class="sheetfoot">
       <button id="wakego">Log wake-up</button>
       <button id="wakecancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="nightsheet">
+  <div class="sheetbox">
+    <h2>Switch to night mode?</h2>
+    <p id="nightsheettext"></p>
+    <div class="sheetfoot">
+      <button id="nighttrack">Yes — connect the strap and track</button>
+      <button id="nightplain">No — night mode only</button>
+      <button id="nightcancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -1012,7 +1030,8 @@
       <div id="cardiolist"></div>
     </div>
     <div id="lognight" hidden>
-      <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
+      <p>The tracked nights first (heart rate, HRV and sleeping position, minute by minute, when you said yes at the switch), then what this app saw of the audio: when it started, how long it played, and what stopped it.</p>
+      <div id="tracklist"></div>
       <div id="logcount"></div>
       <div id="loglist"></div>
       <div class="sheetfoot">
@@ -1033,7 +1052,7 @@
 'use strict';
 
 /* ---------- storage ---------- */
-const DB_NAME = 'audio-timer', DB_VER = 5;
+const DB_NAME = 'audio-timer', DB_VER = 6;
 let _db;
 function openDB(){
   return new Promise((res, rej) => {
@@ -1059,6 +1078,8 @@ function openDB(){
       // in `sessions`: everything there rides the upload, and the server reads every row of
       // a day file as part of a night.
       if (!d.objectStoreNames.contains('fatiguechecks')) d.createObjectStore('fatiguechecks', {keyPath:'id'});
+      // Tracked nights: one record per night — a line a minute of HR, HRV and position.
+      if (!d.objectStoreNames.contains('nighttracks')) d.createObjectStore('nighttracks', {keyPath:'id'});
     };
     // Without this, a second copy of the app (a stray Chrome tab alongside the installed
     // one) holds the old version open and the upgrade blocks forever with no error.
@@ -2384,6 +2405,7 @@ async function deleteDayEntry(l, sessions){
 async function openLog(part){
   const sessions = await allSessions();
   await renderDay(sessions);
+  await renderNightTracks();
   const rows = sessions.filter(s => !isDayMarker(s)).sort((a,b) => b.startedAt - a.startedAt);
   const box = $('#loglist');
   const count = $('#logcount');
@@ -2939,6 +2961,178 @@ async function pushFatigueLog(){
 }
 addEventListener('online', pushFatigueLog);
 
+/* ---------- night tracking ----------
+   Switching to night mode asks one question: track this night? Yes connects the strap and
+   starts the native recorder (NightTrack, inside the strap's service — the page is frozen
+   long before morning, the service is not): heart rate, HRV and sleeping position, one line
+   a minute, until the wake-up is logged. The recorded night waits on the native side until
+   it is safely in the log here — fetched, written, then acknowledged — and goes to the
+   server on its own route (/night), like the fatigue checks and for the same reason. */
+const nativeNight = (() => {
+  const C = window.Capacitor;
+  const Z = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.ZoneService;
+  return (Z && Z.nightStart) ? Z : null;
+})();
+const POS_NAMES = {back: 'back', stomach: 'stomach', left: 'left side', right: 'right side',
+  upright: 'upright', headdown: 'head down', between: 'in between', moving: 'moving'};
+
+async function paintTrackline(){
+  const el = $('#trackline');
+  let st = null;
+  if (nativeNight){ try { st = await nativeNight.nightStatus(); } catch(_){} }
+  if (st && st.on){
+    el.innerHTML = '🫀 Tracking the night since <b></b> — HR, HRV, position';
+    el.querySelector('b').textContent = fmtClock(Number(st.start));
+    el.style.display = 'block';
+  } else { el.style.display = 'none'; el.textContent = ''; }
+}
+
+async function startNightTracking(){
+  if (!nativeNight) return;
+  const Z = window.ZoneConn;
+  toast('Connecting the strap…');
+  let ok = false;
+  try { ok = !!(Z && await Z.ensure()); } catch(_){}
+  if (!ok) return toast('Strap not connected — night mode without tracking. Switch to day and back to try again.');
+  try {
+    await nativeNight.nightStart({deviceId: strapAddress()});
+    toast('Tracking the night — HR, HRV and position, until you log the wake-up');
+  } catch(err){ toast('Could not start the tracking: ' + (err && err.message || 'error')); }
+  paintTrackline();
+}
+
+/* The rise: stop the recorder, give it a moment to write its last minute, take the night. */
+async function stopNightTracking(){
+  if (!nativeNight) return;
+  try {
+    const st = await nativeNight.nightStatus();
+    if (!st || !st.on) return;
+    await nativeNight.nightStop();
+    for (let i = 0; i < 15; i++){
+      await new Promise(r => setTimeout(r, 200));
+      const s2 = await nativeNight.nightStatus();
+      if (!s2.on) break;
+    }
+  } catch(_){}
+  await collectNights();
+  paintTrackline();
+}
+
+/* One night's numbers, from its minutes. HRV is the mean of the minutes' RMSSD — each over
+   one minute's beats, the only window a line holds. Position time is counted in seconds,
+   from each minute's own split; a change is a minute whose position differs from the last
+   one known. A minute the strap said nothing in counts for nothing, anywhere. */
+function nightSummary(ep){
+  const on = ep.filter(e => !e.off), hr = on.filter(e => e.hr), hv = on.filter(e => e.rmssd != null);
+  const mean = a => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 10) / 10 : null;
+  const pos = {}; let mov = 0, changes = 0, lastPos = null;
+  for (const e of on){
+    for (const k in (e.sec || {})) pos[k] = (pos[k] || 0) + e.sec[k];
+    mov += e.mov || 0;
+    if (e.pos && e.pos !== 'moving'){ if (lastPos && e.pos !== lastPos) changes++; lastPos = e.pos; }
+  }
+  const low = hr.length ? hr.reduce((a, e) => e.hr < a.hr ? e : a) : null;
+  return {minutes: ep.length, heard: on.length, hrAvg: mean(hr.map(e => e.hr)), hrMin: low ? low.hr : null,
+    hrMinAt: low ? low.t : null, rmssdAvg: mean(hv.map(e => e.rmssd)), rmssdMinutes: hv.length,
+    positionSeconds: pos, movingSeconds: mov, positionChanges: changes};
+}
+
+async function collectNights(){
+  if (!nativeNight) return;
+  try {
+    const r = await nativeNight.nightPending();
+    const list = (r && r.nights) || [];
+    for (const n of list){
+      const start = Number(n.start), end = Number(n.end);
+      const got = await nativeNight.nightRead({start: String(start)});
+      const epochs = (got && got.epochs) || [];
+      await putNightTrack({id: 'night-' + start, start, end, localDay: dayKey(start), epochs, summary: nightSummary(epochs)});
+      await nativeNight.nightAck({start: String(start)});
+      toast('Night tracked — ' + epochs.filter(e => !e.off).length + ' minutes recorded. See 📊 → 🌙 Night');
+    }
+    if (list.length){
+      pushNights();
+      if ($('#logsheet').classList.contains('on')) openLog('night');
+    }
+  } catch(_){}
+}
+
+const secDur = s => s >= 3600 ? Math.floor(s / 3600) + ' h ' + String(Math.round(s % 3600 / 60)).padStart(2, '0')
+                               : Math.round(s / 60) + ' min';
+function nightLines(n){
+  const s = n.summary || nightSummary(n.epochs || []), out = [];
+  out.push('HR — ' + (s.hrAvg == null ? 'nothing recorded' : 'average ' + s.hrAvg + ' bpm · lowest minute ' + s.hrMin + ' at ' + fmtClock(s.hrMinAt)));
+  out.push('HRV — ' + (s.rmssdAvg == null ? 'nothing recorded' : 'RMSSD ' + s.rmssdAvg + ' ms, mean of ' + s.rmssdMinutes + ' one-minute values'));
+  const ps = Object.entries(s.positionSeconds || {}).sort((a, b) => b[1] - a[1]);
+  out.push('Position — ' + (ps.length ? ps.map(([k, v]) => (POS_NAMES[k] || k) + ' ' + secDur(v)).join(' · ') +
+    ' · ' + s.positionChanges + ' change' + (s.positionChanges === 1 ? '' : 's') + ' · moving ' + secDur(s.movingSeconds) : 'nothing recorded'));
+  out.push('Strap heard ' + s.heard + ' of ' + s.minutes + ' minutes' +
+    (upCfg && upCfg.url ? (n.syncedAt ? ' · on the server' : ' · waiting for the server') : ''));
+  // Hour by hour: the night's shape, not just its average.
+  const byHour = new Map();
+  for (const e of n.epochs || []){
+    if (e.off) continue;
+    const h = new Date(e.t).getHours();
+    if (!byHour.has(h)) byHour.set(h, []);
+    byHour.get(h).push(e);
+  }
+  for (const [h, es] of byHour){
+    const x = nightSummary(es), top = Object.entries(x.positionSeconds).sort((a, b) => b[1] - a[1])[0];
+    out.push(String(h).padStart(2, '0') + ' h — ' + [x.hrAvg != null && x.hrAvg + ' bpm', x.rmssdAvg != null && 'RMSSD ' + x.rmssdAvg,
+      top && (POS_NAMES[top[0]] || top[0])].filter(Boolean).join(' · '));
+  }
+  return out;
+}
+async function renderNightTracks(){
+  const box = $('#tracklist');
+  box.textContent = '';
+  let nights = [];
+  try { nights = await allNightTracks(); } catch(_){}
+  for (const n of nights.sort((a, b) => b.start - a.start)){
+    const el = document.createElement('div'); el.className = 'logrow';
+    const day = document.createElement('div'); day.className = 'logday';
+    day.textContent = fmtDay(n.start) + ' · 🫀 Tracked night ' + fmtClock(n.start) + ' → ' + fmtClock(n.end) +
+      ' · ' + secDur((n.end - n.start) / 1000);
+    const meta = document.createElement('div'); meta.className = 'logmeta'; meta.style.whiteSpace = 'pre-line';
+    meta.textContent = nightLines(n).join('\n');
+    el.append(day, meta, delButton(async () => {
+      if (!confirm('Delete this tracked night from the phone?')) return;
+      await delNightTrack(n.id); openLog('night');
+    }));
+    box.append(el);
+  }
+}
+
+/* To the server: own route, own folder, body key "nights" (a receiver without the route
+   refuses it rather than filing it as a listening run). A night is tens of kilobytes, so
+   only the ones the server has not confirmed are sent — unlike the small logs, which go
+   whole every time. */
+let nightsPushing = false;
+async function pushNights(){
+  if (nightsPushing || !upCfg || !upCfg.url) return;
+  const url = upCfg.url.replace(/\/+$/, '') + '/night';
+  if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url)) return;
+  let todo = [];
+  try { todo = (await allNightTracks()).filter(n => !n.syncedAt); } catch(_){ return; }
+  if (!todo.length) return;
+  nightsPushing = true;
+  try {
+    for (const n of todo){
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Authorization': 'Bearer ' + (upCfg.token || ''), 'Content-Type': 'application/json'},
+        body: JSON.stringify({device: 'audio-timer', nights: [{id: n.id, started: new Date(n.start).toISOString(),
+          ended: new Date(n.end).toISOString(), localDay: n.localDay, summary: n.summary, epochs: n.epochs}]})
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(out.accepted) && out.accepted.includes(n.id)){ n.syncedAt = Date.now(); await putNightTrack(n); }
+      else break;
+    }
+  } catch(_){ /* offline: kept, retried */ }
+  nightsPushing = false;
+}
+addEventListener('online', pushNights);
+
 /* The last wake-up in the log — the one fact the alarm rule needs from the page. */
 async function lastWakeAt(){
   let at = 0;
@@ -3191,6 +3385,7 @@ async function logWakeUp(note, at){
     }
   } catch(_){}
   await refreshFatigueStatus();        // the alarm moved, and the evening checks with it
+  stopNightTracking();                 // the rise is where a tracked night ends
   toast(said);
   uploadSoon();
 }
@@ -3229,6 +3424,9 @@ const delEventLog = async id => req((await os('issuelogs','readwrite')).delete(i
 const allEventLogs = async () => req((await os('issuelogs','readonly')).getAll());
 const putFatigueCheck = async k => req((await os('fatiguechecks','readwrite')).put(k));
 const delFatigueCheck = async id => req((await os('fatiguechecks','readwrite')).delete(id));
+const putNightTrack = async n => req((await os('nighttracks','readwrite')).put(n));
+const delNightTrack = async id => req((await os('nighttracks','readwrite')).delete(id));
+const allNightTracks = async () => req((await os('nighttracks','readonly')).getAll());
 const allFatigueChecks = async () => req((await os('fatiguechecks','readonly')).getAll());
 
 /* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
@@ -3370,7 +3568,17 @@ $('#modenav').onclick = () => {
       (due.length && nativeFatigue ? ' Fatigue check' + (due.length > 1 ? 's' : '') + ' will ring ' + due.join(', ') + '.' : '');
     $('#wakesheet').classList.add('on');
   } else {
-    if (!confirm('Switch to night mode?')) return;
+    // The confirmation is a sheet now, because it carries a question: track this night?
+    $('#nighttrack').hidden = !nativeNight;
+    $('#nightsheettext').textContent = nativeNight
+      ? 'Track this night? With the strap on, the app records your heart rate, your HRV and your sleeping position, minute by minute, until you log the wake-up.'
+      : 'Night tracking (heart rate, HRV, sleeping position) needs the installed app — a browser is frozen long before morning.';
+    $('#nightsheet').classList.add('on');
+  }
+};
+function goNight(){
+  $('#nightsheet').classList.remove('on');
+  {
     /* Back to bed means the morning is over: a fatigue check still counting down from the
        last rise would ring into the nap, so those are withdrawn. The next rise re-arms them.
        (FatigueAlarm is the single 45-minute question they replaced — one may still be
@@ -3385,6 +3593,13 @@ $('#modenav').onclick = () => {
     } catch(_){}
     showView('audio');
   }
+}
+$('#nightplain').onclick = goNight;
+$('#nightcancel').onclick = () => $('#nightsheet').classList.remove('on');
+$('#nightsheet').onclick = e => { if (e.target.id === 'nightsheet') e.currentTarget.classList.remove('on'); };
+$('#nighttrack').onclick = async () => {
+  goNight();                                  // night mode either way; the strap comes next
+  await startNightTracking();
 };
 $('#wakego').onclick = async () => {
   $('#wakesheet').classList.remove('on');
@@ -5053,10 +5268,13 @@ $('#posfile').onchange = async e => {
   await checkPendingWake();
   await collectFatigueResults();
   pushFatigueLog();
+  await collectNights();
+  pushNights();
+  paintTrackline();
   document.addEventListener('visibilitychange', () => {
     // A fatigue check runs in a screen of its own; coming back from it (or from anywhere)
     // is when its record is fetched into the log.
-    if (document.visibilityState === 'visible'){ checkPendingWake(); collectFatigueResults(); refreshFatigueStatus(); pushFatigueLog(); }
+    if (document.visibilityState === 'visible'){ checkPendingWake(); collectFatigueResults(); refreshFatigueStatus(); pushFatigueLog(); collectNights(); pushNights(); paintTrackline(); }
   });
   await render();
   showStorage();

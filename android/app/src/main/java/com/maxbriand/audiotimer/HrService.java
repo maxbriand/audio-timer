@@ -52,6 +52,8 @@ public class HrService extends Service {
     public static final String ACTION_SESSION = "com.maxbriand.audiotimer.SESSION";
     public static final String ACTION_LIVE = "com.maxbriand.audiotimer.LIVE";
     public static final String ACTION_COOLDOWN = "com.maxbriand.audiotimer.COOLDOWN";
+    /** Night tracking on/off (NightTrack): the strap held through the night, one line a minute. */
+    public static final String ACTION_NIGHT = "com.maxbriand.audiotimer.NIGHT";
 
     private static final String CHANNEL = "zone_alarm_session";
     private static final int NOTIFICATION_ID = 1;
@@ -75,6 +77,9 @@ public class HrService extends Service {
     // start measurement: ECG 130 Hz/14-bit; ACC 50 Hz/16-bit/±8 G — mirrors index.html.
     private static final byte[] PMD_START_ECG = {0x02, 0x00, 0x00, 0x01, (byte) 0x82, 0x00, 0x01, 0x01, 0x0e, 0x00};
     private static final byte[] PMD_START_ACC = {0x02, 0x02, 0x00, 0x01, 0x32, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x08, 0x00};
+    // The night's own accelerometer stream: 25 Hz is plenty to tell a side from the back, and
+    // half the radio traffic of the live page's 50 for the eight hours it stays on.
+    private static final byte[] PMD_START_ACC_NIGHT = {0x02, 0x02, 0x00, 0x01, 0x19, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x08, 0x00};
     private static final byte[] PMD_STOP_ECG = {0x03, 0x00};
     private static final byte[] PMD_STOP_ACC = {0x03, 0x02};
 
@@ -129,6 +134,9 @@ public class HrService extends Service {
     private static final long BATT_REREAD_MS = 60000;
     // Written on the engine thread, read on BLE binder threads when forwarding.
     private volatile boolean liveOn;
+    // A tracked night in progress — read on BLE binder threads like liveOn.
+    private volatile boolean nightOn;
+    private static final long NIGHT_WAKE_MS = 14 * 60 * 60 * 1000L;
 
     // One GATT operation at a time: Android silently drops overlapping ops, so
     // every read / descriptor write / characteristic write goes through this
@@ -216,6 +224,18 @@ public class HrService extends Service {
         // 6 h cap as a battery safety net; a session never runs that long.
         if (!wakeLock.isHeld()) wakeLock.acquire(6 * 60 * 60 * 1000L);
 
+        // Restarted by the system (START_STICKY hands a null intent) in the middle of a
+        // tracked night: everything this service knew is gone, but the night is on disk with
+        // the strap's address — pick both up and carry on into the same file.
+        if (intent == null && NightTrack.on(this) && !NightTrack.address(this).isEmpty()) {
+            engine.post(() -> {
+                address = NightTrack.address(this);
+                wantConnected = true;
+                beginNight();
+                openGatt();
+            });
+        }
+
         final String action = intent == null ? null : intent.getAction();
         if (action != null) {
             final Intent i = intent;
@@ -231,7 +251,18 @@ public class HrService extends Service {
                 wantConnected = true;
                 openGatt();
                 break;
+            case ACTION_NIGHT:
+                if (i.getBooleanExtra("on", false)) {
+                    String a = i.getStringExtra("deviceId");
+                    if (a != null && !a.isEmpty() && !a.equals(address)) { address = a; wantConnected = true; openGatt(); }
+                    NightTrack.begin(this, address);
+                    beginNight();
+                } else endNight();
+                break;
             case ACTION_DISCONNECT:
+                // The night holds the strap until the wake-up — a page closing its Live view
+                // or a fatigue check letting go must not end eight hours of recording.
+                if (nightOn) break;
                 wantConnected = false;
                 closeGatt();
                 stopSelf();
@@ -268,6 +299,40 @@ public class HrService extends Service {
                 break;
         }
         push();
+    }
+
+    // ---------------------------------------------------------- night tracking
+
+    /** The night is on: hold the CPU until morning, and ask the strap for its accelerometer. */
+    private void beginNight() {
+        nightOn = true;
+        wantConnected = true;
+        if (wakeLock != null) wakeLock.acquire(NIGHT_WAKE_MS);
+        if (connected) startNight();          // else from onServicesDiscovered, like the live page
+        updateNotification();
+    }
+
+    private void startNight() {
+        if (gatt == null || !connected) return;
+        final BluetoothGatt g = gatt;
+        subscribePmd(g, PMD_CTRL);
+        subscribePmd(g, PMD_DATA);
+        writePmd(g, PMD_START_ACC_NIGHT);      // refused if the live page already runs it at 50 Hz — same frames either way
+    }
+
+    /** The wake-up: write the minute in hand, close the night, and let the strap go unless a
+     *  run or the live page still wants it. */
+    private void endNight() {
+        if (!nightOn && !NightTrack.on(this)) return;
+        NightTrack.flush(this);
+        NightTrack.end(this);
+        NightTrack.reset();
+        nightOn = false;
+        if (gatt != null && connected && !liveOn) writePmd(gatt, PMD_STOP_ACC);
+        if (phase != PHASE_ACTIVE && !liveOn) {
+            wantConnected = false;
+            engine.postDelayed(() -> { if (!nightOn && phase != PHASE_ACTIVE && !liveOn) { closeGatt(); stopSelf(); } }, 800);
+        } else updateNotification();
     }
 
     // -------------------------------------------------------------- live page
@@ -312,7 +377,7 @@ public class HrService extends Service {
         if (gatt == null || !connected) return;
         final BluetoothGatt g = gatt;
         writePmd(g, PMD_STOP_ECG);
-        writePmd(g, PMD_STOP_ACC);
+        if (!nightOn) writePmd(g, PMD_STOP_ACC);   // the night still needs the accelerometer
     }
 
     private void subscribePmd(BluetoothGatt g, UUID chUuid) {
@@ -585,6 +650,7 @@ public class HrService extends Service {
                 connected = true;
                 push();
                 if (liveOn) startLive();   // live page open across a reconnect
+                if (nightOn) startNight();  // a strap that dropped at 3 a.m. and came back
             });
         }
 
@@ -601,7 +667,10 @@ public class HrService extends Service {
         @Override
         public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic ch, byte[] value) {
             if (HR_MEASUREMENT.equals(ch.getUuid())) { onHr(value); emitLiveBytes("hrraw", value); }
-            else if (PMD_DATA.equals(ch.getUuid())) emitLiveBytes("pmd", value);
+            else if (PMD_DATA.equals(ch.getUuid())) {
+                emitLiveBytes("pmd", value);
+                if (nightOn) NightTrack.onAcc(HrService.this, value);
+            }
         }
 
         @Override @SuppressWarnings("deprecation")
@@ -646,7 +715,10 @@ public class HrService extends Service {
             connected = true;
         });
         BeatListener bl = beatListener;
-        if (bl != null) bl.onBeats(value, rrOf(v, wide));
+        if (bl == null && !nightOn) return;
+        final float[] rrMs = rrOf(v, wide);
+        if (bl != null) bl.onBeats(value, rrMs);
+        if (nightOn) NightTrack.onBeats(this, value, rrMs);
     }
 
     /** The RR intervals of a Heart Rate Measurement, in ms. After the flags and the rate
@@ -697,6 +769,7 @@ public class HrService extends Service {
             s.put("out", outDir == null ? JSONObject.NULL : outDir);
             s.put("outFor", outSince == 0 ? 0 : (now - outSince) / 1000.0);
             s.put("alerting", alerting);
+            s.put("night", nightOn);
         } catch (Exception e) { /* fall through with whatever was set */ }
         return s;
     }
@@ -730,7 +803,9 @@ public class HrService extends Service {
     /** Live status in the shade — also the proof the engine is still running. */
     private Notification buildNotification() {
         String text;
-        if (!connected) text = wantConnected ? "Reconnecting to the strap…" : "Watching your heart rate";
+        if (nightOn && phase != PHASE_ACTIVE) text = "Tracking the night since " + NightTrack.clock(NightTrack.startedAt(this))
+            + (connected && isFresh() ? " · " + hr + " bpm" : " · waiting for the strap");
+        else if (!connected) text = wantConnected ? "Reconnecting to the strap…" : "Watching your heart rate";
         else if (!isFresh()) text = "Waiting for signal…";
         else if (phase != PHASE_ACTIVE) text = hr + " bpm · no session running";
         else if (!reachedMin && hr < min) text = hr + " bpm · warm-up — alerts arm at " + min;
@@ -760,6 +835,7 @@ public class HrService extends Service {
 
     @Override
     public void onDestroy() {
+        if (nightOn) NightTrack.flush(this);   // killed mid-night: keep the minute in hand
         running = false;
         wantConnected = false;
         closeGatt();
