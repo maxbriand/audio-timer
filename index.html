@@ -111,6 +111,11 @@
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
   #loglist{margin-bottom:6px}
+  #logtabs{grid-template-columns:repeat(2,1fr);margin:4px 0 12px}
+  #logday[hidden],#lognight[hidden]{display:none}
+  .logpics{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .logpics:empty{display:none}
+  .logpics img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
   .logrow{position:relative;padding:10px 44px 10px 0;border-bottom:1px solid var(--line)}
   .logdel{position:absolute;top:8px;right:0;width:34px;height:34px;border-radius:10px;
     border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px}
@@ -119,7 +124,7 @@
   .logday{font-size:14px;font-weight:600}
   .logmeta{font-size:12.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
   .logempty{color:var(--muted);font-size:13.5px;padding:20px 0;text-align:center}
-  #logcount{font-size:12.5px;color:var(--muted);margin-bottom:6px;font-variant-numeric:tabular-nums}
+  #logcount,#daycount{font-size:12.5px;color:var(--muted);margin-bottom:6px;font-variant-numeric:tabular-nums}
   .logsub{opacity:.75}
   .logsub:empty{display:none}
 
@@ -459,7 +464,7 @@
     <button id="livenav" aria-label="Live sensor data">🫀</button>
     <button id="modenav" aria-label="Day / night mode">🌙</button>
     <button id="setnav" aria-label="Playback settings">⚙️</button>
-    <button id="lognav" aria-label="Listening log">📊</button>
+    <button id="lognav" aria-label="Log">📊</button>
   </div>
 </header>
 
@@ -781,18 +786,29 @@
 
 <div id="logsheet">
   <div class="sheetbox">
-    <div class="pagetop"><button id="closelog">&#8592; Back</button><h2>Nights</h2></div>
-    <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
-    <div id="logcount"></div>
-    <div id="loglist"></div>
-    <h3 id="cardiohead" hidden>Cardio</h3>
-    <div id="cardiolist"></div>
-    <div class="sheetfoot">
-      <button id="exportcsv">Export CSV</button>
+    <div class="pagetop"><button id="closelog">&#8592; Back</button><h2>Log</h2></div>
+    <div class="chips sm" id="logtabs">
+      <button class="chip sm on" data-part="day">☀️ Day</button>
+      <button class="chip sm" data-part="night">🌙 Night</button>
     </div>
-    <div class="sheetfoot">
-      <button id="exportpos">Back up positions</button>
-      <button id="importpos">Restore positions</button>
+    <div id="logday">
+      <p>What the day screen recorded: the rise, the habits and the issues with their notes and pictures.</p>
+      <div id="daycount"></div>
+      <div id="daylist"></div>
+      <h3 id="cardiohead" hidden>Cardio</h3>
+      <div id="cardiolist"></div>
+    </div>
+    <div id="lognight" hidden>
+      <p>What this app saw: when audio started, how long it played, and what stopped it.</p>
+      <div id="logcount"></div>
+      <div id="loglist"></div>
+      <div class="sheetfoot">
+        <button id="exportcsv">Export CSV</button>
+      </div>
+      <div class="sheetfoot">
+        <button id="exportpos">Back up positions</button>
+        <button id="importpos">Restore positions</button>
+      </div>
     </div>
     <input type="file" id="posfile" accept="application/json,.json" hidden>
   </div>
@@ -2017,9 +2033,101 @@ function fmtDay(ms){
   return new Date(ms).toLocaleDateString(undefined, {weekday:'short', day:'numeric', month:'short'});
 }
 
+/* The log has two parts, like the app: ☀️ Day (the rise, habits, issues, cardio) and
+   🌙 Night (the listening runs). It always opens on Day — the log is read in the daytime,
+   and the day's entries had no reader at all before this page showed them. The zero-length
+   marker rows the day screen writes into the sessions store (wake-up, morning-walk,
+   screens-off) belong to the day; everything else in that store is a night. */
+const DAY_MARKERS = {'wake-up': '☀️ Woke up', 'morning-walk': '☀️ Morning walk', 'screens-off': '📵 Screens off'};
+const isDayMarker = s => Object.prototype.hasOwnProperty.call(DAY_MARKERS, s.stopReason);
+
+function showLogPart(part){
+  $('#logday').hidden = part !== 'day';
+  $('#lognight').hidden = part !== 'night';
+  for (const b of $('#logtabs').querySelectorAll('.chip')) b.classList.toggle('on', b.dataset.part === part);
+}
+for (const b of $('#logtabs').querySelectorAll('.chip')) b.onclick = () => showLogPart(b.dataset.part);
+
+/* Every day entry ever recorded, newest first. Event logs live in their own store with
+   their pictures; the markers come from the sessions store. A walk is saved in both (the
+   event log carries the pictures, the marker rides the upload), so its marker is dropped
+   when the matching event log is there — one walk, one row. */
+let dayPicUrls = [];
+async function renderDay(sessions){
+  for (const u of dayPicUrls) URL.revokeObjectURL(u);
+  dayPicUrls = [];
+  let logs = [];
+  try { logs = await allEventLogs(); } catch(_){}
+  let cats = {};
+  try { for (const ev of await allEvents()) cats[ev.id] = ev.cat === 'habit' ? 'habit' : 'issue'; } catch(_){}
+  const walkTaps = new Set(logs.filter(l => l.issueId === MORNING_WALK.id).map(l => l.at));
+  const items = [
+    ...logs.map(l => ({
+      del: () => deleteDayEntry(l, sessions), at: l.at, title: l.issue || 'Event', note: l.note, photos: l.photos || [],
+      kind: l.issueId === MORNING_WALK.id ? 'habit' : (cats[l.issueId] || 'entry')
+    })),
+    ...sessions.filter(isDayMarker)
+      .filter(s => !(s.stopReason === 'morning-walk' && walkTaps.has(s.startedAt)))
+      .map(s => ({del: () => deleteNight(s), at: s.startedAt, title: DAY_MARKERS[s.stopReason], note: s.note, photos: [],
+                  kind: s.stopReason === 'wake-up' ? 'rise' : 'habit'}))
+  ].sort((a, b) => b.at - a.at);
+  const box = $('#daylist'), count = $('#daycount');
+  box.innerHTML = '';
+  if (!items.length){
+    box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you log habits and issues on the day screen.</div>';
+    count.textContent = '';
+    return;
+  }
+  const n = k => items.filter(i => i.kind === k).length;
+  count.textContent = [
+    n('issue') && n('issue') + (n('issue') === 1 ? ' issue' : ' issues'),
+    n('habit') && n('habit') + (n('habit') === 1 ? ' habit' : ' habits'),
+    n('rise') && n('rise') + (n('rise') === 1 ? ' rise' : ' rises'),
+    n('entry') && n('entry') + ' from deleted buttons'
+  ].filter(Boolean).join(' · ');
+  for (const it of items){
+    const el = document.createElement('div');
+    el.className = 'logrow';
+    el.innerHTML = '<div class="logday"></div><div class="logmeta"></div><div class="logpics"></div>';
+    el.querySelector('.logday').textContent = fmtDay(it.at) + ' · ' + fmtClock(it.at) + ' · ' + it.title;
+    el.querySelector('.logmeta').textContent =
+      [it.kind !== 'rise' && it.kind !== 'entry' && it.kind, it.note && '“' + it.note + '”']
+        .filter(Boolean).join(' · ') || (it.kind === 'rise' ? 'rise' : 'no note');
+    for (const blob of it.photos){
+      try {
+        const u = URL.createObjectURL(blob);
+        dayPicUrls.push(u);
+        const img = document.createElement('img');
+        img.src = u;
+        img.onclick = () => window.open(u);
+        el.querySelector('.logpics').appendChild(img);
+      } catch(_){}
+    }
+    el.appendChild(delButton(it.del));
+    box.appendChild(el);
+  }
+}
+
+/* A day entry goes with its pictures. A walk also has its twin in the sessions store (the
+   marker that rides the upload), so that one is withdrawn the same way a night is. */
+async function deleteDayEntry(l, sessions){
+  if (!confirm('Delete this entry' + ((l.photos || []).length ? ' and its pictures' : '') + '?')) return;
+  await delEventLog(l.id);
+  if (l.issueId === MORNING_WALK.id){
+    for (const s of sessions.filter(x => x.stopReason === 'morning-walk' && x.startedAt === l.at)){
+      if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
+      await delSession(s.id);
+    }
+    paintSun();
+  }
+  openLog('day');
+}
+
 /* Every run ever recorded, newest first — the whole history, not a recent window. */
-async function openLog(){
-  const rows = (await allSessions()).sort((a,b) => b.startedAt - a.startedAt);
+async function openLog(part){
+  const sessions = await allSessions();
+  await renderDay(sessions);
+  const rows = sessions.filter(s => !isDayMarker(s)).sort((a,b) => b.startedAt - a.startedAt);
   const box = $('#loglist');
   const count = $('#logcount');
   if (!rows.length){
@@ -2060,6 +2168,7 @@ async function openLog(){
     }
   }
   renderCardio();
+  showLogPart(part === 'night' ? 'night' : 'day');   // Day unless a re-render asks to stay
   $('#logsheet').classList.add('on');
   if (window.ZoneLog) window.ZoneLog.push();
 }
@@ -2080,7 +2189,7 @@ async function deleteNight(s){
       (s.uploadedAt ? ' The copy the server already has stays there.' : ''))) return;
   if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
   await delSession(s.id);
-  openLog();
+  openLog(isDayMarker(s) ? 'day' : 'night');
 }
 function deleteRun(r){
   if (!confirm('Delete this run? It leaves this phone and will not be sent to the server.' +
@@ -2566,13 +2675,16 @@ async function paintSun(){
    predate the split and read as issues, which is what they all were. Deleting a type
    removes only the button: entries already logged are records of days that happened and
    are kept, the same rule as the walk toggle. Everything stays in IndexedDB on the phone —
-   photos are stored as blobs, like the audio itself. (The stores and log fields keep their
+   photos are stored as blobs, like the audio itself — and is read back in the log's ☀️ Day
+   part. (The stores and log fields keep their
    historical names, issues/issuelogs/issueId: renaming them means migrating user data for
    zero benefit — "event" is the concept, not the storage key.) */
 const allEvents   = async () => req((await os('issues','readonly')).getAll());
 const putEvent    = async ev => req((await os('issues','readwrite')).put(ev));
 const delEvent    = async id => req((await os('issues','readwrite')).delete(id));
 const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
+const delEventLog = async id => req((await os('issuelogs','readwrite')).delete(id));
+const allEventLogs = async () => req((await os('issuelogs','readonly')).getAll());
 
 /* The morning walk is not a stored row: the settings toggle paints it, pinned first, and
    toggling it off just stops painting the button — walks already logged stay logged.
