@@ -776,7 +776,7 @@
       </div>
 
       <div class="card">
-        <div class="cardtitle">Apps <span class="cardsub" style="display:inline">— time in front · times opened</span></div>
+        <div class="cardtitle">Apps <span class="cardsub" style="display:inline">— time in front, screen on · times opened</span></div>
         <div id="phoneApps"></div>
       </div>
 
@@ -4337,6 +4337,7 @@ $('#posfile').onchange = async e => {
   // midnight is known to be on; everything shown is then clipped back to the day itself.
   const LEAD = 3 * 3600000;
   const MERGE = 2000;      // an app's own screens hand over in well under this; a real return does not
+  const CARRY = 5000;      // a resume this close before the screen-on is the thing that woke it (an alarm)
   const BACK = 13;         // days the ‹ button will go; the log itself gives up sooner
   let offset = 0, open = false, histKind = 'day', ticket = 0, askOnOpen = false;
 
@@ -4362,7 +4363,16 @@ $('#posfile').onchange = async e => {
      with the keyguard already away is unlocked from its first second. App: resumed → paused
      — of the same activity, because inside one app the next screen resumes before or after
      the last one pauses, and only the top one leaving means the app left; two stretches of
-     one app a breath apart are one visit. */
+     one app a breath apart are one visit.
+
+     An app's time is time in front of someone, so it only exists while the screen is on.
+     The log does not promise that by itself: a resume can be written just after the
+     screen-off it belongs before, or for an app that comes up with the screen dark, and then
+     nothing closes it until the next morning — hours of "use" nobody did. So visits are not
+     trusted to stay inside the screen sessions; they are cut to them, one piece per session.
+     A visit already running when the screen comes on (not resumed for it, give or take the
+     few seconds an alarm screen needs to wake the phone) sat behind the keyguard: its piece
+     starts at the unlock, and a session never unlocked gets none. */
   function digest(r, dayStart, dayEnd){
     const base = +r.from, end = +r.to;
     const span = (a, b) => Math.max(0, Math.min(b, dayEnd) - Math.max(a, dayStart));
@@ -4378,7 +4388,8 @@ $('#posfile').onchange = async e => {
       useStop(t); scr.off = t; scr.stillOn = !!stillOn; screens.push(scr); scr = null;
     };
     const openScreen = (t, assumed) => {
-      scr = { on: t, off: null, assumed, unlockAt: null, useMs: 0, useFrom: locked === false ? t : null };
+      const open = locked === false ? t : null;      // the keyguard is already away
+      scr = { on: t, off: null, assumed, unlockAt: null, useMs: 0, useFrom: open, firstUse: open };
     };
     const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
 
@@ -4398,7 +4409,11 @@ $('#posfile').onchange = async e => {
         case 18:                                   // keyguard hidden = unlocked
           locked = false;
           if (inDay) unlocks++;
-          if (scr){ if (scr.unlockAt === null) scr.unlockAt = t; if (scr.useFrom === null) scr.useFrom = t; }
+          if (scr){
+            if (scr.unlockAt === null) scr.unlockAt = t;
+            if (scr.useFrom === null) scr.useFrom = t;
+            if (scr.firstUse === null) scr.firstUse = t;
+          }
           break;
         case 17:                                   // keyguard shown = locked
           locked = true; useStop(t);
@@ -4446,7 +4461,24 @@ $('#posfile').onchange = async e => {
       }
       return a;
     };
+    // Cut the visits to the screen sessions (see above). Android 8 and below log no screen
+    // events at all — there is nothing to cut to, and the visits stand as the log has them.
+    const pieces = [];
     for (const v of visits){
+      if (!sawScreen){ pieces.push(v); continue; }
+      for (const sc of screens){
+        if (sc.off <= v.start) continue;
+        if (sc.on >= v.end) break;
+        let from = Math.max(v.start, sc.on);
+        if (v.start < sc.on - CARRY){
+          if (sc.firstUse === null) continue;
+          from = Math.max(from, sc.firstUse);
+        }
+        const to = Math.min(v.end, sc.off);
+        if (to > from) pieces.push({ pi: v.pi, start: from, end: to, cls: v.cls, screen: sc });
+      }
+    }
+    for (const v of pieces){
       v.ms = span(v.start, v.end);
       if (v.ms <= 0) continue;
       const a = app(v.pi);
@@ -4459,14 +4491,9 @@ $('#posfile').onchange = async e => {
     day.apps = [...byApp.values()].sort((a, b) => b.ms - a.ms || b.notif - a.notif);
     day.notif = [...notif.values()].reduce((a, b) => a + b, 0);
 
-    // Which apps were in front during which screen session — both lists run oldest first.
-    const dayVisits = visits.filter(v => v.ms > 0);
-    let vi = 0;
-    for (const s of day.screens){
-      s.visits = [];
-      while (vi < dayVisits.length && dayVisits[vi].end <= s.on) vi++;
-      for (let j = vi; j < dayVisits.length && dayVisits[j].start < s.off; j++) s.visits.push(dayVisits[j]);
-    }
+    // Which apps were in front during which screen session: every piece knows its own.
+    for (const s of day.screens) s.visits = [];
+    for (const v of pieces) if (v.ms > 0 && v.screen && v.screen.visits) v.screen.visits.push(v);
     day.screenMs = day.screens.reduce((a, s) => a + s.ms, 0);
     day.useMs = day.screens.reduce((a, s) => a + s.useMs, 0);
     day.glances = day.screens.filter(s => s.on >= dayStart && !s.assumed && s.useMs === 0 && s.unlockAt === null).length;
