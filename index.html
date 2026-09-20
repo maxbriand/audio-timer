@@ -3678,6 +3678,8 @@ $('#posfile').onchange = async e => {
   $('connect').addEventListener('click', () => {
     isConnected() || wantConnected ? disconnect() : connect();
   });
+  // The 🫀 door needs the strap before it opens Live: it asks here rather than reaching in.
+  window.ZoneConn = { isConnected, wanted: () => wantConnected, connect };
   $('coolBtn').addEventListener('click', () => setCool(!cool));
   $('session').addEventListener('click', () => {
     const running = phase === 'active';
@@ -4087,7 +4089,10 @@ $('#posfile').onchange = async e => {
   saveLog(); pushLog();
 })();
 
-/* The overlay's door: 🏃 opens zone alarm, 🫀 opens it straight on its Live page, ✕
+/* The overlay's door: 🏃 opens zone alarm, 🫀 opens the Live page — but only with the strap
+   connected: Live without a sensor is an empty page, so the tap connects first (the H10
+   picker, or a wait while a dropped link is being found again) and opens Live once the
+   strap answers; if it never does, the page stays shut and a toast says why. ✕
    closes it — clearing the hash first so an open settings/live page closes through
    zone-alarm's own router (which also stops the 130 Hz streams). */
 (() => {
@@ -4095,9 +4100,27 @@ $('#posfile').onchange = async e => {
   // 🏃 opens the cardio overlay; 🫀 opens the Live page, which lives beside the overlay
   // (never inside it), as zone-alarm's #live route — so its Back is simply home.
   document.getElementById('zonenav').onclick = () => { root.classList.add('on'); };
-  document.getElementById('livenav').onclick = () => {
+  const openLive = () => {
     root.classList.remove('on');
     if (location.hash !== '#live') location.hash = '#live';
+  };
+  let liveBusy = false;
+  document.getElementById('livenav').onclick = async () => {
+    const Z = window.ZoneConn;
+    if (!Z || Z.isConnected()) return openLive();
+    if (liveBusy) return;                       // a second tap must not open a second picker
+    liveBusy = true;
+    try {
+      toast(Z.wanted() ? 'Looking for the Polar H10…' : 'Connecting the Polar H10…');
+      if (!Z.wanted()) await Z.connect();       // the picker, then the connection itself
+      // The APK learns it is connected from the service's next state push, not from
+      // connect() returning — and a dropped link needs a moment to be found again.
+      for (let i = 0; i < 48 && !Z.isConnected() && (i < 8 || Z.wanted()); i++)
+        await new Promise(r => setTimeout(r, 250));
+      if (Z.isConnected()) openLive();
+      else toast(document.getElementById('hint').textContent ||
+                 'Polar H10 not connected — Live data opens once it is.');
+    } finally { liveBusy = false; }
   };
   document.getElementById('zoneClose').onclick = () => {
     if (location.hash) location.hash = '';
