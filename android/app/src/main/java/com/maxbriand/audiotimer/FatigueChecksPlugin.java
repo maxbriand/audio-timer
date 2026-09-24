@@ -69,9 +69,9 @@ public class FatigueChecksPlugin extends Plugin {
     call.resolve(r);
   }
 
-  /* The Test button: the same screen, the same ring, the same record — started now, from
-     the steps given rather than from a saved check, so a check can be tried before it is
-     kept. */
+  /* The Test button: the same screen, the same ring — started now, from the steps given
+     rather than from a saved check, so a check can be tried before it is kept. Its record
+     is flagged as a test, and the page drops it rather than logging it. */
   @PluginMethod
   public void test(PluginCall call){
     try {
