@@ -2304,7 +2304,7 @@ async function renderDay(sessions){
   const items = [
     // A day's phone time: one entry per closed day, written at midnight (see phoneDays).
     ...phone.map(d => ({
-      del: null, at: d.at, title: '📱 Phone time', note: '', photos: [], kind: 'phone', lines: d.lines
+      del: null, at: d.at, title: '📱 Phone time — ' + d.day, note: '', photos: [], kind: 'phone', lines: d.lines
     })),
     // A run is one entry too, read from zone-alarm's own store (see runLines).
     ...allRuns().map(r => ({
@@ -2371,7 +2371,8 @@ async function renderDay(sessions){
 /* The phone's screen time, one entry per closed day. The native side writes each day's
    total at 00:05 (PhoneTime), from Android's usage log, and keeps it after that log has let
    the day go; the sessions themselves go to the server's phone-time.csv. The entry sits at
-   the end of its day, so it closes the day it is about. Not deletable: it is read, not
+   the midnight that closes its day — after anything logged up to 23:59:59 — and names that
+   day, since its own date reads the next one (00:00). Not deletable: it is read, not
    recorded, and would come back at the next open. */
 async function phoneDays(){
   const C = window.Capacitor;
@@ -2383,9 +2384,9 @@ async function phoneDays(){
   const hm = s => Math.floor(s / 3600) + ' h ' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ' min';
   return (r.days || []).map(d => {
     const [y, m, day] = d.date.split('-').map(Number);
-    const at = new Date(y, m - 1, day, 23, 59, 59).getTime();
-    return {at, lines: ['Screen on ' + hm(d.seconds) + ' · ' + d.sessions + (d.sessions === 1 ? ' time' : ' times') +
-      (upCfg && upCfg.url ? (sentAt > at ? ' · on the server' : ' · waiting for the server') : '')]};
+    const at = new Date(y, m - 1, day + 1).getTime();
+    return {at, day: fmtDay(new Date(y, m - 1, day).getTime()), lines: ['Screen on ' + hm(d.seconds) + ' · ' + d.sessions + (d.sessions === 1 ? ' time' : ' times') +
+      (upCfg && upCfg.url ? (sentAt >= at ? ' · on the server' : ' · waiting for the server') : '')]};
   });
 }
 
