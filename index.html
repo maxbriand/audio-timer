@@ -841,13 +841,6 @@
       </div>
 
       <div class="card">
-        <div class="cardtitle">Export</div>
-        <p class="cardsub">Every screen session the log still holds — start, end, length to the second — to the server set in ⚙, which keeps them in the Body asset's phone-time.csv. It also goes by itself every night at 00:05 (or at the next start-up, or the next network).</p>
-        <button id="phoneExport">Send to the server</button>
-        <p class="cardsub" id="phoneExportNote" style="margin-top:8px"></p>
-      </div>
-
-      <div class="card">
         <div class="cardtitle">Apps <span class="cardsub" style="display:inline">— time in front, screen on · times opened</span></div>
         <div id="phoneApps"></div>
       </div>
@@ -2307,7 +2300,12 @@ async function renderDay(sessions){
   let checks = [];
   try { checks = await allFatigueChecks(); } catch(_){}
   const running = window.ZoneLog ? window.ZoneLog.running() : null;
+  const phone = await phoneDays();
   const items = [
+    // A day's phone time: one entry per closed day, written at midnight (see phoneDays).
+    ...phone.map(d => ({
+      del: null, at: d.at, title: '📱 Phone time', note: '', photos: [], kind: 'phone', lines: d.lines
+    })),
     // A run is one entry too, read from zone-alarm's own store (see runLines).
     ...allRuns().map(r => ({
       del: r.id === running ? null : () => deleteRun(r), at: Date.parse(r.started),
@@ -2340,6 +2338,7 @@ async function renderDay(sessions){
     n('habit') && n('habit') + (n('habit') === 1 ? ' habit' : ' habits'),
     n('rise') && n('rise') + (n('rise') === 1 ? ' rise' : ' rises'),
     n('check') && n('check') + (n('check') === 1 ? ' fatigue check' : ' fatigue checks'),
+    n('phone') && n('phone') + (n('phone') === 1 ? ' day of phone time' : ' days of phone time'),
     n('run') && n('run') + (n('run') === 1 ? ' run' : ' runs'),
     n('entry') && n('entry') + ' from deleted buttons'
   ].filter(Boolean).join(' · ');
@@ -2367,6 +2366,27 @@ async function renderDay(sessions){
     if (it.del) el.appendChild(delButton(it.del));   // the run in progress is not deletable
     box.appendChild(el);
   }
+}
+
+/* The phone's screen time, one entry per closed day. The native side writes each day's
+   total at 00:05 (PhoneTime), from Android's usage log, and keeps it after that log has let
+   the day go; the sessions themselves go to the server's phone-time.csv. The entry sits at
+   the end of its day, so it closes the day it is about. Not deletable: it is read, not
+   recorded, and would come back at the next open. */
+async function phoneDays(){
+  const C = window.Capacitor;
+  const P = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.PhoneUsage;
+  if (!P || !P.days) return [];
+  let r;
+  try { r = await P.days(); } catch(_){ return []; }
+  const sentAt = +r.sentAt || 0;
+  const hm = s => Math.floor(s / 3600) + ' h ' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ' min';
+  return (r.days || []).map(d => {
+    const [y, m, day] = d.date.split('-').map(Number);
+    const at = new Date(y, m - 1, day, 23, 59, 59).getTime();
+    return {at, lines: ['Screen on ' + hm(d.seconds) + ' · ' + d.sessions + (d.sessions === 1 ? ' time' : ' times') +
+      (upCfg && upCfg.url ? (sentAt > at ? ' · on the server' : ' · waiting for the server') : '')]};
+  });
 }
 
 /* Everything a fatigue check collected, one line per step it was given. A step that was not
@@ -5225,29 +5245,11 @@ $('#posfile').onchange = async e => {
     el('phoneAccess').hidden = !!st.granted;
     el('phoneBody').hidden = !st.granted;
     el('phoneNote').textContent = '';
-    if (st.granted){ loadDay(); loadHistory(); exportNote(); }
+    if (st.granted){ loadDay(); loadHistory(); }
     // Once per tap on 📱, never on the way back from Settings: a no must not loop.
     else if (askOnOpen) P.openSettings().catch(() => {});
     askOnOpen = false;
   }
-
-  // The send itself is native (PhoneTimeWorker), app closed or not; this only starts it and
-  // reads back how the last one went.
-  async function exportNote(){
-    const P = plugin(); if (!P || !P.exportStatus) return;
-    try {
-      const r = await P.exportStatus(), ok = +r.lastOkAt;
-      el('phoneExportNote').textContent = r.lastError ? 'Last try: ' + r.lastError
-        : ok ? 'Last sent ' + dmy(ok) + ' ' + clock(ok).slice(0, 5) + ' · ' + r.lastCount + ' sessions'
-        : 'Not sent yet.';
-    } catch(_){}
-  }
-  el('phoneExport').onclick = async () => {
-    const P = plugin(); if (!P || !P.export) return;
-    el('phoneExportNote').textContent = 'Sending — or waiting for a network…';
-    try { await P.export(); } catch(e){ el('phoneExportNote').textContent = 'Could not start: ' + (e && e.message || e); return; }
-    setTimeout(exportNote, 4000);
-  };
 
   el('phoneGrant').onclick = () => { const P = plugin(); if (P) P.openSettings().catch(() => {}); };
   el('phoneAppInfo').onclick = () => { const P = plugin(); if (P && P.openAppInfo) P.openAppInfo().catch(() => {}); };

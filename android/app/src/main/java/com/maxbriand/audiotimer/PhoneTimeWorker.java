@@ -8,7 +8,6 @@ import androidx.work.Constraints;
 import androidx.work.ExistingWorkPolicy;
 import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
-import androidx.work.OutOfQuotaPolicy;
 import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
@@ -35,15 +34,13 @@ public class PhoneTimeWorker extends Worker {
 
   public PhoneTimeWorker(@NonNull Context c, @NonNull WorkerParameters p){ super(c, p); }
 
-  /* now: the 📱 Export button — REPLACE, so a run waiting out a backoff is not what decides
-     when the tap takes effect. Otherwise KEEP: a queued run will read the whole log anyway. */
-  static void schedule(Context c, boolean now){
-    OneTimeWorkRequest.Builder b = new OneTimeWorkRequest.Builder(PhoneTimeWorker.class)
+  /* KEEP: a run already queued will read the whole log anyway. */
+  static void schedule(Context c){
+    OneTimeWorkRequest r = new OneTimeWorkRequest.Builder(PhoneTimeWorker.class)
       .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-      .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS);
-    if (now) b.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST);
-    WorkManager.getInstance(c).enqueueUniqueWork(WORK,
-      now ? ExistingWorkPolicy.REPLACE : ExistingWorkPolicy.KEEP, b.build());
+      .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+      .build();
+    WorkManager.getInstance(c).enqueueUniqueWork(WORK, ExistingWorkPolicy.KEEP, r);
   }
 
   @NonNull
@@ -51,8 +48,7 @@ public class PhoneTimeWorker extends Worker {
   public Result doWork(){
     Context c = getApplicationContext();
     String base = Outbox.url(c);
-    if (base.isEmpty()){ PhoneTime.setStatus(c, "no server set in ⚙", 0); return Result.success(); }
-    if (!PhoneTime.granted(c)){ PhoneTime.setStatus(c, "no usage access", 0); return Result.success(); }
+    if (base.isEmpty() || !PhoneTime.granted(c)) return Result.success();   // nothing to send, ever
 
     HttpURLConnection conn = null;
     try {
@@ -76,19 +72,13 @@ public class PhoneTimeWorker extends Worker {
 
       int status = conn.getResponseCode();
       if (status >= 200 && status < 300){
-        PhoneTime.setStatus(c, null, rows.length());
+        PhoneTime.sent(c);
         return Result.success();
       }
-      // Permanent, as in UploadWorker: the next midnight or the Export button tries again.
-      if (status >= 400 && status < 500 && status != 408 && status != 429){
-        PhoneTime.setStatus(c, status == 401 || status == 403 ? "server rejected the token"
-          : "server refused it (HTTP " + status + ")", 0);
-        return Result.failure();
-      }
-      PhoneTime.setStatus(c, "server busy (HTTP " + status + ") — will retry", 0);
+      // Permanent, as in UploadWorker: the next midnight tries again.
+      if (status >= 400 && status < 500 && status != 408 && status != 429) return Result.failure();
       return Result.retry();
     } catch (Exception e){
-      PhoneTime.setStatus(c, "could not reach the server — will retry", 0);
       return Result.retry();
     } finally {
       if (conn != null) conn.disconnect();

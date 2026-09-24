@@ -60,7 +60,8 @@ public class BootReceiver extends BroadcastReceiver {
     FatigueChecks.onBoot(c);
 
     // Screen time: a midnight missed while the phone was off is sent now, and the next armed.
+    // (Its total reaches the log as soon as the log page is opened.)
     PhoneTime.armMidnight(c);
-    PhoneTimeWorker.schedule(c, false);
+    PhoneTimeWorker.schedule(c);
   }
 }
