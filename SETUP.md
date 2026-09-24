@@ -143,7 +143,7 @@ which matters once the phone starts clearing uploaded nights after 14 days. The 
 off just means the phone's WorkManager retries later — same contract as ever.
 
 The daily 16:00 job below remains, but its job is now only the derived views: it rebuilds
-`sessions.csv` next to the day files, refreshes the computer-time cache, and derives the
+`sessions.csv` next to the day files, writes Cadence's work sessions to `computer-time.csv`, and derives the
 daily record into `~/Documents/Body/sources/daily.csv` — one row per day, above the raw
 log folder. Asleep at 16:00, launchd runs the missed job on wake; powered off, it
 catches up at the next login (the script knows whether a 16:00 run is still owed). Run it by
