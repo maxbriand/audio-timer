@@ -54,10 +54,10 @@ import java.util.UUID;
  *      always was, so the sleep diary keeps reading its morning score where it did.
  *
  * The whole check is ONE record, handed to FatigueChecks for the page to file in its log.
- * A run started from ⚙'s Test button is the same run and leaves the same record, marked as
- * a test — with one difference: its fatigue answer is not sent to the server, because the
- * diary takes the first score after the night as the morning's, and a tap made to try the
- * feature out must not become that.
+ * A run started from ⚙'s Test button is the same run, but its record is marked as a test
+ * and goes nowhere: the page drops it instead of filing it in the log, and its fatigue
+ * answer is not sent to the server, because the diary takes the first score after the night
+ * as the morning's, and a tap made to try the feature out must not become that.
  *
  * The strap is the service's (HrService), not this screen's: if a run or the Live page
  * already holds it, the test only listens; if nothing does, the test asks for the

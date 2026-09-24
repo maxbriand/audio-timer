@@ -2913,12 +2913,15 @@ async function collectFatigueResults(){
     const r = await nativeFatigue.results();
     const list = (r && r.results) || [];
     if (!list.length) return;
-    for (const k of list) await putFatigueCheck(k);
+    // A run from ⚙'s Test button is a dry run: acknowledged so the native side lets go of
+    // it, but never written to the log (nor, from there, sent to the server).
+    const kept = list.filter(k => !k.test);
+    for (const k of kept) await putFatigueCheck(k);
     await nativeFatigue.ack({ids: list.map(k => k.id)});
+    if (!kept.length){ toast('Test finished — not logged'); return; }
     pushFatigueLog();
     if ($('#logsheet').classList.contains('on')) openLog('day');
-    const last = list[list.length - 1];
-    toast('Fatigue check' + (last.test ? ' (test)' : '') + ' logged — see 📊 → ☀️ Day');
+    toast('Fatigue check logged — see 📊 → ☀️ Day');
   } catch(_){}
 }
 
