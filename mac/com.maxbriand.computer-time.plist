@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. launchd does not expand ~, so install it with the home path substituted in:
+
+    sed "s|__HOME__|$HOME|g" \
+      ~/Projects/audio-timer/mac/com.maxbriand.computer-time.plist \
+      > ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
+
+  See SETUP.md for the full sequence.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.maxbriand.computer-time</string>
+
+  <!-- Runs via /bin/zsh for the same reason audio-server-sync does: zsh already holds the
+       Full Disk Access grant that lets a background agent write under ~/Documents. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; exec python3 "$HOME/Projects/audio-timer/tools/computer-time.py" "$HOME/Documents/Body/sources/computer-time.csv"</string>
+  </array>
+
+  <!-- Cadence rewrites sessions.json when a session ends, so computer-time.csv follows it
+       live. RunAtLoad catches up whatever ended while the job was not loaded; the 16:00
+       sync still rewrites the file too, as a safety net. -->
+  <key>WatchPaths</key>
+  <array>
+    <string>__HOME__/Library/Application Support/Cadence/sessions.json</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/computer-time.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/computer-time.log</string>
+</dict>
+</plist>

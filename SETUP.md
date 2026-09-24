@@ -174,3 +174,20 @@ launchctl kickstart gui/$(id -u)/com.maxbriand.audio-server-sync
 ```
 
 (check on it · force a run)
+
+`computer-time.csv` (one row per Cadence work session, with its pro/personal category) is
+also kept live by its own job: launchd watches Cadence's `sessions.json`, which Cadence
+rewrites when a session ends, and reruns `tools/computer-time.py` on every change. Same
+`/bin/zsh` Full Disk Access grant as above.
+
+```bash
+sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.computer-time.plist > ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
+```
+
+```bash
+tail -5 ~/Library/Logs/computer-time.log
+```

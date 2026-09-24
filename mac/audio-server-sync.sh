@@ -100,8 +100,9 @@ fi
 log "rebuilt · $days day files · $rows sessions"
 
 # The Mac's work sessions, one row each with its category, read from Cadence into
-# computer-time.csv BEFORE deriving: the record's computer column adds them up. A failed
-# refresh only means the file keeps the sessions it had.
+# computer-time.csv BEFORE deriving: the record's computer column adds them up. The
+# com.maxbriand.computer-time job already rewrites it live as each session ends; this run
+# is the safety net. A failed refresh only means the file keeps the sessions it had.
 mkdir -p "$DIARY_DIR"
 python3 "$REPO_DIR/tools/computer-time.py" "$DIARY_DIR/computer-time.csv" >/dev/null 2>&1 || log "computer-time refresh failed (the file keeps its sessions)"
 
