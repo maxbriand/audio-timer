@@ -3385,6 +3385,18 @@ async function logWakeUp(note, at){
     }
   } catch(_){}
   await refreshFatigueStatus();        // the alarm moved, and the evening checks with it
+  /* The morning-light reminder (⚙ → Day): armed at the rise, 30 minutes after IT, unless a
+     walk is already logged today. The native side also skips a day whose walk its own Done
+     recorded (that row never reaches this page). */
+  try {
+    const C = window.Capacitor;
+    const WA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.WalkAlarm;
+    if (WA && settings.walkReminder){
+      const today = dayKey(now);
+      const walked = (await allSessions()).some(s => s.stopReason === 'morning-walk' && dayKey(s.startedAt) === today);
+      if (!walked) await WA.schedule({at: String(now), minutes: 30});
+    }
+  } catch(_){}
   stopNightTracking();                 // the rise is where a tracked night ends
   toast(said);
   uploadSoon();
