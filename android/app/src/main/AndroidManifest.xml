@@ -86,6 +86,11 @@
             android:name=".WalkAlarmReceiver"
             android:exported="false" />
 
+        <!-- Screen time to the server at 00:05 (PhoneTimeWorker, whenever there is a network). -->
+        <receiver
+            android:name=".PhoneTimeReceiver"
+            android:exported="false" />
+
         <!-- The daily wake-up alarm (time set in ⚙): a classic alarm clock, full-screen over
              the lock screen; tomorrow's is armed at every fire, so the cycle never breaks. -->
         <receiver

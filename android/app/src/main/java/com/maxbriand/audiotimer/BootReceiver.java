@@ -58,5 +58,9 @@ public class BootReceiver extends BroadcastReceiver {
 
     // Fatigue tracking: after the wake-up alarm, whose armed hour gives the bedtime.
     FatigueChecks.onBoot(c);
+
+    // Screen time: a midnight missed while the phone was off is sent now, and the next armed.
+    PhoneTime.armMidnight(c);
+    PhoneTimeWorker.schedule(c, false);
   }
 }

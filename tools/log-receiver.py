@@ -24,6 +24,7 @@ Listens on 127.0.0.1:8787 by default. Put it behind nginx/Caddy with TLS — the
 a plain-http URL for anything but localhost, because the token travels in a header.
 """
 
+import csv
 import hmac
 import json
 import os
@@ -99,6 +100,62 @@ FATIGUE_FIELDS = (
 _night_env = os.environ.get("AUDIO_TIMER_NIGHT_DIR")
 NIGHT_ROOT = Path(_night_env).expanduser() if _night_env else ROOT.parent / "night-tracking"
 NIGHT_FIELDS = ("id", "started", "ended", "localDay", "summary", "epochs")
+
+# POST /phone files the phone's screen sessions (body key "screens") in one CSV, one row per
+# session: when the screen came on, when it went off, how long, to the second, and whether it
+# was unlocked or only glanced at. A session across midnight comes as two rows, so a date's
+# rows add up to its screen time. The phone sends every session Android's log still holds on
+# every run, so this is an upsert on (start, end): a re-send changes nothing, and rows older
+# than the phone's log stay.
+_phone_env = os.environ.get("AUDIO_TIMER_PHONE_CSV")
+PHONE_CSV = Path(_phone_env).expanduser() if _phone_env else ROOT.parent / "phone-time.csv"
+PHONE_COLUMNS = ("date", "start", "end", "duration_s", "unlocked")
+
+
+def store_phone(screens: list, path: Path = None) -> list:
+    """Merge the sessions into the CSV and return the keys ("start/end") now on disk."""
+    path = PHONE_CSV if path is None else path
+    rows = {}
+    try:
+        with path.open(encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("start") and r.get("end"):
+                    rows[(r["start"], r["end"])] = {k: r.get(k, "") for k in PHONE_COLUMNS}
+    except FileNotFoundError:
+        pass
+    accepted = []
+    for s in screens:
+        if not isinstance(s, dict):
+            continue
+        start, end = s.get("start"), s.get("end")
+        if not (isinstance(start, str) and isinstance(end, str) and len(start) == 19 and len(end) == 19):
+            continue
+        try:
+            secs = int(s.get("seconds"))
+        except (TypeError, ValueError):
+            continue
+        rows[(start, end)] = {
+            "date": str(s.get("date") or start[:10]),
+            "start": start, "end": end, "duration_s": str(secs),
+            "unlocked": "yes" if s.get("unlocked") else "no",
+        }
+        accepted.append(f"{start}/{end}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=PHONE_COLUMNS)
+            w.writeheader()
+            for k in sorted(rows):
+                w.writerow(rows[k])
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    return accepted
 
 
 def day_key(session: dict) -> str:
@@ -243,8 +300,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {"error": "bad json"})
 
         route = self.path.rstrip("/")
-        fatigue, night = route == "/fatigue", route == "/night"
-        key = "checks" if fatigue else "nights" if night else "sessions"
+        fatigue, night, phone = route == "/fatigue", route == "/night", route == "/phone"
+        key = "checks" if fatigue else "nights" if night else "screens" if phone else "sessions"
         sessions = body.get(key)
         if not isinstance(sessions, list):
             return self.reply(400, {"error": "no " + key})
@@ -254,7 +311,8 @@ class Handler(BaseHTTPRequestHandler):
 
         cardio = route == "/cardio"
         try:
-            accepted = (store(device, sessions, FATIGUE_ROOT, FATIGUE_FIELDS, "fatigue-checks") if fatigue
+            accepted = (store_phone(sessions) if phone
+                        else store(device, sessions, FATIGUE_ROOT, FATIGUE_FIELDS, "fatigue-checks") if fatigue
                         else store(device, sessions, NIGHT_ROOT, NIGHT_FIELDS, "night-tracking") if night
                         else store(device, sessions, CARDIO_ROOT, CARDIO_FIELDS, "zone-alarm") if cardio
                         else store(device, sessions))
@@ -264,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
 
         print(f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} "
               f"{len(accepted)}/{len(sessions)} stored"
-              f"{' (fatigue)' if fatigue else ' (night)' if night else ' (cardio)' if cardio else ''}", flush=True)
+              f"{' (fatigue)' if fatigue else ' (night)' if night else ' (phone)' if phone else ' (cardio)' if cardio else ''}", flush=True)
         self.reply(200, {"accepted": accepted})
 
     def log_message(self, *args) -> None:

@@ -70,6 +70,28 @@ public class PhoneUsagePlugin extends Plugin {
     }
   }
 
+  /* Every app start makes sure the 00:05 run is armed — the alarm dies with a force-stop
+     or an APK reinstall, and this is the cheapest place to notice. */
+  @Override
+  public void load(){ PhoneTime.armMidnight(getContext()); }
+
+  /* The 📱 Export button: every finished session the log holds, to the server, now or as
+     soon as there is a network. */
+  @PluginMethod
+  public void export(PluginCall call){
+    PhoneTimeWorker.schedule(getContext(), true);
+    call.resolve();
+  }
+
+  @PluginMethod
+  public void exportStatus(PluginCall call){
+    JSObject r = new JSObject();
+    r.put("lastOkAt", String.valueOf(PhoneTime.lastOkAt(getContext())));
+    r.put("lastCount", PhoneTime.lastCount(getContext()));
+    r.put("lastError", PhoneTime.lastError(getContext()));
+    call.resolve(r);
+  }
+
   private boolean granted(){
     Context c = getContext();
     AppOpsManager ops = (AppOpsManager) c.getSystemService(Context.APP_OPS_SERVICE);

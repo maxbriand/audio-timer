@@ -841,6 +841,13 @@
       </div>
 
       <div class="card">
+        <div class="cardtitle">Export</div>
+        <p class="cardsub">Every screen session the log still holds — start, end, length to the second — to the server set in ⚙, which keeps them in the Body asset's phone-time.csv. It also goes by itself every night at 00:05 (or at the next start-up, or the next network).</p>
+        <button id="phoneExport">Send to the server</button>
+        <p class="cardsub" id="phoneExportNote" style="margin-top:8px"></p>
+      </div>
+
+      <div class="card">
         <div class="cardtitle">Apps <span class="cardsub" style="display:inline">— time in front, screen on · times opened</span></div>
         <div id="phoneApps"></div>
       </div>
@@ -5218,11 +5225,29 @@ $('#posfile').onchange = async e => {
     el('phoneAccess').hidden = !!st.granted;
     el('phoneBody').hidden = !st.granted;
     el('phoneNote').textContent = '';
-    if (st.granted){ loadDay(); loadHistory(); }
+    if (st.granted){ loadDay(); loadHistory(); exportNote(); }
     // Once per tap on 📱, never on the way back from Settings: a no must not loop.
     else if (askOnOpen) P.openSettings().catch(() => {});
     askOnOpen = false;
   }
+
+  // The send itself is native (PhoneTimeWorker), app closed or not; this only starts it and
+  // reads back how the last one went.
+  async function exportNote(){
+    const P = plugin(); if (!P || !P.exportStatus) return;
+    try {
+      const r = await P.exportStatus(), ok = +r.lastOkAt;
+      el('phoneExportNote').textContent = r.lastError ? 'Last try: ' + r.lastError
+        : ok ? 'Last sent ' + dmy(ok) + ' ' + clock(ok).slice(0, 5) + ' · ' + r.lastCount + ' sessions'
+        : 'Not sent yet.';
+    } catch(_){}
+  }
+  el('phoneExport').onclick = async () => {
+    const P = plugin(); if (!P || !P.export) return;
+    el('phoneExportNote').textContent = 'Sending — or waiting for a network…';
+    try { await P.export(); } catch(e){ el('phoneExportNote').textContent = 'Could not start: ' + (e && e.message || e); return; }
+    setTimeout(exportNote, 4000);
+  };
 
   el('phoneGrant').onclick = () => { const P = plugin(); if (P) P.openSettings().catch(() => {}); };
   el('phoneAppInfo').onclick = () => { const P = plugin(); if (P && P.openAppInfo) P.openAppInfo().catch(() => {}); };
