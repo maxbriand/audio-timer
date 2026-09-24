@@ -18,10 +18,13 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 
 /*
  * The screen sessions of Android's usage log, sent to the server as the Body asset's
- * phone-time.csv — one row per session: when the screen came on, how long it stayed on.
+ * phone-time.csv — one row per session: when the screen came on, how long it stayed on —
+ * and each closed day's total, kept here for the ☀️ Day log.
  *
  * Nothing is recorded or staged here, because Android already keeps the log (about a week
  * and a half of events): every run reads the whole of it again and sends every finished
@@ -40,8 +43,6 @@ import java.util.Locale;
 final class PhoneTime {
   private static final String PREFS = "phonetime";
   private static final String KEY_OK_AT = "lastOkAt";
-  private static final String KEY_COUNT = "lastCount";
-  private static final String KEY_ERROR = "lastError";
 
   private static final int SCREEN_ON = 15, SCREEN_OFF = 16, KEYGUARD_SHOWN = 17,
     KEYGUARD_HIDDEN = 18, DEVICE_SHUTDOWN = 26, DEVICE_STARTUP = 27;
@@ -54,14 +55,10 @@ final class PhoneTime {
     return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
   }
 
-  static void setStatus(Context c, String error, int count){
-    SharedPreferences.Editor e = prefs(c).edit().putString(KEY_ERROR, error == null ? "" : error);
-    if (error == null) e.putLong(KEY_OK_AT, System.currentTimeMillis()).putInt(KEY_COUNT, count);
-    e.apply();
-  }
+  /* When the server last took the sessions: the log says "on the server" for the days
+     that closed before it. */
+  static void sent(Context c){ prefs(c).edit().putLong(KEY_OK_AT, System.currentTimeMillis()).apply(); }
   static long lastOkAt(Context c){ return prefs(c).getLong(KEY_OK_AT, 0); }
-  static int lastCount(Context c){ return prefs(c).getInt(KEY_COUNT, 0); }
-  static String lastError(Context c){ return prefs(c).getString(KEY_ERROR, ""); }
 
   static boolean granted(Context c){
     AppOpsManager ops = (AppOpsManager) c.getSystemService(Context.APP_OPS_SERVICE);
@@ -137,6 +134,49 @@ final class PhoneTime {
       out.put(r);
       from = to;
     }
+  }
+
+  // ---- the day's total, for the ☀️ Day log. Kept here, not recomputed, because the log
+  // behind it is gone after about ten days and the log page keeps every day.
+
+  private static final String KEY_DAYS = "days";
+
+  /* Every closed day the log covers gets its total: screen-on seconds (the rows of that
+     date, cut at midnight) and how many times the screen came on. Today is not closed yet;
+     the oldest date is not whole — the log starts part-way through it — so neither is kept.
+     A day already kept is written again with the same numbers: harmless, and it means a run
+     that missed a midnight (phone off) catches up by itself. */
+  static void recordDays(Context c){
+    if (!granted(c)) return;
+    try {
+      JSONArray rows = rows(c);
+      TreeMap<String, long[]> byDay = new TreeMap<>();
+      for (int i = 0; i < rows.length(); i++){
+        JSONObject r = rows.getJSONObject(i);
+        long[] t = byDay.get(r.getString("date"));
+        if (t == null){ t = new long[2]; byDay.put(r.getString("date"), t); }
+        t[0] += r.getLong("seconds");
+        if (!r.getString("start").endsWith("T00:00:00")) t[1]++;   // a continuation is not a new "on"
+      }
+      if (byDay.isEmpty()) return;
+      byDay.remove(byDay.firstKey());
+      byDay.remove(new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date()));
+      synchronized (PhoneTime.class){
+        JSONObject days = days(c);
+        for (Map.Entry<String, long[]> e : byDay.entrySet()){
+          JSONObject o = new JSONObject();
+          o.put("seconds", e.getValue()[0]);
+          o.put("sessions", e.getValue()[1]);
+          days.put(e.getKey(), o);
+        }
+        prefs(c).edit().putString(KEY_DAYS, days.toString()).apply();
+      }
+    } catch (Exception ignored){}
+  }
+
+  static JSONObject days(Context c){
+    try { return new JSONObject(prefs(c).getString(KEY_DAYS, "{}")); }
+    catch (Exception e){ return new JSONObject(); }
   }
 
   // ---- the nightly run: 00:05, re-armed at every fire, at boot and at every app start.

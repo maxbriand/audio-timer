@@ -23,10 +23,13 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -75,20 +78,28 @@ public class PhoneUsagePlugin extends Plugin {
   @Override
   public void load(){ PhoneTime.armMidnight(getContext()); }
 
-  /* The 📱 Export button: every finished session the log holds, to the server, now or as
-     soon as there is a network. */
+  /* The daily totals for the ☀️ Day log, oldest first. Closed days the log still covers are
+     recorded first, so a midnight the phone slept through is filled in on the next open. */
   @PluginMethod
-  public void export(PluginCall call){
-    PhoneTimeWorker.schedule(getContext(), true);
-    call.resolve();
-  }
-
-  @PluginMethod
-  public void exportStatus(PluginCall call){
+  public void days(PluginCall call){
+    PhoneTime.recordDays(getContext());
+    JSONObject days = PhoneTime.days(getContext());
+    List<String> keys = new ArrayList<>();
+    for (Iterator<String> it = days.keys(); it.hasNext();) keys.add(it.next());
+    Collections.sort(keys);
+    JSArray out = new JSArray();
+    for (String k : keys){
+      JSONObject d = days.optJSONObject(k);
+      if (d == null) continue;
+      JSObject o = new JSObject();
+      o.put("date", k);
+      o.put("seconds", d.optLong("seconds"));
+      o.put("sessions", d.optLong("sessions"));
+      out.put(o);
+    }
     JSObject r = new JSObject();
-    r.put("lastOkAt", String.valueOf(PhoneTime.lastOkAt(getContext())));
-    r.put("lastCount", PhoneTime.lastCount(getContext()));
-    r.put("lastError", PhoneTime.lastError(getContext()));
+    r.put("days", out);
+    r.put("sentAt", String.valueOf(PhoneTime.lastOkAt(getContext())));
     call.resolve(r);
   }
 
