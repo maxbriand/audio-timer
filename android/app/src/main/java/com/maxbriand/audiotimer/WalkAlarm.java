@@ -30,6 +30,7 @@ import java.util.UUID;
 final class WalkAlarm {
   private static final String PREFS = "walkalarm";
   private static final String KEY_AT = "at";
+  private static final String KEY_DONE_DAY = "doneDay";
 
   private WalkAlarm(){}
 
@@ -38,6 +39,15 @@ final class WalkAlarm {
   }
 
   static long at(Context c){ return prefs(c).getLong(KEY_AT, 0); }
+
+  private static String today(){
+    return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+  }
+
+  /* The walk was answered by Done today: a second rise (after a nap) has nothing to remind. */
+  static boolean doneToday(Context c){
+    return today().equals(prefs(c).getString(KEY_DONE_DAY, ""));
+  }
 
   private static PendingIntent ring(Context c){
     Intent i = new Intent(c, WalkAlarmReceiver.class);
@@ -76,7 +86,7 @@ final class WalkAlarm {
       String now = iso.format(new Date());
       String id = UUID.randomUUID().toString();
       JSONObject o = new JSONObject();
-      o.put("localDay", new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date()));
+      o.put("localDay", today());
       o.put("id", id);
       o.put("started", now);
       o.put("ended", now);
@@ -95,6 +105,7 @@ final class WalkAlarm {
       Outbox.put(c, id, o.toString());
       UploadWorker.schedule(c);
     } catch (Exception ignored){}    // an unrecorded walk must not leave the alarm stuck
+    prefs(c).edit().putString(KEY_DONE_DAY, today()).apply();
     clear(c);
   }
 }
