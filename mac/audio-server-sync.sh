@@ -99,12 +99,12 @@ fi
 
 log "rebuilt · $days day files · $rows sessions"
 
-# The Mac measures its own screen time for the record's computer column: refresh the
-# per-day cache from knowledgeC.db BEFORE deriving (the DB holds ~4 weeks; the cache is
-# append-only, so older days survive the system's pruning). A failed refresh only means
-# the cache keeps yesterday's days.
+# The Mac's work sessions, one row each with its category, read from Cadence into
+# computer-time.csv BEFORE deriving: the record's computer column adds them up. The
+# com.maxbriand.computer-time job already rewrites it live as each session ends; this run
+# is the safety net. A failed refresh only means the file keeps the sessions it had.
 mkdir -p "$DIARY_DIR"
-python3 "$REPO_DIR/tools/computer-time.py" "$DIARY_DIR/computer-time.json" >/dev/null 2>&1 || log "computer-time refresh failed (cache keeps its days)"
+python3 "$REPO_DIR/tools/computer-time.py" "$DIARY_DIR/computer-time.csv" >/dev/null 2>&1 || log "computer-time refresh failed (the file keeps its sessions)"
 
 # The daily record is derived, like the CSV: rebuilt whole on every run so it can never
 # drift from the day files. Its rules live in tools/sleep-diary.py. Read from the day

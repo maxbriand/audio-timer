@@ -1,94 +1,94 @@
 #!/usr/bin/env python3
-"""Cache the Mac's per-day computer time for the daily record's computer column.
+"""Write the Mac's work sessions, one row each, as computer-time.csv.
 
-macOS Screen Time keeps app-usage intervals in knowledgeC.db, but only ~4 weeks of
-them — read directly at diary time, every older row would go blank retroactively as
-the system prunes. So this collector runs on every sync and merges the DB's current
-window into a small append-only JSON cache (day -> minutes): fresh days overwrite
-their cached value, days the DB no longer holds keep the value they had. The cache
-is the diary's source; the DB is only ever read here.
+Cadence (the work-tracking app) records every session it runs in sessions.json: when it
+started, when it ended, and the project it ran under. This lays them out the way
+phone-time.csv lays out the phone's screen sessions — date, start, end and length to the
+second, in local time — plus the session's category ("pro" or "personal"), which
+projects.json gives each project. A session across local midnight comes as two rows, so
+a date's rows add up to its computer time.
 
-Minutes are the UNION of the day's usage intervals, clipped at local midnight —
-overlapping app rows are not double-counted, and a session crossing midnight is
-split between its two days.
+Before CATEGORY_FROM every session ran under Chess, Cadence's default project, whatever
+it really was (Maxime, 2026-09-24), so earlier rows carry no category rather than a
+wrong one. A session whose project is gone from projects.json has none either.
 
-Usage: computer-time.py <cache.json> [knowledgeC.db]
-(The DB defaults to the user's own; reading it needs Full Disk Access, which the
-sync's /bin/zsh already holds. A missing or unreadable DB leaves the cache as-is.)
+Cadence keeps its whole history, so the file is rebuilt whole on every run. An
+unreadable or empty sessions.json leaves the file as it is.
+
+Usage: computer-time.py <out.csv> [cadence-dir]
 """
 
+import csv
 import json
-import sqlite3
+import os
 import sys
-from collections import defaultdict
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-APPLE_EPOCH = 978307200          # 2001-01-01 UTC, the reference of ZSTARTDATE
+COLUMNS = ("date", "start", "end", "duration_s", "category")
+CATEGORY_FROM = "2026-09-25"
 
 if len(sys.argv) < 2:
-    sys.exit("usage: computer-time.py <cache.json> [knowledgeC.db]")
-CACHE = Path(sys.argv[1]).expanduser()
-DB = (Path(sys.argv[2]).expanduser() if len(sys.argv) > 2
-      else Path("~/Library/Application Support/Knowledge/knowledgeC.db").expanduser())
+    sys.exit("usage: computer-time.py <out.csv> [cadence-dir]")
+OUT = Path(sys.argv[1]).expanduser()
+CADENCE_DIR = (Path(sys.argv[2]).expanduser() if len(sys.argv) > 2
+               else Path("~/Library/Application Support/Cadence").expanduser())
 
 
-def load_cache():
+def local(ts):
+    """Cadence's UTC timestamp as a naive local datetime, to the second."""
+    return (datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+            .replace(tzinfo=None, microsecond=0))
+
+
+def categories():
     try:
-        data = json.loads(CACHE.read_text())
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
+        projects = json.loads((CADENCE_DIR / "projects.json").read_text()).get("projects", [])
+        return {p["path"]: p.get("category") or "" for p in projects}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return {}
 
 
-def usage_intervals():
-    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-    try:
-        return con.execute(
-            "SELECT ZSTARTDATE, ZENDDATE FROM ZOBJECT "
-            "WHERE ZSTREAMNAME = '/app/usage' "
-            "AND ZSTARTDATE IS NOT NULL AND ZENDDATE > ZSTARTDATE").fetchall()
-    finally:
-        con.close()
-
-
-def day_minutes(rows):
-    per = defaultdict(list)
-    for s, e in rows:
-        st = datetime.fromtimestamp(s + APPLE_EPOCH)
-        en = datetime.fromtimestamp(e + APPLE_EPOCH)
+def rows(sessions, category):
+    out = []
+    for x in sessions:
+        try:
+            st, en = local(x["started_at"]), local(x["ended_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        cat = category.get(x.get("project_path"), "")
         while st < en:                       # split at local midnight
-            nxt = (st + timedelta(days=1)).replace(hour=0, minute=0,
-                                                   second=0, microsecond=0)
-            cut = min(en, nxt)
-            per[st.strftime("%Y-%m-%d")].append((st, cut))
+            cut = min(en, (st + timedelta(days=1)).replace(hour=0, minute=0, second=0))
+            day = st.strftime("%Y-%m-%d")
+            out.append({"date": day, "start": st.isoformat(), "end": cut.isoformat(),
+                        "duration_s": int((cut - st).total_seconds()),
+                        "category": cat if day >= CATEGORY_FROM else ""})
             st = cut
-    out = {}
-    for day, ivs in per.items():
-        ivs.sort()
-        total = timedelta()
-        cur_s, cur_e = ivs[0]
-        for s, e in ivs[1:]:                 # union, not sum: no double-counting
-            if s <= cur_e:
-                cur_e = max(cur_e, e)
-            else:
-                total += cur_e - cur_s
-                cur_s, cur_e = s, e
-        total += cur_e - cur_s
-        out[day] = round(total.total_seconds() / 60)
-    return out
+    return sorted(out, key=lambda r: (r["start"], r["end"]))
 
 
 def main():
-    cache = load_cache()
     try:
-        fresh = day_minutes(usage_intervals())
-    except (sqlite3.Error, OSError) as e:
-        sys.exit(f"knowledgeC unreadable ({e}); cache untouched")
-    cache.update(fresh)                      # DB wins for its window; older days persist
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE.write_text(json.dumps(dict(sorted(cache.items())), indent=1) + "\n")
-    print(f"computer-time — {len(fresh)} days refreshed, {len(cache)} cached → {CACHE}")
+        sessions = json.loads((CADENCE_DIR / "sessions.json").read_text()).get("sessions", [])
+    except (OSError, ValueError, AttributeError) as e:
+        sys.exit(f"Cadence sessions unreadable ({e}); {OUT.name} untouched")
+    out = rows(sessions, categories())
+    if not out:
+        sys.exit(f"no Cadence sessions; {OUT.name} untouched")
+
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(OUT.parent), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=COLUMNS)
+            w.writeheader()
+            w.writerows(out)
+        os.replace(tmp, OUT)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    print(f"computer-time — {len(out)} sessions → {OUT}")
 
 
 if __name__ == "__main__":

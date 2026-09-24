@@ -143,7 +143,7 @@ which matters once the phone starts clearing uploaded nights after 14 days. The 
 off just means the phone's WorkManager retries later — same contract as ever.
 
 The daily 16:00 job below remains, but its job is now only the derived views: it rebuilds
-`sessions.csv` next to the day files, refreshes the computer-time cache, and derives the
+`sessions.csv` next to the day files, writes Cadence's work sessions to `computer-time.csv`, and derives the
 daily record into `~/Documents/Body/sources/daily.csv` — one row per day, above the raw
 log folder. Asleep at 16:00, launchd runs the missed job on wake; powered off, it
 catches up at the next login (the script knows whether a 16:00 run is still owed). Run it by
@@ -174,3 +174,20 @@ launchctl kickstart gui/$(id -u)/com.maxbriand.audio-server-sync
 ```
 
 (check on it · force a run)
+
+`computer-time.csv` (one row per Cadence work session, with its pro/personal category) is
+also kept live by its own job: launchd watches Cadence's `sessions.json`, which Cadence
+rewrites when a session ends, and reruns `tools/computer-time.py` on every change. Same
+`/bin/zsh` Full Disk Access grant as above.
+
+```bash
+sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.computer-time.plist > ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
+```
+
+```bash
+tail -5 ~/Library/Logs/computer-time.log
+```

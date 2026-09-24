@@ -36,8 +36,8 @@ bedtime. A row whose stopReason is "screens-off" is the blue-light cutoff: the
 such tap in the 12 hours before its bedtime, read like the dose. Doses, daylight
 and screens-off markers belong to the night they precede and must never glue two
 nights together, so all ride outside the night clustering. The computer column is
-the day's Mac screen time (union of Screen Time's app-usage intervals), read from
-the cache tools/computer-time.py maintains. The work column is the day's LOGGED
+the day's time in Cadence work sessions, added up from computer-time.csv, the
+per-session file tools/computer-time.py writes. The work column is the day's LOGGED
 working time and computer_off the last work-session end before the night, both read
 straight from Cadence's local files (logtime.json / sessions.json) — with the
 screen-time cache, the columns measured by the Mac rather than logged on the phone.
@@ -157,9 +157,9 @@ OVERRIDES_FILE = SRC / "diary-overrides.json"
 # with its bands, parts and effort — and a start time repeated here said nothing that file
 # does not say better.)
 
-# The per-day computer-time cache tools/computer-time.py maintains from macOS Screen
-# Time (the sync refreshes it before this runs). Day -> minutes; a day the Mac never
-# measured stays blank, like every other missing source.
+# computer-time.csv, one row per Cadence session, written by tools/computer-time.py
+# (the sync refreshes it before this runs). The day's rows add up to its computer time;
+# a day with no session stays blank, like every other missing source.
 # Cadence (the work-tracking app) keeps its whole history in two local JSON files, so
 # the diary reads them directly — no collector, no cache. logtime.json is the
 # deliberately LOGGED working time (the work column, minutes per local day);
@@ -203,16 +203,21 @@ def load_cadence():
 
 _computer_env = os.environ.get("AUDIO_TIMER_COMPUTER_FILE")
 COMPUTER_FILE = (Path(_computer_env).expanduser() if _computer_env
-                 else SRC.parent / "computer-time.json")
+                 else SRC.parent / "computer-time.csv")
 
 
 def load_computer():
+    minutes = {}
     try:
-        data = json.loads(COMPUTER_FILE.read_text())
-        return {d: float(m) for d, m in data.items()
-                if isinstance(m, (int, float))} if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+        with COMPUTER_FILE.open(encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                try:
+                    minutes[r["date"]] = minutes.get(r["date"], 0) + int(r["duration_s"]) / 60
+                except (KeyError, TypeError, ValueError):
+                    continue
+    except OSError:
+        pass
+    return minutes
 
 
 def load_overrides():
