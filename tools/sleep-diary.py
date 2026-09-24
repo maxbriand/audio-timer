@@ -37,10 +37,13 @@ such tap in the 12 hours before its bedtime, read like the dose. Doses, daylight
 and screens-off markers belong to the night they precede and must never glue two
 nights together, so all ride outside the night clustering. The computer column is
 the day's time in Cadence work sessions, added up from computer-time.csv, the
-per-session file tools/computer-time.py writes. The work column is the day's LOGGED
-working time and computer_off the last work-session end before the night, both read
-straight from Cadence's local files (logtime.json / sessions.json) — with the
-screen-time cache, the columns measured by the Mac rather than logged on the phone.
+per-session file tools/computer-time.py writes. The work and personal columns are the
+day's LOGGED time in Cadence's pro and personal projects, and computer_off the last
+Cadence session end before the night, all read straight from Cadence's local files
+(logtime.json / projects.json / sessions.json) — the columns measured by the Mac rather
+than logged on the phone. The phone column is the day's phone screen time, added up
+from phone-time.csv, the per-session file the phone sends (POST /phone) — measured by
+Android, not tapped.
 
 The rules, as Maxime defined them (2026-08-18, markers added 2026-08-19):
 
@@ -149,7 +152,8 @@ RETIRED = [OUT_DIR / "sleep-diary.md", OUT_DIR / "sleep-diary.csv",
 # extras). The raw log is never edited — a wrong value is marked here and the diary stops
 # deriving from it. Shape: {"YYYY-MM-DD": {"no_morning_block": true}} — that night's last
 # block is NOT a morning wake (final wake and TST become unknown; the block counts as an
-# awakening like any other middle one).
+# awakening like any other middle one). {"YYYY-MM-DD": {"bedtime_only": true}} — the
+# night was not a true record: only the bedtime is kept, every other night value blank.
 OVERRIDES_FILE = SRC / "diary-overrides.json"
 
 # (A Cardio column lived here until 2026-09-09, showing each zone-alarm session's start
@@ -162,7 +166,12 @@ OVERRIDES_FILE = SRC / "diary-overrides.json"
 # a day with no session stays blank, like every other missing source.
 # Cadence (the work-tracking app) keeps its whole history in two local JSON files, so
 # the diary reads them directly — no collector, no cache. logtime.json is the
-# deliberately LOGGED working time (the work column, minutes per local day);
+# deliberately LOGGED time, split by the category projects.json gives each project:
+# "pro" projects make the work column, "personal" ones the personal column (minutes per
+# local day). Before CADENCE_SPLIT_FROM everything was logged under Chess, Cadence's
+# default project, whatever it really was (Maxime, 2026-09-24), so the split starts
+# there and earlier days stay blank. An entry whose project is gone from projects.json
+# counts in neither;
 # sessions.json holds the precise activity spans, whose last end before a night's
 # bedtime is the computer_off marker. Cadence clips sessions at midnight (the
 # continuation restarts at 00:00 next day), so the off-moment must be read across
@@ -170,12 +179,18 @@ OVERRIDES_FILE = SRC / "diary-overrides.json"
 _cadence_env = os.environ.get("AUDIO_TIMER_CADENCE_DIR")
 CADENCE_DIR = (Path(_cadence_env).expanduser() if _cadence_env
                else Path("~/Library/Application Support/Cadence").expanduser())
+CADENCE_SPLIT_FROM = "2026-09-25"
 
 
 def load_cadence():
     def loc(ts):
         return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
-    work = {}
+    logged = {"pro": {}, "personal": {}}
+    try:
+        category = {p["path"]: p.get("category") for p in json.loads(
+            (CADENCE_DIR / "projects.json").read_text()).get("projects", [])}
+    except (OSError, ValueError, KeyError, TypeError):
+        category = {}
     try:
         entries = json.loads((CADENCE_DIR / "logtime.json").read_text()).get("entries", [])
     except (OSError, ValueError):
@@ -186,8 +201,15 @@ def load_cadence():
         except (KeyError, ValueError):
             continue
         m = e.get("minutes_logged")
-        if isinstance(m, (int, float)):
-            work[day] = work.get(day, 0) + m
+        if day < CADENCE_SPLIT_FROM or not isinstance(m, (int, float)):
+            continue
+        # A day with any logged time shows 00:00 in the other column, not blank: Cadence
+        # was running, just not on that side.
+        for side in logged.values():
+            side.setdefault(day, 0)
+        side = logged.get(category.get(e.get("project_path")))
+        if side is not None:
+            side[day] += m
     ends = []
     try:
         sess = json.loads((CADENCE_DIR / "sessions.json").read_text()).get("sessions", [])
@@ -198,7 +220,7 @@ def load_cadence():
             ends.append(loc(x["ended_at"]))
         except (KeyError, ValueError):
             continue
-    return work, sorted(ends)
+    return logged["pro"], logged["personal"], sorted(ends)
 
 
 _computer_env = os.environ.get("AUDIO_TIMER_COMPUTER_FILE")
@@ -210,6 +232,29 @@ def load_computer():
     minutes = {}
     try:
         with COMPUTER_FILE.open(encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                try:
+                    minutes[r["date"]] = minutes.get(r["date"], 0) + int(r["duration_s"]) / 60
+                except (KeyError, TypeError, ValueError):
+                    continue
+    except OSError:
+        pass
+    return minutes
+
+
+# The phone's screen sessions, one row each, as the receiver files them (POST /phone). A
+# session across midnight comes as two rows, so a date's rows add up to its screen time,
+# glances included. Android keeps about ten days of log, so days before the first send
+# stay blank, and the first day it holds can be partial.
+_phone_env = os.environ.get("AUDIO_TIMER_PHONE_CSV")
+PHONE_FILE = (Path(_phone_env).expanduser() if _phone_env
+              else SRC.parent / "phone-time.csv")
+
+
+def load_phone():
+    minutes = {}
+    try:
+        with PHONE_FILE.open(encoding="utf-8", newline="") as f:
             for r in csv.DictReader(f):
                 try:
                     minutes[r["date"]] = minutes.get(r["date"], 0) + int(r["duration_s"]) / 60
@@ -464,7 +509,15 @@ def main():
 
     nights = [n for g in cluster(rows, timedelta(hours=GAP_NIGHT_H))
               for n in nights_in(g)]
-    cad_work, cad_ends = load_cadence()
+    # A night marked bedtime_only was not a true record: only its bedtime stands, every
+    # other night value goes blank (unknown) and drops out of the averages. Applied after
+    # the split above, which still needs the real rise to cut the next night off.
+    for n in nights:
+        if overrides.get(n["date"], {}).get("bedtime_only", False):
+            for k in ("sol", "awakenings", "waso", "final_wake", "rise", "tib", "tst",
+                      "se", "fatigue"):
+                n[k] = None
+    cad_work, cad_personal, cad_ends = load_cadence()
     attach_day_inputs(nights, doses, lights, screens, cad_ends)
     pending = pending_day_rows(nights, doses, lights, screens)
     # Newest first, like the app's own log; pending inputs-only rows fall into date
@@ -484,6 +537,7 @@ def main():
 
 
     computer = load_computer()
+    phone = load_phone()
 
     # Durations as zero-padded HH:MM, clocks as ISO local timestamps (a rise can land
     # on the day after the night's date, so HH:MM alone would lie to any date
@@ -504,7 +558,7 @@ def main():
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["night", "morning_light", "melatonin", "computer",
-                    "work", "computer_off", "screens_off", "bedtime", "sol",
+                    "work", "personal", "computer_off", "phone", "screens_off", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
                     "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
@@ -512,7 +566,8 @@ def main():
             w.writerow([
                 n["date"], iso(n["light"]),
                 iso(n["melatonin"]), hm(computer.get(n["date"])),
-                hm(cad_work.get(n["date"])), iso(n["cadence_off"]),
+                hm(cad_work.get(n["date"])), hm(cad_personal.get(n["date"])),
+                iso(n["cadence_off"]), hm(phone.get(n["date"])),
                 iso(n["screens"]), iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),
