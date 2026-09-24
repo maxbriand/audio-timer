@@ -120,8 +120,6 @@
   .syncin::placeholder{color:var(--muted)}
   #nextwake{display:none;font-size:13px;color:var(--muted);padding:2px 2px 10px;line-height:1.5;font-variant-numeric:tabular-nums}
   #nextwake b{color:var(--accent);font-weight:600}
-  #cardiohead{margin:18px 0 8px;font-size:15px;font-weight:650}
-  #cardiohead[hidden]{display:none}
   #upstatus,#wakestatus,#melastatus{font-size:12.5px;color:var(--muted);min-height:16px;margin-top:2px}
   #upstatus.bad{color:var(--danger)}
   .chips.sm{grid-template-columns:repeat(4,1fr);gap:6px}
@@ -1023,11 +1021,9 @@
       <button class="chip sm" data-part="night">🌙 Night</button>
     </div>
     <div id="logday">
-      <p>What the day recorded: the rise, the fatigue checks (strap test, PVT, question — one entry each), the habits and the issues with their notes and pictures.</p>
+      <p>What the day recorded: the rise, the fatigue checks (strap test, PVT, question — one entry each), the runs, the habits and the issues with their notes and pictures.</p>
       <div id="daycount"></div>
       <div id="daylist"></div>
-      <h3 id="cardiohead" hidden>Cardio</h3>
-      <div id="cardiolist"></div>
     </div>
     <div id="lognight" hidden>
       <p>The tracked nights first (heart rate, HRV and sleeping position, minute by minute, when you said yes at the switch), then what this app saw of the audio: when it started, how long it played, and what stopped it.</p>
@@ -2303,7 +2299,13 @@ async function renderDay(sessions){
   const pinnedTaps = new Set(logs.filter(l => PINNED_MARKER[l.issueId]).map(l => PINNED_MARKER[l.issueId] + '@' + l.at));
   let checks = [];
   try { checks = await allFatigueChecks(); } catch(_){}
+  const running = window.ZoneLog ? window.ZoneLog.running() : null;
   const items = [
+    // A run is one entry too, read from zone-alarm's own store (see runLines).
+    ...allRuns().map(r => ({
+      del: r.id === running ? null : () => deleteRun(r), at: Date.parse(r.started),
+      title: runTitle(r, running), note: '', photos: [], kind: 'run', lines: runLines(r)
+    })),
     // A fatigue check is one entry, whatever it was made of — its lines say the rest.
     ...checks.map(k => ({
       del: () => deleteFatigueCheck(k), at: k.at, title: '🩺 Fatigue check' + (k.test ? ' — test' : ''),
@@ -2321,7 +2323,7 @@ async function renderDay(sessions){
   const box = $('#daylist'), count = $('#daycount');
   box.innerHTML = '';
   if (!items.length){
-    box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you log habits and issues on the day screen.</div>';
+    box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you log habits and issues on the day screen, and as you run.</div>';
     count.textContent = '';
     return;
   }
@@ -2331,6 +2333,7 @@ async function renderDay(sessions){
     n('habit') && n('habit') + (n('habit') === 1 ? ' habit' : ' habits'),
     n('rise') && n('rise') + (n('rise') === 1 ? ' rise' : ' rises'),
     n('check') && n('check') + (n('check') === 1 ? ' fatigue check' : ' fatigue checks'),
+    n('run') && n('run') + (n('run') === 1 ? ' run' : ' runs'),
     n('entry') && n('entry') + ' from deleted buttons'
   ].filter(Boolean).join(' · ');
   for (const it of items){
@@ -2354,7 +2357,7 @@ async function renderDay(sessions){
         el.querySelector('.logpics').appendChild(img);
       } catch(_){}
     }
-    el.appendChild(delButton(it.del));
+    if (it.del) el.appendChild(delButton(it.del));   // the run in progress is not deletable
     box.appendChild(el);
   }
 }
@@ -2446,7 +2449,6 @@ async function openLog(part){
       box.appendChild(el);
     }
   }
-  renderCardio();
   showLogPart(part === 'night' ? 'night' : 'day');   // Day unless a re-render asks to stay
   $('#logsheet').classList.add('on');
   if (window.ZoneLog) window.ZoneLog.push();
@@ -2476,72 +2478,54 @@ function deleteRun(r){
   if (!confirm('Delete this run? It leaves this phone and will not be sent to the server.' +
       (r.syncedAt ? ' The copy the server already has stays there.' : ''))) return;
   if (window.ZoneLog) window.ZoneLog.remove(r.id);
-  renderCardio();
+  openLog('day');
 }
 
-/* The cardio sessions, in the same log as the nights — everything a row of
+/* The cardio sessions, as entries of the day log — everything a row of
    sources/exercise-log.csv needs, so it can be filled from here without reading numbers off
    the end screen. Read straight from zone-alarm's own store rather than through its script:
    it saves there on every change, so this is always current and needs no plumbing between
    the two. Blank stays blank — a part that never came back down to the low set shows no
    recovery rather than a guessed one. */
-function renderCardio(){
+function allRuns(){
   let rows = [];
   try { rows = JSON.parse(localStorage.getItem('za-sessions') || '[]'); } catch(_){}
-  rows = rows.filter(r => r && r.started).sort((a, b) => a.started < b.started ? 1 : -1);
-  const head = $('#cardiohead'), box = $('#cardiolist');
-  box.innerHTML = '';
-  head.hidden = !rows.length;
-  if (!rows.length) return;
-  const ms = v => v == null ? null :
-    Math.floor(v / 60) + ':' + String(Math.round(v % 60)).padStart(2, '0');
-  const BANDS = ['30–39%', '40–59%', '60–89%', '≥90%'];
-  const running = window.ZoneLog ? window.ZoneLog.running() : null;
-  for (const r of rows){
-    const t0 = Date.parse(r.started), t1 = r.ended ? Date.parse(r.ended) : 0;
-    const el = document.createElement('div');
-    el.className = 'logrow';
-    const line = (text, sub) => {
-      if (!text) return;
-      const d = document.createElement('div');
-      d.className = sub ? 'logmeta logsub' : 'logmeta'; d.textContent = text; el.appendChild(d);
-    };
-    const day = document.createElement('div');
-    day.className = 'logday';
-    day.textContent = fmtDay(t0) + ' · ' + fmtClock(t0) +
-      (t1 ? '–' + fmtClock(t1) : r.id === running ? ' · running' : ' · never ended');
-    el.appendChild(day);
-    line([
-      r.durationSeconds != null ? ms(r.durationSeconds) + ' total' : null,
-      r.inRangeSeconds != null ? ms(r.inRangeSeconds) + ' in range' : null,
-      r.peakBpm ? 'peak ' + r.peakBpm : null
-    ].filter(Boolean).join(' · '));
-    line([
-      (r.minBpm && r.maxBpm) ? 'range ' + r.minBpm + '–' + r.maxBpm : null,
-      r.alertDelaySeconds != null ? 'alert after ' + r.alertDelaySeconds + ' s' : null,
-      r.hrmax ? 'max ' + r.hrmax : null,
-      r.resting ? 'resting ' + r.resting : null
-    ].filter(Boolean).join(' · '), true);
-    line([
-      r.veryLightSeconds != null ? '<30% ' + ms(r.veryLightSeconds) : null
-    ].concat(Array.isArray(r.bands) ? r.bands.map((v, i) => BANDS[i] + ' ' + ms(v)) : [])
-      .filter(Boolean).join(' · '), true);
-    // One line per stage of the run: the warm-up, each part's two halves, the cool down.
-    if (r.warmupSeconds != null) line('Part 0 · warm-up ' + ms(r.warmupSeconds), true);
-    if (Array.isArray(r.partsDetail) && r.partsDetail.length)
-      r.partsDetail.forEach((p, i) => line('Part ' + (i + 1) +
-        ' · reach ' + (p.toMax == null ? '—' : ms(p.toMax)) +
-        ' · rest ' + (p.recovery == null ? '—' : ms(p.recovery)), true));
-    else if (r.parts) line(r.parts + ' part' + (r.parts === 1 ? '' : 's'), true);
-    if (r.cooldownSeconds != null) line('Cool down ' + ms(r.cooldownSeconds), true);
-    line([
-      r.rpe != null ? 'RPE ' + r.rpe + '/10' : null,
-      r.note ? '“' + r.note + '”' : null,
-      r.syncedAt ? 'synced' : 'to sync'
-    ].filter(Boolean).join(' · '), true);
-    if (r.id !== running) el.appendChild(delButton(() => deleteRun(r)));
-    box.appendChild(el);
-  }
+  return rows.filter(r => r && r.started && !isNaN(Date.parse(r.started)));
+}
+const mmss = v => v == null ? null :
+  Math.floor(v / 60) + ':' + String(Math.round(v % 60)).padStart(2, '0');
+function runTitle(r, running){
+  const t1 = r.ended ? Date.parse(r.ended) : 0;
+  return '🏃 Run' + (t1 ? ' · ' + (r.durationSeconds != null ? mmss(r.durationSeconds) + ' ' : '') + '→ ' + fmtClock(t1)
+                        : r.id === running ? ' · running' : ' · never ended');
+}
+/* Four lines at most, each a family: the effort (range, time in it, peak, RPE, sync), the
+   zones (with the reserve they are computed from), the stages (↑ time to reach the high set,
+   ↓ time to come back down), and the note. */
+function runLines(r){
+  const out = [], j = a => a.filter(Boolean).join(' · ');
+  out.push(j([
+    r.inRangeSeconds != null ? mmss(r.inRangeSeconds) + ' in ' + (r.minBpm && r.maxBpm ? r.minBpm + '–' + r.maxBpm : 'range') : null,
+    r.inRangeSeconds == null && r.minBpm && r.maxBpm ? 'range ' + r.minBpm + '–' + r.maxBpm : null,
+    r.alertDelaySeconds != null ? 'alert ' + r.alertDelaySeconds + ' s' : null,
+    r.peakBpm ? 'peak ' + r.peakBpm : null,
+    r.rpe != null ? 'RPE ' + r.rpe + '/10' : null,
+    r.syncedAt ? 'synced' : 'to sync'
+  ]));
+  const BANDS = ['30–39', '40–59', '60–89', '≥90'];
+  const zones = [r.veryLightSeconds != null ? '<30 ' + mmss(r.veryLightSeconds) : null]
+    .concat(Array.isArray(r.bands) ? r.bands.map((v, i) => BANDS[i] + ' ' + mmss(v)) : []).filter(Boolean);
+  const reserve = j([r.hrmax ? 'max ' + r.hrmax : null, r.resting ? 'rest ' + r.resting : null]);
+  if (zones.length || reserve) out.push('%HRR' + (reserve ? ' (' + reserve + ')' : '') + (zones.length ? ': ' + zones.join(' · ') : ''));
+  const stages = [r.warmupSeconds != null ? 'warm-up ' + mmss(r.warmupSeconds) : null];
+  if (Array.isArray(r.partsDetail) && r.partsDetail.length)
+    r.partsDetail.forEach((p, i) => stages.push('P' + (i + 1) +
+      ' ↑' + (p.toMax == null ? '—' : mmss(p.toMax)) + ' ↓' + (p.recovery == null ? '—' : mmss(p.recovery))));
+  else if (r.parts) stages.push(r.parts + ' part' + (r.parts === 1 ? '' : 's'));
+  if (r.cooldownSeconds != null) stages.push('cool down ' + mmss(r.cooldownSeconds));
+  if (stages.filter(Boolean).length) out.push(j(stages));
+  if (r.note) out.push('“' + r.note + '”');
+  return out.filter(Boolean);
 }
 
 function download(filename, text, type){
@@ -3854,7 +3838,8 @@ $('#posfile').onchange = async e => {
     }
     pushing = false;
     // The ack may have flipped rows to synced — the log page shows that per run.
-    if (typeof renderCardio === 'function' && document.getElementById('logsheet').classList.contains('on')) renderCardio();
+    if (typeof renderDay === 'function' && document.getElementById('logsheet').classList.contains('on'))
+      allSessions().then(renderDay).catch(() => {});
   }
   window.addEventListener('online', pushLog);
   // Coming back to the foreground is the retry moment a phone actually has:
