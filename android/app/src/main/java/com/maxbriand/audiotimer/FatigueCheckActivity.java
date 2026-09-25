@@ -2,6 +2,14 @@ package com.maxbriand.audiotimer;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanResult;
+import android.os.ParcelUuid;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
@@ -21,7 +29,9 @@ import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Gravity;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -33,6 +43,7 @@ import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -61,7 +72,10 @@ import java.util.UUID;
  *
  * The strap is the service's (HrService), not this screen's: if a run or the Live page
  * already holds it, the test only listens; if nothing does, the test asks for the
- * connection and lets go of it when it ends.
+ * connection and lets go of it when it ends. Until the first beat arrives, "Connect
+ * sensor" scans for heart-rate straps and connects the one picked — the way in when no
+ * strap is known yet, Bluetooth was never allowed, or the known one is not answering
+ * (Maxime, 2026-09-25). The pick becomes the strap the checks use from then on.
  */
 public class FatigueCheckActivity extends Activity {
   static final String EXTRA_CHECK_ID = "checkId";
@@ -122,6 +136,13 @@ public class FatigueCheckActivity extends Activity {
   private long hrSum; private int hrN, dropped;
   private final ArrayList<Float> rr = new ArrayList<>();     // NaN = a hole in the chain
   private TextView hrView, phaseView, clockView, hintView;
+  private Button connectBtn;
+  private BluetoothLeScanner scanner;
+  private ScanCallback scanCb;
+  private AlertDialog picker;
+  private static final int REQ_BT = 7;
+  private static final long SCAN_MS = 15000L;
+  private static final ParcelUuid HR_UUID = ParcelUuid.fromString("0000180d-0000-1000-8000-00805f9b34fb");
   private long pvtShownAt;
 
   @Override
@@ -319,6 +340,9 @@ public class FatigueCheckActivity extends Activity {
     clockView = add(text("", 34, ACCENT, true), 20);
     phaseView = add(text("", 15, MUTED, false), 6);
     hintView = add(text("", 14, WARN, false), 14);
+    connectBtn = button("Connect sensor", false, this::pickSensor);
+    connectBtn.setTextColor(ACCENT);
+    connectBtn.setTextSize(17);
     button("Skip the strap test", false, () -> { endStrap(); put("strap", status("skipped")); next(); });
 
     firstBeatAt = lastBeatAt = recFromWall = 0;
@@ -328,7 +352,7 @@ public class FatigueCheckActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 31
         && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED){
       phaseView.setText("Bluetooth is not allowed for the app yet.");
-      hintView.setText("Open the app and tap 🫀 once to connect the strap — then this test can find it.");
+      hintView.setText("Tap Connect sensor to allow it and pick the strap.");
       return;
     }
     HrService.setBeatListener((bpm, rrMs) -> ui.post(() -> onBeats(bpm, rrMs)));
@@ -345,7 +369,7 @@ public class FatigueCheckActivity extends Activity {
       if (!strapLive || firstBeatAt != 0 || lastBeatAt != 0) return;
       if (address.isEmpty()){
         phaseView.setText("No strap known yet.");
-        hintView.setText("Open the app and tap 🫀 once to pick the strap — then this test can find it.");
+        hintView.setText("Tap Connect sensor to pick it.");
         return;
       }
       ownsLink = !wasRunning;
@@ -370,7 +394,11 @@ public class FatigueCheckActivity extends Activity {
     lastBeatAt = now;
     if (bpm <= 0){ hrView.setText("--"); return; }        // connected, no skin contact yet
     hrView.setText(String.valueOf(bpm));
-    if (firstBeatAt == 0){ firstBeatAt = now; hintView.setText(""); }
+    if (firstBeatAt == 0){
+      firstBeatAt = now; hintView.setText("");
+      if (connectBtn != null) connectBtn.setVisibility(View.GONE);
+      stopScan();
+    }
     if (now - firstBeatAt < RECORD_FROM_MS || now - firstBeatAt >= CALM_MS) return;
     if (recFromWall == 0) recFromWall = System.currentTimeMillis();
     hrSum += bpm; hrN++;
@@ -445,8 +473,106 @@ public class FatigueCheckActivity extends Activity {
     button(index + 1 < steps.size() ? "Next" : "Done", true, this::next);
   }
 
+  // ---- Connect sensor: scan, pick, connect
+
+  private void pickSensor(){
+    ArrayList<String> need = new ArrayList<>();
+    if (Build.VERSION.SDK_INT >= 31){
+      if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        need.add(Manifest.permission.BLUETOOTH_SCAN);
+      if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+        need.add(Manifest.permission.BLUETOOTH_CONNECT);
+    } else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
+      need.add(Manifest.permission.ACCESS_FINE_LOCATION);     // BLE scans need it up to Android 11
+    }
+    if (!need.isEmpty()){ requestPermissions(need.toArray(new String[0]), REQ_BT); return; }
+
+    BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+    BluetoothAdapter ba = bm == null ? null : bm.getAdapter();
+    if (ba == null){ hintView.setText("This phone has no Bluetooth."); return; }
+    if (!ba.isEnabled()){
+      hintView.setText("Bluetooth is off — turn it on, then tap Connect sensor again.");
+      try { startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)); } catch (Exception ignored){}
+      return;
+    }
+    scanner = ba.getBluetoothLeScanner();
+    if (scanner == null){ hintView.setText("Bluetooth is not ready — try again in a moment."); return; }
+
+    final ArrayList<String> names = new ArrayList<>(), addrs = new ArrayList<>();
+    final ArrayAdapter<String> list = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, names);
+    stopScan();
+    picker = new AlertDialog.Builder(this)
+      .setTitle("Looking for sensors — put the strap on…")
+      .setAdapter(list, (d, which) -> chooseSensor(addrs.get(which)))
+      .setNegativeButton("Cancel", null)
+      .setOnDismissListener(d -> stopScan())
+      .create();
+    picker.show();
+    scanCb = new ScanCallback(){
+      @Override public void onScanResult(int type, ScanResult r){
+        BluetoothDevice dev = r.getDevice();
+        String name = null;
+        try { name = dev.getName(); } catch (SecurityException ignored){}
+        List<ParcelUuid> uuids = r.getScanRecord() == null ? null : r.getScanRecord().getServiceUuids();
+        boolean hr = (uuids != null && uuids.contains(HR_UUID))
+          || (name != null && name.toLowerCase(Locale.US).contains("polar"));
+        if (!hr || addrs.contains(dev.getAddress())) return;
+        addrs.add(dev.getAddress());
+        names.add((name == null || name.isEmpty() ? "Heart-rate sensor" : name) + "  ·  " + dev.getAddress());
+        list.notifyDataSetChanged();
+        if (picker != null) picker.setTitle("Choose your sensor");
+      }
+      @Override public void onScanFailed(int code){
+        if (picker != null) picker.setTitle("The scan failed (" + code + ") — cancel and try again.");
+      }
+    };
+    try { scanner.startScan(scanCb); }
+    catch (SecurityException e){ picker.dismiss(); hintView.setText("Bluetooth is not allowed for the app."); return; }
+    final ScanCallback mine = scanCb;
+    ui.postDelayed(() -> {
+      if (scanCb != mine) return;                // already stopped, or a newer scan runs
+      stopScan();
+      if (picker != null && picker.isShowing() && addrs.isEmpty())
+        picker.setTitle("No sensor found — wet the electrodes, put the strap on, and try again.");
+    }, SCAN_MS);
+  }
+
+  private void chooseSensor(String address){
+    stopScan();
+    if (!strapLive) return;
+    FatigueChecks.configureStrap(this, address);
+    hintView.setText("");
+    phaseView.setText("Connecting to the sensor — put it on, sit down.");
+    HrService.setBeatListener((bpm, rrMs) -> ui.post(() -> onBeats(bpm, rrMs)));
+    ui.removeCallbacks(tick);
+    ui.postDelayed(tick, 500);
+    // Nobody held the service: this test started it, so this test lets go of it.
+    if (!HrService.isRunning()) ownsLink = true;
+    connect(address);
+  }
+
+  private void stopScan(){
+    if (scanner != null && scanCb != null){
+      try { scanner.stopScan(scanCb); } catch (Exception ignored){}
+    }
+    scanCb = null;
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int code, String[] perms, int[] res){
+    super.onRequestPermissionsResult(code, perms, res);
+    if (code != REQ_BT || !strapLive) return;
+    for (int r : res) if (r != PackageManager.PERMISSION_GRANTED){
+      hintView.setText("Bluetooth was not allowed — the strap test cannot reach the sensor without it.");
+      return;
+    }
+    pickSensor();
+  }
+
   /** Stop listening; and if this test asked for the strap, give it back. */
   private void endStrap(){
+    stopScan();
+    if (picker != null){ try { picker.dismiss(); } catch (Exception ignored){} picker = null; }
     strapLive = false; recording = false;
     ui.removeCallbacks(tick);
     HrService.setBeatListener(null);
