@@ -31,11 +31,18 @@ exposure is the fact that matters, later taps say nothing new. ("daylight" rows,
 from the short-lived dedicated button, are read the same way.) A row whose
 stopReason is "melatonin" is the dose marker, stamped when "Taken ✓" closes the
 reminder; the night's Melatonin column is the last dose in the 12 hours before its
-bedtime. A row whose stopReason is "screens-off" is the blue-light cutoff: the
-📵 Screens off tap on the day screen; the night's screens_off column is the LAST
-such tap in the 12 hours before its bedtime, read like the dose. Doses, daylight
-and screens-off markers belong to the night they precede and must never glue two
-nights together, so all ride outside the night clustering. The computer column is
+bedtime. (A row whose stopReason is "screens-off" is the old 📵 Screens off tap,
+gone from the app since 2026-09-09 and never used: it fed a screens_off column that
+phone_off replaced on 2026-09-25. Such rows are still set aside, never read.) Doses
+and daylight markers belong to the night they precede and must never glue two
+nights together, so all ride outside the night clustering. The phone_off column is
+the moment the phone was put down before the night, measured, from phone-time.csv:
+the end of the last unlocked screen session that began in the 12 hours before
+bedtime but more than 5 minutes before it — the session that starts the bedtime
+audio is the phone being used to go to bed, not the evening's use, so it is left
+out; a session still running into bedtime counts up to bedtime (Maxime, 2026-09-25:
+the phone is always the last screen, so one column says when screens stopped).
+The computer column is
 the day's time in Cadence work sessions, added up from computer-time.csv, the
 per-session file tools/computer-time.py writes. The work and personal columns are the
 day's LOGGED time in Cadence's pro and personal projects, and computer_off the last
@@ -270,7 +277,8 @@ def load_phone():
 # check with that timing sends a real (non-test) run, named "<what> <when>" (Maxime,
 # 2026-09-20 and 2026-09-25): what is HR / HRV (the strap test), PVT (its time, the only
 # thing a PVT records here) or Fatigue (the question's 1–10 score), and when is the
-# check's own `column` suffix — "+45min", "+4h", "-1h sleep". A check is keyed by its
+# check's own `column` suffix — "+45min", "+4h", "-1h sleep". The columns sit just
+# before bedtime, in the order the checks happen in the day. A check is keyed by its
 # timing (anchor + offsetMin), never by its id or its words, so editing a check's delay
 # starts a new column and the old one keeps its history. Test-button runs belong in no
 # column, and a step not done is a blank cell, never a guess. The row is the check's
@@ -302,7 +310,14 @@ def load_fatigue_checks():
             key = (r["anchor"], int(r["offsetMin"]))
         except (KeyError, TypeError, ValueError):
             continue
-        c = checks.setdefault(key, {"when": r.get("column") or "", "values": {}})
+        c = checks.setdefault(key, {"when": r.get("column") or "", "values": {}, "hours": []})
+        try:
+            t = datetime.fromisoformat(r["started"].replace("Z", "+00:00")).astimezone()
+            # The hour of the day it ran, counted from 05:00 so a check after midnight
+            # still sorts at the end of the day it belongs to.
+            c["hours"].append((t.hour * 60 + t.minute - 300) % 1440)
+        except (KeyError, AttributeError, ValueError):
+            pass
         for step, field, what in FATIGUE_MEASURES:
             st = r["steps"].get(step)
             if not isinstance(st, dict):
@@ -314,9 +329,13 @@ def load_fatigue_checks():
             if what == "PVT":
                 v = datetime.fromtimestamp(v / 1000).astimezone()
             cell[r["localDay"]] = v
-    # Through the day: after-wake checks by delay, then before-sleep ones, the furthest
-    # from bedtime first; within a check, the order the steps run in.
-    order = sorted(checks, key=lambda k: (k[0] != "wake", k[1] if k[0] == "wake" else -k[1]))
+    # In the order they happen in the day (Maxime, 2026-09-25): by the median hour the
+    # check's runs took place at — wake- and sleep-anchored checks interleave by the
+    # clock, not by anchor. Within a check, the order the steps run in.
+    def hour(k):
+        h = sorted(checks[k]["hours"])
+        return h[len(h) // 2] if h else 0
+    order = sorted(checks, key=lambda k: (hour(k), k))
     columns, values = [], {}
     for k in order:
         for _, _, what in FATIGUE_MEASURES:
@@ -325,6 +344,34 @@ def load_fatigue_checks():
                 columns.append(name)
                 values[name] = checks[k]["values"][what]
     return columns, values
+
+
+PHONE_LAUNCH_MIN = 5   # phone use this close to bedtime is starting the night's audio
+
+
+def load_phone_uses():
+    """The phone's unlocked screen sessions as (start, end) local clocks, in order, a
+    session the file split at midnight joined back into one."""
+    uses = []
+    try:
+        with PHONE_FILE.open(encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("unlocked") != "yes":
+                    continue                    # a glance at the clock is not phone use
+                try:
+                    uses.append((datetime.fromisoformat(r["start"]),
+                                 datetime.fromisoformat(r["end"])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+    except OSError:
+        pass
+    joined = []
+    for a, b in sorted(uses):
+        if joined and a - joined[-1][1] <= timedelta(seconds=1):
+            joined[-1] = (joined[-1][0], max(joined[-1][1], b))
+        else:
+            joined.append((a, b))
+    return joined
 
 
 def load_overrides():
@@ -397,12 +444,11 @@ def mins(td):
     return td.total_seconds() / 60
 
 
-def attach_day_inputs(nights, doses, lights, screens, cad_ends):
+def attach_day_inputs(nights, doses, lights, phone_uses, cad_ends):
     """The preceding day's zeitgebers: the last dose in the 12 h before bedtime, the
-    first daylight marker in the 24 h before it, the last screens-off tap in the 12 h
-    before it (the blue-light cutoff nearest the night, like the dose). All stay out
-    of the night clustering: they sit mid-gap between two nights and would bridge
-    them into one."""
+    first daylight marker in the 24 h before it, the phone put down before it (see
+    the module docstring for phone_off). All stay out of the night clustering: they
+    sit mid-gap between two nights and would bridge them into one."""
     for n in nights:
         prior = [d for d in doses
                  if n["bedtime"] - timedelta(hours=12) <= d["start"] <= n["bedtime"]]
@@ -410,17 +456,18 @@ def attach_day_inputs(nights, doses, lights, screens, cad_ends):
         walked = [l for l in lights
                   if n["bedtime"] - timedelta(hours=24) <= l["start"] <= n["bedtime"]]
         n["light"] = walked[0]["start"] if walked else None
-        cut = [x for x in screens
-               if n["bedtime"] - timedelta(hours=12) <= x["start"] <= n["bedtime"]]
-        n["screens"] = cut[-1]["start"] if cut else None
+        bed = n["bedtime"].replace(tzinfo=None)     # phone-time.csv clocks are local, naive
+        used = [(a, b) for a, b in phone_uses
+                if bed - timedelta(hours=12) <= a < bed - timedelta(minutes=PHONE_LAUNCH_MIN)]
+        n["phone_off"] = min(used[-1][1], bed) if used else None
         off = [t for t in cad_ends
                if n["bedtime"] - timedelta(hours=12) <= t <= n["bedtime"]]
         n["cadence_off"] = off[-1] if off else None
 
 
-def pending_day_rows(nights, doses, lights, screens):
-    """Days whose inputs exist but whose night does not (yet): any dose, daylight or
-    screens-off marker no night claimed becomes an inputs-only row named after the
+def pending_day_rows(nights, doses, lights):
+    """Days whose inputs exist but whose night does not (yet): any dose or daylight
+    marker no night claimed becomes an inputs-only row named after the
     event's own local date. Tonight's row-to-be is the usual case — it fills in
     tomorrow."""
     # A marker is claimed when it falls inside ANY night's window for its kind — not
@@ -432,14 +479,12 @@ def pending_day_rows(nights, doses, lights, screens):
                    and n["bedtime"] - timedelta(hours=window_h) <= e["start"] <= n["bedtime"]
                    for n in nights)
     days = {}
-    for kind, window_h, events in (("melatonin", 12, doses), ("light", 24, lights),
-                                   ("screens", 12, screens)):
+    for kind, window_h, events in (("melatonin", 12, doses), ("light", 24, lights)):
         for e in events:
             if claimed(e, window_h):
                 continue
             d = days.setdefault(e["start"].strftime("%Y-%m-%d"), {})
-            # First light (first exposure); last dose and last screens-off cut
-            # (the one nearest the night).
+            # First light (first exposure); last dose (the one nearest the night).
             if kind == "light":
                 d.setdefault("light", e["start"])
             else:
@@ -447,12 +492,12 @@ def pending_day_rows(nights, doses, lights, screens):
     return [day_row(date, **got) for date, got in sorted(days.items(), reverse=True)]
 
 
-def day_row(date, melatonin=None, light=None, screens=None):
+def day_row(date, melatonin=None, light=None):
     """A row with no night: the day's inputs only."""
     return {"date": date, "bedtime": None, "sol": None, "awakenings": None,
             "waso": None, "final_wake": None, "rise": None, "tib": None,
             "tst": None, "se": None, "fatigue": None, "note": "",
-            "melatonin": melatonin, "light": light, "screens": screens,
+            "melatonin": melatonin, "light": light, "phone_off": None,
             "cadence_off": None}
 
 
@@ -482,7 +527,7 @@ def night_metrics(rows, overrides):
     n = {"date": (bedtime - timedelta(hours=12)).strftime("%Y-%m-%d"), "bedtime": bedtime,
          "sol": mins(onset - bedtime), "awakenings": None, "waso": None,
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
-         "fatigue": None, "light": None, "screens": None, "cadence_off": None,
+         "fatigue": None, "light": None, "phone_off": None, "cadence_off": None,
          "note": ""}
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
@@ -555,7 +600,6 @@ def main():
     rows = load_rows()
     doses = [r for r in rows if r["kind"] == "melatonin"]
     lights = [r for r in rows if r["kind"] == "daylight"]
-    screens = [r for r in rows if r["kind"] == "screens"]
     rows = [r for r in rows if r["kind"] not in ("melatonin", "daylight", "screens")]
     overrides = load_overrides()
     # A recorded rise ends its night, so the rows after it are read again as their own
@@ -582,8 +626,8 @@ def main():
                       "se", "fatigue"):
                 n[k] = None
     cad_work, cad_personal, cad_ends = load_cadence()
-    attach_day_inputs(nights, doses, lights, screens, cad_ends)
-    pending = pending_day_rows(nights, doses, lights, screens)
+    attach_day_inputs(nights, doses, lights, load_phone_uses(), cad_ends)
+    pending = pending_day_rows(nights, doses, lights)
     fatigue_cols, fatigue_vals = load_fatigue_checks()
     # A day with a check but nothing else yet still gets its row, so no result is dropped.
     have = {n["date"] for n in nights + pending}
@@ -630,10 +674,9 @@ def main():
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["night", "morning_light", "melatonin", "computer",
-                    "work", "personal", "computer_off", "phone", "screens_off", "bedtime", "sol",
+                    "work", "personal", "computer_off", "phone", "phone_off", *fatigue_cols, "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
-                    "se_pct", "fatigue_1to10", *fatigue_cols,
-                    "avg4w_tst", "avg4w_se_pct", "note"])
+                    "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
@@ -641,10 +684,11 @@ def main():
                 iso(n["melatonin"]), hm(computer.get(n["date"])),
                 hm(cad_work.get(n["date"])), hm(cad_personal.get(n["date"])),
                 iso(n["cadence_off"]), hm(phone.get(n["date"])),
-                iso(n["screens"]), iso(n["bedtime"]),
+                iso(n["phone_off"]),
+                *[fatigue_cell(fatigue_vals[c].get(n["date"])) for c in fatigue_cols],
+                iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),
-                *[fatigue_cell(fatigue_vals[c].get(n["date"])) for c in fatigue_cols],
                 hm(sum(w_tst) / len(w_tst)) if w_tst else "",
                 num(sum(w_se) / len(w_se)) if w_se else "",
                 n["note"],
