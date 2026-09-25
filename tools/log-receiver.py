@@ -56,7 +56,8 @@ FIELDS = (
 _cardio_env = os.environ.get("AUDIO_TIMER_CARDIO_DIR")
 CARDIO_ROOT = Path(_cardio_env).expanduser() if _cardio_env else ROOT.parent / "cardio-sessions"
 CARDIO_FIELDS = (
-    "id", "started", "ended", "localDay", "minBpm", "maxBpm",
+    # "activity": "walk" (Brisk walk, one plain session) or "run" (the parts) — 2026-09-25.
+    "id", "activity", "started", "ended", "localDay", "minBpm", "maxBpm",
     "inRangeSeconds", "parts", "peakBpm",
     # Everything a row of the Body asset's exercise-log.csv needs (2026-09-09):
     # durationSeconds -> total_min · bands -> light/mod/vig/over90_min · partsDetail ->

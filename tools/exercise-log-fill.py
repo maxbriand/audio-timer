@@ -137,6 +137,10 @@ def row_for(day, sessions):
         notes.append(f"{len(ss)} sessions this day — totals summed, per-part columns left blank")
     if one and isinstance(one.get("partsDetail"), list) and len(one["partsDetail"]) > 6:
         notes.append(f"{len(one['partsDetail'])} parts, beyond the m6/r6 columns")
+    # Brisk walk or run (the app asks since 2026-09-25; older sessions were all runs).
+    walks = sum(1 for s in ss if s.get("activity") == "walk")
+    if walks:
+        notes.append("brisk walk" if walks == len(ss) else f"{walks} of {len(ss)} sessions a brisk walk")
     for s in ss:
         if s.get("note"):
             notes.append(str(s["note"]))

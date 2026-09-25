@@ -180,10 +180,15 @@ public class HrService extends Service {
        cool down is the last stage: once Cool down is pressed (`cool`) the below-range alarm
        is off, and going under the low opens it instead of another part. A rest that never
        touches the low stays unset: a blank cell, never a guess. `parts` holds the finished
-       stages, each with its `kind`. */
+       stages, each with its `kind`.
+       Cool down pressed mid-climb ends the climb there: the part goes into its rest at the
+       tap (`maxHit` false — no toMax, the high was never reached) and the rest runs until
+       the low, like any other; only then does the cool down begin (Maxime, 2026-09-25).
+       A brisk walk (`walk`) is one session with no stages at all: no parts, no cool down —
+       its time, bands, peak and alerts only. */
     private int stage = ST_WARMUP;
     private long partStart, maxAt, partIn;
-    private boolean cool;
+    private boolean cool, maxHit, walk;
     // Alerts stay silent until the heart rate has reached the min once —
     // starting a session at rest must not trip the below-range alarm.
     private boolean reachedMin;
@@ -279,14 +284,17 @@ public class HrService extends Service {
                 outSince = 0; outDir = null; alerting = false;
                 break;
             case ACTION_SESSION:
-                if (i.getBooleanExtra("start", false)) startSession();
+                if (i.getBooleanExtra("start", false)) startSession(i.getBooleanExtra("walk", false));
                 else endSession();
                 break;
             case ACTION_COOLDOWN:
                 if (phase != PHASE_ACTIVE || stage == ST_WARMUP || stage == ST_COOLDOWN) break;
                 cool = i.getBooleanExtra("on", false);
+                if (walk) { cool = false; break; }
                 if (cool) {
                     if ("low".equals(outDir)) { outSince = 0; outDir = null; alerting = false; alerts.cancel(); }
+                    // Mid-climb: the climb stops here and the part's rest starts now.
+                    if (stage == ST_REACH) { stage = ST_REST; maxAt = SystemClock.elapsedRealtime(); maxHit = false; }
                     if (isFresh()) stepStages(SystemClock.elapsedRealtime());
                 }
                 break;
@@ -431,7 +439,8 @@ public class HrService extends Service {
 
     // ---------------------------------------------------------------- session
 
-    private void startSession() {
+    private void startSession(boolean asWalk) {
+        walk = asWalk;
         // The clock starts on the tap; the below-range alarm stays silent
         // until the heart rate has reached the min once (reachedMin).
         phase = PHASE_ACTIVE;
@@ -445,6 +454,7 @@ public class HrService extends Service {
         maxAt = 0;
         partIn = 0;
         cool = false;
+        maxHit = false;
         boolean fresh = isFresh();
         reachedMin = fresh && hr >= min;
         // Already at the range low on the tap: there is no warm-up to count.
@@ -453,7 +463,7 @@ public class HrService extends Service {
     }
 
     private void endSession() {
-        if (phase == PHASE_ACTIVE) closeStage(SystemClock.elapsedRealtime(), ST_NONE);
+        if (phase == PHASE_ACTIVE && !walk) closeStage(SystemClock.elapsedRealtime(), ST_NONE);
         phase = PHASE_DONE;
         endedAt = SystemClock.elapsedRealtime();
         outSince = 0; outDir = null; alerting = false;
@@ -491,7 +501,7 @@ public class HrService extends Service {
                 e.put("kind", "part");
                 e.put("inRange", partIn / 1000.0);
                 e.put("target", max);
-                e.put("toMax", stage == ST_REST ? (Object) ((maxAt - partStart) / 1000.0) : JSONObject.NULL);
+                e.put("toMax", stage == ST_REST && maxHit ? (Object) ((maxAt - partStart) / 1000.0) : JSONObject.NULL);
                 e.put("recovery", stage == ST_REST && next != ST_NONE
                     ? (Object) ((now - maxAt) / 1000.0) : JSONObject.NULL);
                 pushStage(e, durMs);
@@ -501,13 +511,14 @@ public class HrService extends Service {
         partStart = now;
         maxAt = 0;
         partIn = 0;
+        maxHit = false;
     }
 
     /** The stage machine, one step at a time. */
     private void stepStages(long now) {
         if (stage == ST_WARMUP && hr >= min) closeStage(now, ST_REACH);
         if (stage == ST_REACH) {
-            if (hr >= max) { stage = ST_REST; maxAt = now; alerts.partDone(vibOn, sndOn); }
+            if (hr >= max) { stage = ST_REST; maxAt = now; maxHit = true; alerts.partDone(vibOn, sndOn); }
             else if (cool && hr < min) closeStage(now, ST_COOLDOWN);
         } else if (stage == ST_REST && hr <= min) {
             closeStage(now, cool ? ST_COOLDOWN : ST_REACH);
@@ -571,7 +582,7 @@ public class HrService extends Service {
         int bi = bandIndex();
         if (bi >= 0) tBand[bi] += dt;
 
-        stepStages(now);
+        if (!walk) stepStages(now);
     }
 
     // -------------------------------------------------------------------- BLE
@@ -765,6 +776,7 @@ public class HrService extends Service {
             s.put("rest", live && stage == ST_REST ? (now - maxAt) / 1000.0 : 0);
             s.put("stage", stage >= 0 ? STAGE_NAMES[stage] : "warmup");
             s.put("cool", cool);
+            s.put("walk", walk);
             s.put("reachedMin", reachedMin);
             s.put("out", outDir == null ? JSONObject.NULL : outDir);
             s.put("outFor", outSince == 0 ? 0 : (now - outSince) / 1000.0);

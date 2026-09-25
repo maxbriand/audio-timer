@@ -449,6 +449,10 @@
   .zone #coolBtn[hidden]{display:none}
   .zone #coolBtn[aria-pressed="true"]{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.35)}
   #session{margin-top:16px;width:100%;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
+  .zone #session[hidden], .zone #startChoice[hidden], .zone .partsbar[hidden]{display:none}
+  .zone #startChoice{display:flex;gap:10px;margin-top:16px}
+  .zone .startbtn{flex:1;border:none;border-radius:12px;padding:16px;font:700 15px/1 var(--sans);letter-spacing:.04em;cursor:pointer;background:#E7ECF0;color:#0B0F14}
+  .zone .startbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
   .zone #session.quiet{background:rgba(0,0,0,.3);color:var(--txt);border:1px solid var(--line)}
   .zone #session:focus-visible{outline:2px solid #fff;outline-offset:2px}
   .zone #hint{margin-top:10px;font:400 11.5px/1.5 var(--mono);color:var(--dim);text-align:center;min-height:16px}
@@ -679,7 +683,7 @@
       <span>in range <b id="pct">-:--</b></span>
       <span>peak <b id="peak">--</b></span>
     </div>
-    <div class="partsbar">
+    <div class="partsbar" id="partsbar">
       <span id="partnow">Part <b>1</b> · <b>0:00</b> in range</span>
       <button id="partsBtn" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="partsDlg">Parts <b id="partsCount">0</b></button>
     </div>
@@ -689,7 +693,11 @@
          strap themselves and it is released when nothing uses it. The element stays because
          zone-alarm's script keeps its label and state on it. -->
     <button id="connect" hidden>Connect sensor</button>
-    <button id="session">Start session</button>
+    <div id="startChoice">
+      <button id="startWalk" class="startbtn">Brisk walk</button>
+      <button id="startRun" class="startbtn">Run</button>
+    </div>
+    <button id="session" hidden>End session</button>
   </div>
 
 </div>
@@ -2524,7 +2532,7 @@ const mmss = v => v == null ? null :
   Math.floor(v / 60) + ':' + String(Math.round(v % 60)).padStart(2, '0');
 function runTitle(r, running){
   const t1 = r.ended ? Date.parse(r.ended) : 0;
-  return '🏃 Run' + (t1 ? ' · ' + (r.durationSeconds != null ? mmss(r.durationSeconds) + ' ' : '') + '→ ' + fmtClock(t1)
+  return (r.activity === 'walk' ? '🚶 Brisk walk' : '🏃 Run') + (t1 ? ' · ' + (r.durationSeconds != null ? mmss(r.durationSeconds) + ' ' : '') + '→ ' + fmtClock(t1)
                         : r.id === running ? ' · running' : ' · never ended');
 }
 /* Four lines at most, each a family: the effort (range, time in it, peak, RPE, sync), the
@@ -3685,7 +3693,12 @@ $('#posfile').onchange = async e => {
   // last stage: once Cool down is pressed (`cool`) the below-range alarm is off, and going
   // under the low opens it instead of another part. A rest that never touches the low stays
   // unset rather than guessed. `parts` holds the finished stages, each with its `kind`.
+  // Cool down pressed mid-climb ends the climb at the tap: the part goes into its rest
+  // (`maxHit` false — no time to reach, the high never was) and the rest runs to the low
+  // like any other; only then does the cool down begin (Maxime, 2026-09-25). A brisk walk
+  // (`walk`) has no stages at all: one session — time, bands, peak and alerts, no parts.
   let parts = [], stage = 'warmup', partStart = 0, maxAt = 0, partIn = 0, cool = false;
+  let maxHit = false, walk = false;
   // Anything shorter than this is the heart wavering across a limit, not a part of the run:
   // its time joins the part before.
   const MIN_PART = 30;
@@ -3747,6 +3760,7 @@ $('#posfile').onchange = async e => {
   function logStart(){
     const d = new Date();
     const e = {
+      activity: walk ? 'walk' : 'run',
       id: 'zs-' + d.getTime().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
       started: d.toISOString(),
       localDay: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
@@ -3768,6 +3782,7 @@ $('#posfile').onchange = async e => {
   // and the cool down ride beside them. Called again when the service's closing frame
   // lands: it finishes the last stage on the end tap, a moment after logEnd() has run.
   function logParts(e){
+    if (e.activity === 'walk') return;                  // one session, no stages to keep
     const num = numbered();
     const dur = k => { const p = parts.find(x => x.kind === k); return p ? Math.round(p.dur) : null; };
     e.parts = num.length;
@@ -3993,18 +4008,19 @@ $('#posfile').onchange = async e => {
       $('b' + i).parentElement.classList.toggle('on', i === cur);
     }
     renderPart();
+    // Idle: the choice of session (Brisk walk / Run), each connecting the strap itself.
+    // Running: End session alone.
     const btn = $('session');
-    btn.textContent = phase === 'active' ? 'End session'
-      : phase === 'done' ? 'New session' : 'Start session';
-    // Connect is the primary action until the strap is on; then starting is.
-    btn.classList.toggle('quiet', phase === 'active');   // Start connects the strap itself
+    btn.hidden = phase !== 'active';
+    btn.classList.toggle('quiet', phase === 'active');
+    $('startChoice').hidden = phase === 'active';
     const line = $('stateline');
     if (!connected){
       setState('idle');
       zoneRoot.classList.remove('pulsing');
       line.innerHTML = '<span class="sub">' + (wantConnected ? 'reconnecting…'
         : phase === 'active' ? 'no sensor — tap here to reconnect'
-        : 'start the session — the strap connects first') + '</span>';
+        : 'pick Brisk walk or Run — the strap connects first') + '</span>';
       return;
     }
     if (hr <= 0){
@@ -4016,7 +4032,7 @@ $('#posfile').onchange = async e => {
     if (phase === 'ready'){
       setState('idle');
       zoneRoot.classList.remove('pulsing');
-      line.innerHTML = 'Ready<span class="sub">tap start — then hold ' + settings.min + '–' + settings.max + '</span>';
+      line.innerHTML = 'Ready<span class="sub">pick Brisk walk or Run — then hold ' + settings.min + '–' + settings.max + '</span>';
       return;
     }
 
@@ -4024,7 +4040,7 @@ $('#posfile').onchange = async e => {
       setState('idle');
       zoneRoot.classList.remove('pulsing');
       const n = numbered().length;
-      line.innerHTML = 'Session done<span class="sub">' + n + ' part' + (n === 1 ? '' : 's') + ' — timer stopped, alerts off</span>';
+      line.innerHTML = 'Session done<span class="sub">' + (walk ? '' : n + ' part' + (n === 1 ? '' : 's') + ' — ') + 'timer stopped, alerts off</span>';
       return;
     }
     if (outSince === null){
@@ -4041,7 +4057,9 @@ $('#posfile').onchange = async e => {
         return;
       }
       setState('in');
-      line.innerHTML = stage === 'rest'
+      line.innerHTML = walk
+        ? 'In range<span class="sub">brisk walk — hold ' + settings.min + '–' + settings.max + '</span>'
+        : stage === 'rest'
         ? 'Rest<span class="sub">part ' + (numbered().length + 1) + ' — back down to ' + settings.min + '</span>'
         : 'In range<span class="sub">part ' + (numbered().length + 1) + ' — push to ' + settings.max + '</span>';
     } else {
@@ -4064,6 +4082,9 @@ $('#posfile').onchange = async e => {
   // Live summary of the part in progress: the bar under the stats and, when
   // the dialog is open, its dashed row. Finished parts only redraw on change.
   function renderPart(){
+    // A walk has no parts: no bar, no Cool down.
+    $('partsbar').hidden = walk && phase !== 'ready';
+    if (walk && phase !== 'ready'){ $('coolBtn').hidden = true; return; }
     const n = numbered().length + 1, cnt = numbered().length;
     $('partnow').innerHTML = phase === 'ready'
       ? 'Part <b>0</b> · warm-up on start'
@@ -4144,13 +4165,13 @@ $('#posfile').onchange = async e => {
     else if (stage === 'cooldown') pushStage({ kind:'cooldown', dur });
     else pushStage({
       kind:'part', dur, inRange: partIn, target: settings.max,
-      toMax: stage === 'rest' ? (maxAt - partStart) / 1000 : null,
+      toMax: stage === 'rest' && maxHit ? (maxAt - partStart) / 1000 : null,
       recovery: stage === 'rest' && next ? (now - maxAt) / 1000 : null
     });
-    stage = next; partStart = now; maxAt = 0; partIn = 0;
+    stage = next; partStart = now; maxAt = 0; partIn = 0; maxHit = false;
   }
   function reachedMax(now){
-    stage = 'rest'; maxAt = now;
+    stage = 'rest'; maxAt = now; maxHit = true;
     announce('Part ' + (numbered().length + 1) + ': ' + settings.max + ' reached in ' +
       spoken(curReach()) + '. Rest down to ' + settings.min + '.');
     if (settings.vib) vibrate([90, 70, 90]);
@@ -4158,6 +4179,7 @@ $('#posfile').onchange = async e => {
   }
   // The stage machine, one sample at a time.
   function stepStages(){
+    if (walk) return;
     const now = Date.now();
     if (stage === 'warmup'){ if (hr >= settings.min) closeStage(now, 'reach'); }
     if (stage === 'reach'){
@@ -4171,10 +4193,12 @@ $('#posfile').onchange = async e => {
     }
   }
   function setCool(on){
-    if (phase !== 'active' || stage === 'warmup' || stage === 'cooldown') return;
+    if (walk || phase !== 'active' || stage === 'warmup' || stage === 'cooldown') return;
     if (NATIVE){ NativeSession.cooldown(on); return; }
     cool = on;
     if (cool){ outSince = null; outDir = null; alerting = false; if (navigator.vibrate) navigator.vibrate(0); }
+    // Mid-climb: the climb stops here and the part's rest starts now.
+    if (cool && stage === 'reach'){ stage = 'rest'; maxAt = Date.now(); maxHit = false; }
     if (isConnected() && hr > 0) stepStages();
     render();
   }
@@ -4253,6 +4277,7 @@ $('#posfile').onchange = async e => {
     const wasStage = stage, wasPhase = phase0;
     stage = s.stage || 'warmup';
     cool = !!s.cool;
+    walk = !!s.walk;
     tIn = s.tIn || 0;
     if (Array.isArray(s.bands) && s.bands.length === NB) tBand = s.bands;
     peak = s.peak || 0;
@@ -4297,12 +4322,13 @@ $('#posfile').onchange = async e => {
     });
   }
 
-  function startSession(){
+  function startSession(asWalk){
+    walk = !!asWalk;
     // The clock starts on the tap; the below-range alarm stays silent until
     // the heart rate has reached the min once (reachedMin).
     phase = 'active'; startedAt = Date.now(); endedAt = 0;
     tIn = 0; tBand = Array(NB).fill(0); peak = 0;
-    parts = []; partStart = Date.now(); maxAt = 0; partIn = 0; cool = false;
+    parts = []; partStart = Date.now(); maxAt = 0; partIn = 0; cool = false; maxHit = false;
     const fresh = isConnected() && hr > 0;
     reachedMin = fresh && hr >= settings.min;
     // Already at the range low on the tap: there is no warm-up to count.
@@ -4314,13 +4340,13 @@ $('#posfile').onchange = async e => {
   }
 
   function endSession(){
-    closeStage(Date.now(), null);
+    if (!walk) closeStage(Date.now(), null);
     phase = 'done'; endedAt = Date.now();
     alerting = false; outSince = null; outDir = null;
     if (window.NativeBLE) NativeBLE.cancelVibrate();
     else if (navigator.vibrate) navigator.vibrate(0);
-    announce('Session done. ' + numbered().length + ' part' + (numbered().length === 1 ? '' : 's') +
-      ', ' + spoken(tIn) + ' in range.');
+    announce('Session done. ' + (walk ? '' : numbered().length + ' part' + (numbered().length === 1 ? '' : 's') + ', ') +
+      spoken(tIn) + ' in range.');
     renderPartsList(); render();
   }
 
@@ -4463,20 +4489,28 @@ $('#posfile').onchange = async e => {
   window.ZoneConn = { isConnected, ensure: ensureConnected };
   $('stateline').addEventListener('click', () => { if (phase === 'active' && !isConnected()) ensureConnected(); });
   $('coolBtn').addEventListener('click', () => setCool(!cool));
-  $('session').addEventListener('click', async () => {
-    const running = phase === 'active';
+  // Two ways in (Maxime, 2026-09-25): Brisk walk, one plain session, or Run, the parts.
+  async function begin(asWalk){
+    if (phase === 'active') return;
     // Starting needs the strap, and asks for it; a session that could not get it does not start.
-    if (!running && !(await ensureConnected())) return;
-    if (NATIVE){
-      // The service answers with a state push straight away, so the button
-      // never waits on the next tick to change.
-      if (running){ NativeSession.end(); askRpe(logEnd()); }
-      else { NativeSession.start(); logStart(); }
-    } else if (running){ endSession(); askRpe(logEnd()); }
-    else { startSession(); logStart(); }
+    if (!(await ensureConnected())) return;
+    walk = asWalk;
+    // The service answers with a state push straight away, so the buttons
+    // never wait on the next tick to change.
+    if (NATIVE) NativeSession.start(asWalk);
+    else startSession(asWalk);
+    logStart();
+    render();
+  }
+  $('startWalk').addEventListener('click', () => begin(true));
+  $('startRun').addEventListener('click', () => begin(false));
+  $('session').addEventListener('click', () => {
+    if (phase !== 'active') return;
+    if (NATIVE){ NativeSession.end(); askRpe(logEnd()); }
+    else { endSession(); askRpe(logEnd()); }
     // The end of the session is the end of the strap's job. On the APK the phase flips with
     // the service's next state push, so the check waits for it.
-    if (running) setTimeout(releaseIfIdle, 1500);
+    setTimeout(releaseIfIdle, 1500);
   });
 
   // 0–10, the Borg CR10 range the exercise log's rpe column expects.

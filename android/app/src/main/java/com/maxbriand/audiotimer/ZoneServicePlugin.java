@@ -162,7 +162,8 @@ public class ZoneServicePlugin extends Plugin {
         boolean start = Boolean.TRUE.equals(call.getBoolean("start", false));
         Intent i = new Intent(getContext(), HrService.class)
             .setAction(HrService.ACTION_SESSION)
-            .putExtra("start", start);
+            .putExtra("start", start)
+            .putExtra("walk", Boolean.TRUE.equals(call.getBoolean("walk", false)));
         // Starting a session is reason enough to run the engine; ending one is not.
         startService(i, start);
         call.resolve();
