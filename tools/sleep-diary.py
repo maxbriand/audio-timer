@@ -45,9 +45,10 @@ the phone is always the last screen, so one column says when screens stopped).
 The computer column is
 the day's time in Cadence work sessions, added up from computer-time.csv, the
 per-session file tools/computer-time.py writes. The work and personal columns are the
-day's LOGGED time in Cadence's pro and personal projects, and computer_off the last
-Cadence session end before the night, all read straight from Cadence's local files
-(logtime.json / projects.json / sessions.json) — the columns measured by the Mac rather
+time in Cadence's pro and personal sessions over the WAKING day — from the rise that
+ends the row below (the previous night) to this row's bedtime, not the calendar day
+(Maxime, 2026-09-25) — and computer_off the last Cadence session end before the night,
+all read straight from Cadence's local files (sessions.json / projects.json) — the columns measured by the Mac rather
 than logged on the phone. The phone column is the day's phone screen time, added up
 from phone-time.csv, the per-session file the phone sends (POST /phone) — measured by
 Android, not tapped.
@@ -171,18 +172,20 @@ OVERRIDES_FILE = SRC / "diary-overrides.json"
 # computer-time.csv, one row per Cadence session, written by tools/computer-time.py
 # (the sync refreshes it before this runs). The day's rows add up to its computer time;
 # a day with no session stays blank, like every other missing source.
-# Cadence (the work-tracking app) keeps its whole history in two local JSON files, so
-# the diary reads them directly — no collector, no cache. logtime.json is the
-# deliberately LOGGED time, split by the category projects.json gives each project:
-# "pro" projects make the work column, "personal" ones the personal column (minutes per
-# local day). Before CADENCE_SPLIT_FROM everything was logged under Chess, Cadence's
-# default project, whatever it really was (Maxime, 2026-09-24), so the split starts
-# there and earlier days stay blank. An entry whose project is gone from projects.json
-# counts in neither;
-# sessions.json holds the precise activity spans, whose last end before a night's
-# bedtime is the computer_off marker. Cadence clips sessions at midnight (the
-# continuation restarts at 00:00 next day), so the off-moment must be read across
-# midnight — the same last-in-the-12-hours-before-bedtime reading as the dose.
+# Cadence (the work-tracking app) keeps its whole history in local JSON files, so the
+# diary reads them directly — no collector, no cache. sessions.json holds the activity
+# spans; each is "pro" or "personal" by its own category field, or, on sessions that
+# predate the field, by the category projects.json gives its project. Pro sessions make
+# the work column, personal ones the personal column, summed over the waking day: the
+# overlap with [previous row's rise, this row's bedtime] (Maxime, 2026-09-25 — a session
+# at 01:00 before bed belongs to the day it ends, not the date it falls on). Before
+# CADENCE_SPLIT_FROM everything was logged under Chess, Cadence's default project,
+# whatever it really was (Maxime, 2026-09-24), so sessions from earlier stay out and
+# those days stay blank. A session whose project is gone from projects.json counts in
+# neither. The last session end before a night's bedtime is the computer_off marker.
+# Cadence clips sessions at midnight (the continuation restarts at 00:00 next day), so
+# the off-moment must be read across midnight — the same last-in-the-12-hours-before-
+# bedtime reading as the dose.
 _cadence_env = os.environ.get("AUDIO_TIMER_CADENCE_DIR")
 CADENCE_DIR = (Path(_cadence_env).expanduser() if _cadence_env
                else Path("~/Library/Application Support/Cadence").expanduser())
@@ -190,44 +193,58 @@ CADENCE_SPLIT_FROM = "2026-09-25"
 
 
 def load_cadence():
+    """Every Cadence session as (start, end, category), aware local datetimes, sorted."""
     def loc(ts):
         return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
-    logged = {"pro": {}, "personal": {}}
     try:
         category = {p["path"]: p.get("category") for p in json.loads(
             (CADENCE_DIR / "projects.json").read_text()).get("projects", [])}
     except (OSError, ValueError, KeyError, TypeError):
         category = {}
     try:
-        entries = json.loads((CADENCE_DIR / "logtime.json").read_text()).get("entries", [])
-    except (OSError, ValueError):
-        entries = []
-    for e in entries:
-        try:
-            day = loc(e["started_at"]).strftime("%Y-%m-%d")
-        except (KeyError, ValueError):
-            continue
-        m = e.get("minutes_logged")
-        if day < CADENCE_SPLIT_FROM or not isinstance(m, (int, float)):
-            continue
-        # A day with any logged time shows 00:00 in the other column, not blank: Cadence
-        # was running, just not on that side.
-        for side in logged.values():
-            side.setdefault(day, 0)
-        side = logged.get(category.get(e.get("project_path")))
-        if side is not None:
-            side[day] += m
-    ends = []
-    try:
         sess = json.loads((CADENCE_DIR / "sessions.json").read_text()).get("sessions", [])
     except (OSError, ValueError):
         sess = []
+    out = []
     for x in sess:
         try:
-            ends.append(loc(x["ended_at"]))
+            a, b = loc(x["started_at"]), loc(x["ended_at"])
         except (KeyError, ValueError):
             continue
-    return logged["pro"], logged["personal"], sorted(ends)
+        out.append((a, b, x.get("category") or category.get(x.get("project_path"))))
+    return sorted(out)
+
+
+def cadence_by_day(nights, sessions):
+    """Minutes of pro and personal session time per row, over its waking day. `nights`
+    is newest first, so the row below — the previous night — is the next in the list.
+    The day starts at that row's rise (at midnight of the row's date when there is
+    none) and ends at this row's bedtime (at its own rise when there is no bedtime; still
+    open on the newest row, the day in progress)."""
+    work, personal = {}, {}
+    for i, n in enumerate(nights):
+        if n["date"] < CADENCE_SPLIT_FROM:
+            continue
+        prev = nights[i + 1] if i + 1 < len(nights) else None
+        lo = (prev["rise"] if prev and prev.get("rise")
+              else datetime.fromisoformat(n["date"]).astimezone())
+        hi = n.get("bedtime") or n.get("rise") or (None if i == 0 else lo + timedelta(days=1))
+        sums = {"pro": 0.0, "personal": 0.0}
+        seen = False
+        for a, b, cat in sessions:
+            if a.strftime("%Y-%m-%d") < CADENCE_SPLIT_FROM:
+                continue
+            a, b = max(a, lo), (b if hi is None else min(b, hi))
+            if b <= a:
+                continue
+            # A day with any session shows 00:00 in the other column, not blank:
+            # Cadence was running, just not on that side.
+            seen = True
+            if cat in sums:
+                sums[cat] += (b - a).total_seconds() / 60
+        if seen:
+            work[n["date"]], personal[n["date"]] = sums["pro"], sums["personal"]
+    return work, personal
 
 
 _computer_env = os.environ.get("AUDIO_TIMER_COMPUTER_FILE")
@@ -625,8 +642,8 @@ def main():
             for k in ("sol", "awakenings", "waso", "final_wake", "rise", "tib", "tst",
                       "se", "fatigue"):
                 n[k] = None
-    cad_work, cad_personal, cad_ends = load_cadence()
-    attach_day_inputs(nights, doses, lights, load_phone_uses(), cad_ends)
+    cad_sessions = load_cadence()
+    attach_day_inputs(nights, doses, lights, load_phone_uses(), [b for _, b, _ in cad_sessions])
     pending = pending_day_rows(nights, doses, lights)
     fatigue_cols, fatigue_vals = load_fatigue_checks()
     # A day with a check but nothing else yet still gets its row, so no result is dropped.
@@ -636,6 +653,7 @@ def main():
     # Newest first, like the app's own log; pending inputs-only rows fall into date
     # order with the nights instead of stacking on top out of sequence.
     nights = sorted(nights + pending, key=lambda n: n["date"], reverse=True)
+    cad_work, cad_personal = cadence_by_day(nights, cad_sessions)
 
     def window_avgs(end):
         """Trailing 4-week averages as of `end`, over the nights that have the number."""
