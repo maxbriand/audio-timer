@@ -619,8 +619,8 @@
       </div>
     </div>
     <div class="setrow">
-      <label>Delay — minutes, or h:mm (5 is five minutes, 1:00 is one hour)</label>
-      <input class="syncin" type="text" id="fcoffset" inputmode="numeric" maxlength="5"
+      <label>Delay — minutes, or h:mm (5 is five minutes, 1:00 or 1.00 is one hour)</label>
+      <input class="syncin" type="text" id="fcoffset" inputmode="decimal" maxlength="5"
              placeholder="5" autocomplete="off" spellcheck="false">
     </div>
     <div class="setrow"><label>Steps</label>
@@ -936,9 +936,9 @@
     <div class="setrow"><label>Morning light reminder — rings 30 min after the wake-up if no walk is logged yet; its Done button logs the walk (needs the APK)</label><div class="chips sm" id="ch-walkReminder"></div></div>
     <div class="setrow"><label>Melatonin — pins a 💊 Melatonin event at the top of the day screen, and rings the reminder before bed (needs the APK)</label><div class="chips sm" id="ch-melatonin"></div></div>
     <div class="setrow" id="melaleadrow">
-      <label>Melatonin delay — how long before bedtime the dose is taken, as hh:mm (5:00 is five hours).
+      <label>Melatonin delay — how long before bedtime the dose is taken, as hh:mm (5:00 or 5.00 is five hours).
              The reminder rings at morning alarm − sleep duration − this delay.</label>
-      <input class="syncin" type="text" id="melalead" inputmode="numeric" maxlength="5"
+      <input class="syncin" type="text" id="melalead" inputmode="decimal" maxlength="5"
              placeholder="05:00" autocomplete="off" spellcheck="false">
       <div id="melastatus"></div>
     </div>
@@ -990,10 +990,10 @@
         <input class="syncin" type="number" id="wakedelay" inputmode="numeric" min="0" max="180" step="5" placeholder="30">
       </div>
       <div class="setrow">
-        <label>Sleep duration — how long the night should be, as hh:mm (9:00 is nine hours).
+        <label>Sleep duration — how long the night should be, as hh:mm (9:00 or 9.00 is nine hours).
                It sets bedtime at wake-up − duration, and with it the melatonin reminder
                5 h before bed.</label>
-        <input class="syncin" type="text" id="sleepdur" inputmode="numeric" maxlength="5"
+        <input class="syncin" type="text" id="sleepdur" inputmode="decimal" maxlength="5"
                placeholder="09:00" autocomplete="off" spellcheck="false">
         <div id="wakestatus"></div>
       </div>
@@ -2710,7 +2710,7 @@ function reminderClock(t){ return minToHhmm(hhmmToMin(t) - melaLead()); }   // t
    text, parsed leniently — "9:00", "9h00", "900" and "9" all mean nine hours, the last two
    because a numeric keypad has no colon — and normalised back to hh:mm for display. */
 function parseDur(v){
-  const t = String(v || '').trim().replace(/[hH]/, ':');
+  const t = String(v || '').trim().replace(/[hH.,]/, ':');
   let m = /^(\d{1,2}):(\d{1,2})$/.exec(t);
   if (m) return (+m[1]) * 60 + (+m[2]);
   m = /^(\d{1,2})(\d{2})$/.exec(t);
@@ -2787,7 +2787,7 @@ const fcOrder = (a, b) => (a.anchor === 'sleep') - (b.anchor === 'sleep') ||
    length of a night and would be absurd here. */
 function parseOffset(v){
   const t = String(v || '').trim().toLowerCase().replace(/\s+/g, '');
-  let m = /^(\d{1,2})[:h](\d{0,2})$/.exec(t);
+  let m = /^(\d{1,2})[:h.,](\d{0,2})$/.exec(t);
   if (m) return (+m[1]) * 60 + (+(m[2] || 0));
   m = /^(\d{1,3})(?:min|m)?$/.exec(t);
   return m ? +m[1] : NaN;
