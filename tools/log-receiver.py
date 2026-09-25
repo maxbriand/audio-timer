@@ -28,6 +28,7 @@ import csv
 import hmac
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -100,6 +101,20 @@ FATIGUE_FIELDS = (
 _night_env = os.environ.get("AUDIO_TIMER_NIGHT_DIR")
 NIGHT_ROOT = Path(_night_env).expanduser() if _night_env else ROOT.parent / "night-tracking"
 NIGHT_FIELDS = ("id", "started", "ended", "localDay", "summary", "epochs")
+
+# A fatigue check's results belong in the daily record (daily.csv, beside the day-file
+# folders) as soon as they arrive, not at the next 16:00 sync (Maxime, 2026-09-25): after
+# storing checks the receiver re-runs the diary, which makes the column of any check it
+# has not seen before. The diary is derived and idempotent, so a failed run loses nothing.
+DIARY = Path(__file__).resolve().parent / "sleep-diary.py"
+
+
+def refresh_diary() -> None:
+    try:
+        subprocess.run([sys.executable, str(DIARY), str(ROOT), str(ROOT.parent)],
+                       capture_output=True, timeout=120, check=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"! daily.csv not refreshed: {e}", file=sys.stderr, flush=True)
 
 # POST /phone files the phone's screen sessions (body key "screens") in one CSV, one row per
 # session: when the screen came on, when it went off, how long, to the second, and whether it
@@ -324,6 +339,8 @@ class Handler(BaseHTTPRequestHandler):
               f"{len(accepted)}/{len(sessions)} stored"
               f"{' (fatigue)' if fatigue else ' (night)' if night else ' (phone)' if phone else ' (cardio)' if cardio else ''}", flush=True)
         self.reply(200, {"accepted": accepted})
+        if fatigue and accepted:
+            refresh_diary()
 
     def log_message(self, *args) -> None:
         pass                                    # the line above is the only log worth having
