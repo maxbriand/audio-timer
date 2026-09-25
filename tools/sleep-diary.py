@@ -265,6 +265,68 @@ def load_phone():
     return minutes
 
 
+# The fatigue checks the phone sends (POST /fatigue), one day file each in fatigue-checks/
+# beside the audio day files. Each check has its own columns, created the first time a
+# check with that timing sends a real (non-test) run, named "<what> <when>" (Maxime,
+# 2026-09-20 and 2026-09-25): what is HR / HRV (the strap test), PVT (its time, the only
+# thing a PVT records here) or Fatigue (the question's 1–10 score), and when is the
+# check's own `column` suffix — "+45min", "+4h", "-1h sleep". A check is keyed by its
+# timing (anchor + offsetMin), never by its id or its words, so editing a check's delay
+# starts a new column and the old one keeps its history. Test-button runs belong in no
+# column, and a step not done is a blank cell, never a guess. The row is the check's
+# localDay: the morning checks of day D sit with D's other day inputs (its light, its
+# dose), ahead of the night of D. Two real runs of one check on one day: the first done
+# value wins, like the first score after onset.
+_fatigue_env = os.environ.get("AUDIO_TIMER_FATIGUE_DIR")
+FATIGUE_DIR = (Path(_fatigue_env).expanduser() if _fatigue_env
+               else SRC.parent / "fatigue-checks")
+FATIGUE_MEASURES = (("strap", "hr", "HR"), ("strap", "rmssd", "HRV"),
+                    ("pvt", "at", "PVT"), ("question", "score", "Fatigue"))
+
+
+def load_fatigue_checks():
+    """Returns (columns, values): the ordered column names, and {column: {day: value}}."""
+    runs = []
+    for f in sorted(FATIGUE_DIR.glob("*.json")):
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f.name):
+            continue
+        try:
+            runs += json.loads(f.read_text()).get("sessions", [])
+        except (OSError, ValueError, AttributeError):
+            continue
+    checks = {}
+    for r in sorted(runs, key=lambda r: r.get("started") or ""):
+        if r.get("test") or not isinstance(r.get("steps"), dict) or not r.get("localDay"):
+            continue
+        try:
+            key = (r["anchor"], int(r["offsetMin"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        c = checks.setdefault(key, {"when": r.get("column") or "", "values": {}})
+        for step, field, what in FATIGUE_MEASURES:
+            st = r["steps"].get(step)
+            if not isinstance(st, dict):
+                continue
+            cell = c["values"].setdefault(what, {})     # the step exists: so does its column
+            v = st.get(field)
+            if st.get("status") != "done" or v is None or r["localDay"] in cell:
+                continue
+            if what == "PVT":
+                v = datetime.fromtimestamp(v / 1000).astimezone()
+            cell[r["localDay"]] = v
+    # Through the day: after-wake checks by delay, then before-sleep ones, the furthest
+    # from bedtime first; within a check, the order the steps run in.
+    order = sorted(checks, key=lambda k: (k[0] != "wake", k[1] if k[0] == "wake" else -k[1]))
+    columns, values = [], {}
+    for k in order:
+        for _, _, what in FATIGUE_MEASURES:
+            if what in checks[k]["values"] and f"{what} {checks[k]['when']}" not in values:
+                name = f"{what} {checks[k]['when']}"
+                columns.append(name)
+                values[name] = checks[k]["values"][what]
+    return columns, values
+
+
 def load_overrides():
     try:
         return json.loads(OVERRIDES_FILE.read_text())
@@ -382,14 +444,16 @@ def pending_day_rows(nights, doses, lights, screens):
                 d.setdefault("light", e["start"])
             else:
                 d[kind] = e["start"]
-    rows = []
-    for date, got in sorted(days.items(), reverse=True):
-        rows.append({"date": date, "bedtime": None, "sol": None, "awakenings": None,
-                     "waso": None, "final_wake": None, "rise": None, "tib": None,
-                     "tst": None, "se": None, "fatigue": None, "note": "",
-                     "melatonin": got.get("melatonin"), "light": got.get("light"),
-                     "screens": got.get("screens"), "cadence_off": None})
-    return rows
+    return [day_row(date, **got) for date, got in sorted(days.items(), reverse=True)]
+
+
+def day_row(date, melatonin=None, light=None, screens=None):
+    """A row with no night: the day's inputs only."""
+    return {"date": date, "bedtime": None, "sol": None, "awakenings": None,
+            "waso": None, "final_wake": None, "rise": None, "tib": None,
+            "tst": None, "se": None, "fatigue": None, "note": "",
+            "melatonin": melatonin, "light": light, "screens": screens,
+            "cadence_off": None}
 
 
 def night_metrics(rows, overrides):
@@ -520,6 +584,11 @@ def main():
     cad_work, cad_personal, cad_ends = load_cadence()
     attach_day_inputs(nights, doses, lights, screens, cad_ends)
     pending = pending_day_rows(nights, doses, lights, screens)
+    fatigue_cols, fatigue_vals = load_fatigue_checks()
+    # A day with a check but nothing else yet still gets its row, so no result is dropped.
+    have = {n["date"] for n in nights + pending}
+    pending += [day_row(d) for d in sorted({d for col in fatigue_vals.values() for d in col}
+                                           - have)]
     # Newest first, like the app's own log; pending inputs-only rows fall into date
     # order with the nights instead of stacking on top out of sequence.
     nights = sorted(nights + pending, key=lambda n: n["date"], reverse=True)
@@ -555,12 +624,16 @@ def main():
     def num(x):
         return "" if x is None else round(x, 1)
 
+    def fatigue_cell(v):
+        return iso(v) if isinstance(v, datetime) else num(v)
+
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["night", "morning_light", "melatonin", "computer",
                     "work", "personal", "computer_off", "phone", "screens_off", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
-                    "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
+                    "se_pct", "fatigue_1to10", *fatigue_cols,
+                    "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
@@ -571,6 +644,7 @@ def main():
                 iso(n["screens"]), iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),
+                *[fatigue_cell(fatigue_vals[c].get(n["date"])) for c in fatigue_cols],
                 hm(sum(w_tst) / len(w_tst)) if w_tst else "",
                 num(sum(w_se) / len(w_se)) if w_se else "",
                 n["note"],
