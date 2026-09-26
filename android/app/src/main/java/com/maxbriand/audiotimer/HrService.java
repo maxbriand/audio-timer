@@ -185,7 +185,7 @@ public class HrService extends Service {
        tap (`maxHit` false — no toMax, the high was never reached) and the rest runs until
        the low, like any other; only then does the cool down begin (Maxime, 2026-09-25).
        A brisk walk (`walk`) is one session with no stages at all: no parts, no cool down —
-       its time, bands, peak and alerts only. */
+       its time, bands and peak only — it never alerts. */
     private int stage = ST_WARMUP;
     private long partStart, maxAt, partIn;
     private boolean cool, maxHit, walk;
@@ -566,6 +566,8 @@ public class HrService extends Service {
         // before that, being low is just the warm-up.
         // ...and once Cool down is pressed it is off for good.
         if ("low".equals(out) && (!reachedMin || cool)) out = null;
+        // A brisk walk never alerts, whatever the ring and vibrate settings (Maxime, 2026-09-26).
+        if (walk) out = null;
         if (out == null) {
             outSince = 0; outDir = null; alerting = false;
         } else {
