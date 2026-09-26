@@ -3696,7 +3696,7 @@ $('#posfile').onchange = async e => {
   // Cool down pressed mid-climb ends the climb at the tap: the part goes into its rest
   // (`maxHit` false — no time to reach, the high never was) and the rest runs to the low
   // like any other; only then does the cool down begin (Maxime, 2026-09-25). A brisk walk
-  // (`walk`) has no stages at all: one session — time, bands, peak and alerts, no parts.
+  // (`walk`) has no stages at all: one session — time, bands and peak, no parts, no alerts.
   let parts = [], stage = 'warmup', partStart = 0, maxAt = 0, partIn = 0, cool = false;
   let maxHit = false, walk = false;
   // Anything shorter than this is the heart wavering across a limit, not a part of the run:
@@ -4043,6 +4043,13 @@ $('#posfile').onchange = async e => {
       line.innerHTML = 'Session done<span class="sub">' + (walk ? '' : n + ' part' + (n === 1 ? '' : 's') + ' — ') + 'timer stopped, alerts off</span>';
       return;
     }
+    if (walk){
+      setState('idle');
+      zoneRoot.classList.remove('pulsing');
+      line.innerHTML = 'Brisk walk<span class="sub">no alerts — ' +
+        (hr < settings.min ? 'under ' : hr > settings.max ? 'over ' : 'in ') + settings.min + '–' + settings.max + '</span>';
+      return;
+    }
     if (outSince === null){
       if (!reachedMin && hr < settings.min){
         setState('idle');
@@ -4057,9 +4064,7 @@ $('#posfile').onchange = async e => {
         return;
       }
       setState('in');
-      line.innerHTML = walk
-        ? 'In range<span class="sub">brisk walk — hold ' + settings.min + '–' + settings.max + '</span>'
-        : stage === 'rest'
+      line.innerHTML = stage === 'rest'
         ? 'Rest<span class="sub">part ' + (numbered().length + 1) + ' — back down to ' + settings.min + '</span>'
         : 'In range<span class="sub">part ' + (numbered().length + 1) + ' — push to ' + settings.max + '</span>';
     } else {
@@ -4245,6 +4250,8 @@ $('#posfile').onchange = async e => {
     // before that, being low is just the warm-up.
     // ...and once Cool down is pressed it is off for good.
     if (out === 'low' && (!reachedMin || cool)) out = null;
+    // A brisk walk never alerts, whatever the ring and vibrate settings (Maxime, 2026-09-26).
+    if (walk) out = null;
     if (!out){ outSince = null; outDir = null; alerting = false; }
     else {
       if (outSince === null || outDir !== out){ outSince = now; outDir = out; alerting = false; }
