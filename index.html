@@ -2100,6 +2100,20 @@ function exportSession(s){
 const UPLOAD_KEEP_DAYS = 14;
 const UPLOAD_DEBOUNCE_MS = 4000;
 const UPLOAD_BATCH = 100;
+/* Nothing leaves the phone until an hour after it ended (Maxime, 2026-09-30): a wrong tap, a
+   test, a run started by mistake can still be deleted from the log, and a deleted entry is
+   then never sent. Once the server has a copy, the phone cannot take it back. Applies to
+   every log — nights and day markers, cardio runs, fatigue checks, tracked nights. */
+const UPLOAD_HOLD_MS = 3600e3;
+const ripe = endMs => !!endMs && Date.now() - endMs >= UPLOAD_HOLD_MS;
+// An entry still within its hour: come back when the first one is up. Timers stop while the
+// page is frozen; coming back to the foreground pushes again anyway.
+const ripeTimers = {};
+function retryWhenRipe(key, ends, fn){
+  const waits = ends.filter(Boolean).map(e => e + UPLOAD_HOLD_MS - Date.now()).filter(w => w > 0);
+  clearTimeout(ripeTimers[key]);
+  if (waits.length) ripeTimers[key] = setTimeout(fn, Math.min(...waits) + 5000);
+}
 
 let upCfg = null;                   // {url:'https://…', token:'…'} or null
 let uploading = false, upTimer = null;
@@ -2135,7 +2149,8 @@ const nativeUpload = (() => {
 
 // Same shape as the GitHub sync's own test, against its own stamp: a run that was edited
 // after it went out (a night reopened within the 10-minute gap) goes back in the queue.
-const needsUpload = s => !!s.endedAt && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
+const needsUpload = s => ripe(s.endedAt) && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
+const heldBack = s => !!s.endedAt && !ripe(s.endedAt) && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
 
 function uploadMessage(status){
   if (status === 401 || status === 403) return 'server rejected the token';
@@ -2257,9 +2272,11 @@ async function uploadStatusLine(){
   if (!upReady()) return setUpStatus('Not set up — the log stays on this phone.');
   const all = await allSessions();
   const waiting = all.filter(needsUpload).length;
+  const held = all.filter(heldBack).length;
   const sent = all.filter(s => s.uploadedAt).length;
   const bits = [upHost(upCfg.url), sent + ' sent'];
   if (waiting) bits.push(waiting + ' waiting');
+  if (held) bits.push(held + ' held for their first hour');
   bits.push('cleared after ' + UPLOAD_KEEP_DAYS + ' days');
   if (upNative && upNative.lastError) return setUpStatus(bits.join(' · ') + ' — ' + upNative.lastError, true);
   setUpStatus(bits.join(' · '));
@@ -2267,6 +2284,7 @@ async function uploadStatusLine(){
 
 async function uploadNow(manual){
   if (!upReady()){ if (manual) toast('Enter the server URL first'); return; }
+  try { retryWhenRipe('nights', (await allSessions()).filter(heldBack).map(s => s.endedAt), () => uploadNow(false)); } catch(_){}
   if (uploading) return;
   uploading = true;
   try {
@@ -3044,6 +3062,9 @@ async function pushFatigueLog(){
   if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url)) return;
   let all = [];
   try { all = await allFatigueChecks(); } catch(_){ return; }
+  const end = k => k.endedAt || k.at;
+  retryWhenRipe('fatigue', all.filter(k => !ripe(end(k))).map(end), pushFatigueLog);
+  all = all.filter(k => ripe(end(k)));
   if (!all.length) return;
   fatiguePushing = true;
   try {
@@ -3221,6 +3242,8 @@ async function pushNights(){
   if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url)) return;
   let todo = [];
   try { todo = (await allNightTracks()).filter(n => !n.syncedAt); } catch(_){ return; }
+  retryWhenRipe('tracks', todo.filter(n => !ripe(n.end)).map(n => n.end), pushNights);
+  todo = todo.filter(n => ripe(n.end));
   if (!todo.length) return;
   nightsPushing = true;
   try {
@@ -3940,6 +3963,11 @@ $('#posfile').onchange = async e => {
     if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url))
       return setSync('The server URL must be https.', true);
     if (!sessLog.length) return setSync('No session logged yet.');
+    // The run in progress and the ones in their first hour stay here (UPLOAD_HOLD_MS).
+    const endOf = x => x.ended ? Date.parse(x.ended) : 0;
+    const due = sessLog.filter(x => ripe(endOf(x)));
+    retryWhenRipe('cardio', sessLog.filter(x => x.ended && !ripe(endOf(x))).map(endOf), pushLog);
+    if (!due.length) return;
     // The WHOLE log goes up every time, synced entries included: the server
     // upserts by id, so the repeat costs nothing, and a row the server acked
     // but later lost (it happened — a since-removed mirror job wiped a stored
@@ -3950,7 +3978,7 @@ $('#posfile').onchange = async e => {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device: 'zone-alarm', sessions: sessLog })
+        body: JSON.stringify({ device: 'zone-alarm', sessions: due })
       });
       const out = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(out.accepted)){
