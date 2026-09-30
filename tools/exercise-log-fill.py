@@ -103,7 +103,8 @@ def row_for(day, sessions):
 
     row = {c: "" for c in COLUMNS}
     row["date"] = day
-    row["peak"] = max(peaks) if peaks else ""
+    # A peak of 0 is a session the strap never reached: not measured, so blank.
+    row["peak"] = max(peaks) if peaks and max(peaks) > 0 else ""
     row["max_set"] = max(highs) if highs else ""
     row["low_set"] = min(lows) if lows else ""
     row["start"] = min(starts).strftime("%H:%M")
@@ -156,8 +157,14 @@ def row_for(day, sessions):
 def main():
     if not CSV_PATH.exists():
         sys.exit(f"no exercise log at {CSV_PATH}")
-    existing = list(csv.DictReader(CSV_PATH.open()))
+    with CSV_PATH.open(newline="") as f:
+        reader = csv.DictReader(f)
+        existing = list(reader)
+        header = reader.fieldnames or []
     by_date = {r["date"]: r for r in existing}
+    # The file's own column order wins (Maxime reorders it in vd, 2026-09-30); a column this
+    # tool knows and the file lacks is added at the end.
+    fields = header + [c for c in COLUMNS if c not in header]
 
     added = updated = kept = 0
     for day, sessions in load_sessions().items():
@@ -174,10 +181,10 @@ def main():
 
     rows = sorted(by_date.values(), key=lambda r: r["date"], reverse=True)
     with CSV_PATH.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
         for r in rows:
-            w.writerow({c: r.get(c, "") for c in COLUMNS})
+            w.writerow({c: r.get(c, "") for c in fields})
     print(f"exercise-log — {added} added, {updated} updated, {kept} left to their author "
           f"→ {CSV_PATH}")
 
