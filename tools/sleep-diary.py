@@ -298,15 +298,33 @@ def load_phone():
 # before bedtime, in the order the checks happen in the day. A check is keyed by its
 # timing (anchor + offsetMin), never by its id or its words, so editing a check's delay
 # starts a new column and the old one keeps its history. Test-button runs belong in no
-# column, and a step not done is a blank cell, never a guess. The row is the check's
-# localDay: the morning checks of day D sit with D's other day inputs (its light, its
-# dose), ahead of the night of D. Two real runs of one check on one day: the first done
-# value wins, like the first score after onset.
+# column, and a step not done is a blank cell, never a guess. The row is the day the
+# check belongs to (check_day): the morning checks of day D sit with D's other day inputs
+# (its light, its dose), ahead of the night of D, and a bedtime check sits on the day its
+# night is named after — even when it rings after midnight. Two real runs of one check
+# on one day: the first done value wins, like the first score after onset.
 _fatigue_env = os.environ.get("AUDIO_TIMER_FATIGUE_DIR")
 FATIGUE_DIR = (Path(_fatigue_env).expanduser() if _fatigue_env
                else SRC.parent / "fatigue-checks")
 FATIGUE_MEASURES = (("strap", "hr", "HR"), ("strap", "rmssd", "HRV"),
                     ("pvt", "at", "PVT"), ("question", "score", "Fatigue"))
+
+
+def check_day(r):
+    """The day a check run belongs to, from its due time rather than the date it rang on:
+    a wake-anchored check goes with the day of its wake-up, a sleep-anchored one with the
+    day its night is named after (the date 12 h before the bedtime, as for the nights).
+    A "-1h30 sleep" check ringing at 00:24 on the 27th is the 26th's (Maxime, 2026-09-30).
+    Falls back to the start time for a run with no due time, then to the phone's localDay."""
+    try:
+        due = int(r.get("dueAt") or 0)
+        at = (datetime.fromtimestamp(due / 1000).astimezone() if due > 0 else
+              datetime.fromisoformat(r["started"].replace("Z", "+00:00")).astimezone())
+        off = timedelta(minutes=int(r["offsetMin"]))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return r.get("localDay") or None
+    day = at + off - timedelta(hours=12) if r.get("anchor") == "sleep" else at - off
+    return day.strftime("%Y-%m-%d")
 
 
 def load_fatigue_checks():
@@ -321,7 +339,8 @@ def load_fatigue_checks():
             continue
     checks = {}
     for r in sorted(runs, key=lambda r: r.get("started") or ""):
-        if r.get("test") or not isinstance(r.get("steps"), dict) or not r.get("localDay"):
+        day = check_day(r)
+        if r.get("test") or not isinstance(r.get("steps"), dict) or not day:
             continue
         try:
             key = (r["anchor"], int(r["offsetMin"]))
@@ -341,11 +360,11 @@ def load_fatigue_checks():
                 continue
             cell = c["values"].setdefault(what, {})     # the step exists: so does its column
             v = st.get(field)
-            if st.get("status") != "done" or v is None or r["localDay"] in cell:
+            if st.get("status") != "done" or v is None or day in cell:
                 continue
             if what == "PVT":
                 v = datetime.fromtimestamp(v / 1000).astimezone()
-            cell[r["localDay"]] = v
+            cell[day] = v
     # In the order they happen in the day (Maxime, 2026-09-25): by the median hour the
     # check's runs took place at — wake- and sleep-anchored checks interleave by the
     # clock, not by anchor. Within a check, the order the steps run in.

@@ -106,7 +106,17 @@ public class FatigueCheckActivity extends Activity {
       .putExtra(EXTRA_QUESTION, k.optBoolean("question"))
       .putExtra(EXTRA_TEST, test)
       .putExtra(EXTRA_DUE, dueAt)
-      .putExtra(EXTRA_DAY, new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date()));
+      .putExtra(EXTRA_DAY, dayOf(wake, Math.max(0, k.optInt("offsetMin", 0)), dueAt));
+  }
+
+  /* The day a check belongs to — not the date it rings on. A wake check goes with the day
+     of its wake-up; a sleep check with the day its night is named after, the date 12 h
+     before the bedtime (the diary's rule for nights): "1 h 30 before sleep" ringing at
+     00:24 is the evening before's (2026-09-30). A test has no due time: it runs now. */
+  static String dayOf(boolean wake, int offsetMin, long dueAt){
+    long at = dueAt > 0 ? dueAt : System.currentTimeMillis();
+    long anchor = wake ? at - offsetMin * 60000L : at + offsetMin * 60000L - 12 * 3600000L;
+    return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(anchor));
   }
 
   static String stepsLine(JSONObject k){
