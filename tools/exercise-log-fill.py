@@ -30,10 +30,11 @@ from datetime import datetime
 from pathlib import Path
 
 MARKER = "[zone-alarm sync]"
-# The run's whole record: when it started and ended, the settings it ran under (range low
+ACTIVITY = {"walk": "brisk walk", "run": "run"}
+# What the session was first (brisk walk or run), then the run's whole record: when it started and ended, the settings it ran under (range low
 # and high, alert delay, max and resting bpm), the time in each band from very light (<30 %
 # of reserve) up, the warm-up, each part's reach (mN) and rest (rN), and the cool down.
-COLUMNS = ["date", "peak", "max_set", "start", "end", "low_set", "alert_s", "max_bpm",
+COLUMNS = ["activity", "date", "peak", "max_set", "start", "end", "low_set", "alert_s", "max_bpm",
            "rest_bpm", "total_min", "vlight_min", "light_min", "mod_min", "vig_min",
            "over90_min", "warmup"] + \
           [f"{k}{i}" for i in range(1, 7) for k in ("m", "r")] + ["cooldown", "rpe", "note"]
@@ -137,10 +138,11 @@ def row_for(day, sessions):
         notes.append(f"{len(ss)} sessions this day — totals summed, per-part columns left blank")
     if one and isinstance(one.get("partsDetail"), list) and len(one["partsDetail"]) > 6:
         notes.append(f"{len(one['partsDetail'])} parts, beyond the m6/r6 columns")
-    # Brisk walk or run (the app asks since 2026-09-25; older sessions were all runs).
-    walks = sum(1 for s in ss if s.get("activity") == "walk")
-    if walks:
-        notes.append("brisk walk" if walks == len(ss) else f"{walks} of {len(ss)} sessions a brisk walk")
+    # Brisk walk or run: the app asks since 2026-09-26. A session from before carries no
+    # answer, and a day holding one stays blank rather than guessed.
+    kinds = [ACTIVITY.get(s.get("activity")) for s in ss]
+    if all(kinds):
+        row["activity"] = " + ".join(k for k in ("brisk walk", "run") if k in kinds)
     for s in ss:
         if s.get("note"):
             notes.append(str(s["note"]))
