@@ -637,6 +637,47 @@ public class FatigueCheckActivity extends Activity {
 
   // ------------------------------------------------------------------ the record
 
+  /* Straight into the upload outbox, due an hour from now: the page may not be opened again
+     for hours, and the check must still reach the server on time. The same row the page
+     sends (pushFatigueLog) — the page stages it again when it collects it, same id, same file.
+     A test never leaves the phone. */
+  private void stageUpload(JSONObject r){
+    if (r.optBoolean("test") || Outbox.url(this).isEmpty()) return;
+    try {
+      long at = r.optLong("at"), ended = r.optLong("endedAt", at);
+      JSONObject row = new JSONObject();
+      row.put("id", r.optString("id"));
+      row.put("started", iso(at));
+      row.put("ended", iso(ended));
+      row.put("localDay", r.optString("localDay"));
+      row.put("checkId", r.optString("checkId"));
+      row.put("label", r.optString("label"));
+      row.put("anchor", r.optString("anchor"));
+      row.put("offsetMin", r.optInt("offsetMin"));
+      row.put("column", column(r.optString("anchor"), r.optInt("offsetMin")));
+      row.put("test", false);
+      row.put("dueAt", r.optLong("dueAt"));
+      row.put("steps", r.optJSONObject("steps"));
+      Outbox.put(this, row.optString("id"), row.toString(), "fatigue", "checks", "audio-timer",
+                 ended + Outbox.HOLD_MS);
+      UploadWorker.scheduleDue(this);
+    } catch (Exception ignored){}                        // the page stages it when it collects it
+  }
+
+  private static String iso(long ms){
+    java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+    f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+    return f.format(new Date(ms));
+  }
+
+  /* The page's fcColumn(): "+5min", "+1h", "+1h30", "-1h30 sleep". */
+  static String column(String anchor, int offsetMin){
+    int m = Math.max(0, offsetMin);
+    boolean sleep = "sleep".equals(anchor);
+    String d = m < 60 ? m + "min" : (m / 60) + "h" + (m % 60 != 0 ? String.format(Locale.US, "%02d", m % 60) : "");
+    return (sleep ? "-" : "+") + d + (sleep ? " sleep" : "");
+  }
+
   /* Whatever was done is kept, whatever was not is said: a step never reached — the whole
      check skipped from the ring, or the screen closed half-way — reads "skipped". */
   private void finishCheck(){
@@ -648,6 +689,7 @@ public class FatigueCheckActivity extends Activity {
       record.put("steps", results);
       record.put("endedAt", System.currentTimeMillis());
       FatigueChecks.addResult(this, record);
+      stageUpload(record);
       Toast.makeText(this, "Fatigue check saved — it is in the app's log.", Toast.LENGTH_SHORT).show();
     } catch (Exception ignored){}
     finish();

@@ -74,7 +74,36 @@ public class UploadWorker extends Worker {
     WorkManager.getInstance(c).enqueueUniqueWork(WORK, ExistingWorkPolicy.REPLACE, request(true));
   }
 
-  static void cancel(Context c){ WorkManager.getInstance(c).cancelUniqueWork(WORK); }
+  static void cancel(Context c){
+    WorkManager.getInstance(c).cancelUniqueWork(WORK);
+    WorkManager.getInstance(c).cancelUniqueWork(WORK_DUE);
+  }
+
+  /* The held rows: one job, woken when the earliest of them is due (and a network is there).
+     REPLACE, so a row staged with an earlier moment moves the wake-up forward. A row already
+     due goes through schedule() like any other. */
+  static final String WORK_DUE = "log-upload-due";
+  static void scheduleDue(Context c){
+    long next = Long.MAX_VALUE, now = System.currentTimeMillis();
+    boolean dueNow = false;
+    for (File f : Outbox.list(c)){
+      long nb = notBefore(f);
+      if (nb <= now) dueNow = true; else next = Math.min(next, nb);
+    }
+    if (dueNow) schedule(c);
+    if (next == Long.MAX_VALUE) return;
+    OneTimeWorkRequest r = new OneTimeWorkRequest.Builder(UploadWorker.class)
+      .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+      .setInitialDelay(next - now + 5000, TimeUnit.MILLISECONDS)
+      .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+      .build();
+    WorkManager.getInstance(c).enqueueUniqueWork(WORK_DUE, ExistingWorkPolicy.REPLACE, r);
+  }
+
+  private static long notBefore(File f){
+    try { return new JSONObject(Outbox.read(f)).optLong(Outbox.F_NOT_BEFORE, 0); }
+    catch (Exception e){ return 0; }
+  }
 
   private static OneTimeWorkRequest request(boolean now){
     OneTimeWorkRequest.Builder b = new OneTimeWorkRequest.Builder(UploadWorker.class)
@@ -92,47 +121,68 @@ public class UploadWorker extends Worker {
     if (url.isEmpty()) return Result.success();          // not set up: nothing to do, ever
 
     for (int round = 0; round < MAX_ROUNDS; round++){
-      List<File> files = Outbox.list(c);
-      if (files.isEmpty()){
-        Outbox.setStatus(c, null, false);
-        return Result.success();
-      }
-      if (files.size() > MAX_BATCH) files = files.subList(0, MAX_BATCH);
-
-      // id -> file, built from the file contents rather than the names, so the ids the server
-      // answers with map back to exactly the files that carried them.
-      Map<String, File> batch = new HashMap<>();
-      JSONArray sessions = new JSONArray();
-      for (File f : files){
+      // The due rows, grouped by where they go: route + body key + device. Rows still in
+      // their hour stay put; scheduleDue() below wakes this worker again for them.
+      long now = System.currentTimeMillis();
+      Map<String, Map<String, File>> batches = new HashMap<>();
+      Map<String, JSONArray> rows = new HashMap<>();
+      Map<String, String[]> dest = new HashMap<>();
+      for (File f : Outbox.list(c)){
         try {
           JSONObject o = new JSONObject(Outbox.read(f));
           String id = o.optString("id", "");
-          if (id.isEmpty()){ f.delete(); continue; }     // not a session row: drop it
+          if (id.isEmpty()){ f.delete(); continue; }     // not a row: drop it
+          if (o.optLong(Outbox.F_NOT_BEFORE, 0) > now) continue;
+          String route = o.optString(Outbox.F_ROUTE, ""), key = o.optString(Outbox.F_KEY, "sessions");
+          String device = o.optString(Outbox.F_DEVICE, "");
+          o.remove(Outbox.F_ROUTE); o.remove(Outbox.F_KEY); o.remove(Outbox.F_DEVICE); o.remove(Outbox.F_NOT_BEFORE);
+          String g = route + "|" + key + "|" + device;
+          Map<String, File> batch = batches.get(g);
+          if (batch == null){
+            batches.put(g, batch = new HashMap<>());
+            rows.put(g, new JSONArray());
+            dest.put(g, new String[]{route, key, device});
+          }
+          if (batch.size() >= MAX_BATCH) continue;       // the next round takes it
+          // id -> file, from the contents rather than the names, so the ids the server
+          // answers with map back to exactly the files that carried them.
           batch.put(id, f);
-          sessions.put(o);
+          rows.get(g).put(o);
         } catch (Exception e){
           f.delete();                                    // unreadable: it will never send
         }
       }
-      if (batch.isEmpty()) return Result.success();
-
-      Result r = send(c, url, sessions, batch);
-      if (r != null) return r;                           // failed or retrying — stop here
+      if (batches.isEmpty()){
+        if (Outbox.list(c).isEmpty()) Outbox.setStatus(c, null, false);
+        scheduleDue(c);
+        return Result.success();
+      }
+      for (String g : batches.keySet()){
+        String[] d = dest.get(g);
+        Result r = send(c, routeUrl(url, d[0]), d[1], d[2], rows.get(g), batches.get(g));
+        if (r != null){ scheduleDue(c); return r; }      // failed or retrying — stop here
+      }
     }
     // Still more waiting than one run should push. Come back for the rest.
     schedule(c);
     return Result.success();
   }
 
+  /* The night log goes to the URL as set; the other logs to their route beside it. */
+  static String routeUrl(String url, String route){
+    return route == null || route.isEmpty() ? url : url.replaceAll("/+$", "") + "/" + route;
+  }
+
   /* Returns null to carry on with the next batch, or the Result this run should end with. */
-  private Result send(Context c, String url, JSONArray sessions, Map<String, File> batch){
+  private Result send(Context c, String url, String key, String device, JSONArray sessions,
+                      Map<String, File> batch){
     HttpURLConnection conn = null;
     try {
       JSONObject body = new JSONObject();
       body.put("app", "audio-timer");
-      body.put("device", Outbox.device(c));
+      body.put("device", device == null || device.isEmpty() ? Outbox.device(c) : device);
       body.put("sentAt", utcNow());
-      body.put("sessions", sessions);
+      body.put(key == null || key.isEmpty() ? "sessions" : key, sessions);
       byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
 
       conn = (HttpURLConnection) new URL(url).openConnection();

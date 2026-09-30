@@ -2103,9 +2103,19 @@ const UPLOAD_BATCH = 100;
 /* Nothing leaves the phone until an hour after it ended (Maxime, 2026-09-30): a wrong tap, a
    test, a run started by mistake can still be deleted from the log, and a deleted entry is
    then never sent. Once the server has a copy, the phone cannot take it back. Applies to
-   every log — nights and day markers, cardio runs, fatigue checks, tracked nights. */
+   every log — nights and day markers, cardio runs, fatigue checks, tracked nights.
+   On the APK every log is staged in the native outbox at once, due at its end + the hour
+   (stage()), and the upload job wakes at that moment with the app closed; deleting withdraws
+   the staged copy. The page's own timers below only drive the browser fallback. */
 const UPLOAD_HOLD_MS = 3600e3;
 const ripe = endMs => !!endMs && Date.now() - endMs >= UPLOAD_HOLD_MS;
+// Stage one row of any log, due UPLOAD_HOLD_MS after its end. Same id, same file: staging
+// again just rewrites it.
+function stage(id, row, route, key, device, endMs){
+  return nativeUpload.enqueue({id: id, json: JSON.stringify(row), route: route, key: key,
+    device: device || '', notBefore: String((endMs || Date.now()) + UPLOAD_HOLD_MS)});
+}
+const unstage = id => nativeUpload ? nativeUpload.discard({id: id}).catch(() => {}) : Promise.resolve();
 // An entry still within its hour: come back when the first one is up. Timers stop while the
 // page is frozen; coming back to the foreground pushes again anyway.
 const ripeTimers = {};
@@ -2149,8 +2159,9 @@ const nativeUpload = (() => {
 
 // Same shape as the GitHub sync's own test, against its own stamp: a run that was edited
 // after it went out (a night reopened within the 10-minute gap) goes back in the queue.
-const needsUpload = s => ripe(s.endedAt) && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
-const heldBack = s => !!s.endedAt && !ripe(s.endedAt) && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
+const unsent = s => !!s.endedAt && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
+const needsUpload = s => unsent(s) && ripe(s.endedAt);
+const heldBack = s => unsent(s) && !ripe(s.endedAt);
 
 function uploadMessage(status){
   if (status === 401 || status === 403) return 'server rejected the token';
@@ -2216,11 +2227,11 @@ async function stampUploaded(ids){
 /* APK: hand every due run to the outbox. This is not sending — it is putting the night
    somewhere that outlives the app, so the upload can happen days later with the app closed. */
 async function queueUploads(){
-  const due = (await allSessions()).filter(needsUpload);
+  const due = (await allSessions()).filter(unsent);       // held ones too: the outbox waits the hour
   let n = 0;
   for (const s of due){
     try {
-      await nativeUpload.enqueue({id: s.id, json: JSON.stringify(uploadBody(s))});
+      await stage(s.id, uploadBody(s), '', 'sessions', '', s.endedAt);
       s.uploadQueuedRev = sessionRev(s);
       await putSessionRaw(s);
       n++;
@@ -2235,7 +2246,15 @@ async function drainUploads(){
   let r = null;
   try { r = await nativeUpload.drain(); } catch(_){ return; }
   upNative = r;
-  await stampUploaded(r && r.uploaded);
+  const ids = (r && r.uploaded) || [];
+  await stampUploaded(ids);
+  // The other logs ride the same outbox: their ids come back through the same ledger.
+  if (ids.length){
+    const got = new Set(ids), now = Date.now();
+    try { for (const k of await allFatigueChecks()) if (got.has(k.id) && !k.syncedAt){ k.syncedAt = now; await putFatigueCheck(k); } } catch(_){}
+    try { for (const n of await allNightTracks()) if (got.has(n.id) && !n.syncedAt){ n.syncedAt = now; await putNightTrack(n); } } catch(_){}
+    if (window.ZoneLog) window.ZoneLog.markSynced(ids);
+  }
 }
 
 /* What one run looks like on the wire. exportSession() is shared with the GitHub sync and is
@@ -2284,7 +2303,9 @@ async function uploadStatusLine(){
 
 async function uploadNow(manual){
   if (!upReady()){ if (manual) toast('Enter the server URL first'); return; }
-  try { retryWhenRipe('nights', (await allSessions()).filter(heldBack).map(s => s.endedAt), () => uploadNow(false)); } catch(_){}
+  if (!nativeUpload){
+    try { retryWhenRipe('nights', (await allSessions()).filter(heldBack).map(s => s.endedAt), () => uploadNow(false)); } catch(_){}
+  }
   if (uploading) return;
   uploading = true;
   try {
@@ -2515,6 +2536,7 @@ function fatigueCheckLines(k){
 }
 async function deleteFatigueCheck(k){
   if (!confirm('Delete this fatigue check from the log?')) return;
+  await unstage(k.id);
   await delFatigueCheck(k.id);
   openLog('day');
 }
@@ -2607,7 +2629,7 @@ async function deleteNight(s){
 function deleteRun(r){
   if (!confirm('Delete this run? It leaves this phone and will not be sent to the server.' +
       (r.syncedAt ? ' The copy the server already has stays there.' : ''))) return;
-  if (window.ZoneLog) window.ZoneLog.remove(r.id);
+  if (window.ZoneLog && window.ZoneLog.remove(r.id)) unstage(r.id);
   openLog('day');
 }
 
@@ -3055,6 +3077,12 @@ async function collectFatigueResults(){
    is what lets a results column be built per check later. Tests go up flagged as tests.
    The body says "checks", not "sessions": a receiver older than this route refuses that
    outright instead of filing the rows as nights. */
+const fatigueRow = k => ({
+  id: k.id, started: new Date(k.at).toISOString(),
+  ended: new Date(k.endedAt || k.at).toISOString(), localDay: k.localDay || dayKey(k.at),
+  checkId: k.checkId, label: k.label, anchor: k.anchor, offsetMin: k.offsetMin | 0,
+  column: fcColumn(k), test: !!k.test, dueAt: k.dueAt || 0, steps: k.steps || {}
+});
 let fatiguePushing = false;
 async function pushFatigueLog(){
   if (fatiguePushing || !upCfg || !upCfg.url) return;
@@ -3063,6 +3091,12 @@ async function pushFatigueLog(){
   let all = [];
   try { all = await allFatigueChecks(); } catch(_){ return; }
   const end = k => k.endedAt || k.at;
+  if (nativeUpload){
+    for (const k of all) if (!k.syncedAt && !k.test){
+      try { await stage(k.id, fatigueRow(k), 'fatigue', 'checks', 'audio-timer', end(k)); } catch(_){}
+    }
+    return;
+  }
   retryWhenRipe('fatigue', all.filter(k => !ripe(end(k))).map(end), pushFatigueLog);
   all = all.filter(k => ripe(end(k)));
   if (!all.length) return;
@@ -3071,12 +3105,7 @@ async function pushFatigueLog(){
     const res = await fetch(url, {
       method: 'POST',
       headers: {'Authorization': 'Bearer ' + (upCfg.token || ''), 'Content-Type': 'application/json'},
-      body: JSON.stringify({device: 'audio-timer', checks: all.map(k => ({
-        id: k.id, started: new Date(k.at).toISOString(),
-        ended: new Date(k.endedAt || k.at).toISOString(), localDay: k.localDay || dayKey(k.at),
-        checkId: k.checkId, label: k.label, anchor: k.anchor, offsetMin: k.offsetMin | 0,
-        column: fcColumn(k), test: !!k.test, dueAt: k.dueAt || 0, steps: k.steps || {}
-      }))})
+      body: JSON.stringify({device: 'audio-timer', checks: all.map(fatigueRow)})
     });
     const out = await res.json().catch(() => ({}));
     if (res.ok && Array.isArray(out.accepted)){
@@ -3225,7 +3254,7 @@ async function renderNightTracks(){
     meta.textContent = nightLines(n).join('\n');
     el.append(day, meta, delButton(async () => {
       if (!confirm('Delete this tracked night from the phone?')) return;
-      await delNightTrack(n.id); openLog('night');
+      await unstage(n.id); await delNightTrack(n.id); openLog('night');
     }));
     box.append(el);
   }
@@ -3242,6 +3271,13 @@ async function pushNights(){
   if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url)) return;
   let todo = [];
   try { todo = (await allNightTracks()).filter(n => !n.syncedAt); } catch(_){ return; }
+  if (nativeUpload){
+    for (const n of todo){
+      try { await stage(n.id, {id: n.id, started: new Date(n.start).toISOString(), ended: new Date(n.end).toISOString(),
+        localDay: n.localDay, summary: n.summary, epochs: n.epochs}, 'night', 'nights', 'audio-timer', n.end); } catch(_){}
+    }
+    return;
+  }
   retryWhenRipe('tracks', todo.filter(n => !ripe(n.end)).map(n => n.end), pushNights);
   todo = todo.filter(n => ripe(n.end));
   if (!todo.length) return;
@@ -3858,6 +3894,13 @@ $('#posfile').onchange = async e => {
   window.ZoneLog = {
     running: () => curSessionId,
     push: () => pushLog(),          // opening the log is also the moment to retry a sync
+    // The outbox's ledger: runs the server confirmed while the page was away.
+    markSynced(ids){
+      const got = new Set(ids), now = new Date().toISOString();
+      let n = 0;
+      for (const x of sessLog) if (got.has(x.id) && !x.syncedAt){ x.syncedAt = now; n++; }
+      if (n) saveLog();
+    },
     remove(id){
       if (id === curSessionId) return false;
       sessLog = sessLog.filter(x => x.id !== id);
@@ -3965,6 +4008,18 @@ $('#posfile').onchange = async e => {
     if (!sessLog.length) return setSync('No session logged yet.');
     // The run in progress and the ones in their first hour stay here (UPLOAD_HOLD_MS).
     const endOf = x => x.ended ? Date.parse(x.ended) : 0;
+    const LU = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
+      && window.Capacitor.Plugins && window.Capacitor.Plugins.LogUpload;
+    if (LU){
+      const todo = sessLog.filter(x => x.ended && !x.syncedAt);
+      for (const x of todo){
+        try { await LU.enqueue({id: x.id, json: JSON.stringify(x), route: 'cardio', key: 'sessions',
+          device: 'zone-alarm', notBefore: String(endOf(x) + UPLOAD_HOLD_MS)}); } catch(_){}
+      }
+      const left = sessLog.filter(x => !x.syncedAt).length;
+      return setSync(sessLog.length + ' session' + (sessLog.length === 1 ? '' : 's') + ' logged · ' +
+        (left ? left + ' waiting (each sent an hour after it ends)' : 'all synced'), false);
+    }
     const due = sessLog.filter(x => ripe(endOf(x)));
     retryWhenRipe('cardio', sessLog.filter(x => x.ended && !ripe(endOf(x))).map(endOf), pushLog);
     if (!due.length) return;

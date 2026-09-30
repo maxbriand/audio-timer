@@ -68,13 +68,19 @@ public class LogUploadPlugin extends Plugin {
       call.reject("id and json are required");
       return;
     }
+    // Where it goes and when it may: the page stages every log here, each due an hour after
+    // it was logged (Outbox.HOLD_MS), so it goes out on time with the app closed.
+    String route = call.getString("route", ""), key = call.getString("key", "sessions");
+    String device = call.getString("device", "");
+    long notBefore = 0;
+    try { notBefore = Long.parseLong(call.getString("notBefore", "0")); } catch (NumberFormatException ignored){}
     try {
-      Outbox.put(getContext(), id, json);
+      Outbox.put(getContext(), id, json, route, key, device, notBefore);
     } catch (Exception e){
       call.reject("could not stage the run: " + e.getMessage());
       return;
     }
-    UploadWorker.schedule(getContext());
+    UploadWorker.scheduleDue(getContext());
     call.resolve();
   }
 
