@@ -1058,10 +1058,14 @@
 /* ---------- storage ---------- */
 const DB_NAME = 'audio-timer', DB_VER = 6;
 let _db;
+// Set when opening the database had to create it: a first install — or a phone that
+// wiped this page's storage, which is what the vault below is for.
+let freshDB = false;
 function openDB(){
   return new Promise((res, rej) => {
     const r = indexedDB.open(DB_NAME, DB_VER);
-    r.onupgradeneeded = () => {
+    r.onupgradeneeded = e => {
+      if (e.oldVersion === 0) freshDB = true;
       const d = r.result;
       // Additive only — an existing library must survive the upgrade untouched.
       if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', {keyPath:'id'});
@@ -1129,7 +1133,7 @@ async function delTrack(id){
 // The hot write: a couple of numbers, never the audio.
 const putPos = async (id, position, lastPlayed) =>
   req((await os('positions','readwrite')).put({position, lastPlayed}, id));
-const setMeta   = async (k,v) => req((await os('meta','readwrite')).put(v,k));
+const setMeta   = async (k,v) => { const r = await req((await os('meta','readwrite')).put(v,k)); vaultSoon(); return r; };
 const getMeta   = async k => req((await os('meta','readonly')).get(k));
 const allSessions = async () => req((await os('sessions','readonly')).getAll());
 const putSessionRaw = async s => req((await os('sessions','readwrite')).put(s));
@@ -1138,6 +1142,68 @@ const putSessionRaw = async s => req((await os('sessions','readwrite')).put(s));
 // putSessionRaw skips the stamp — the upload layer uses it to record what it pushed without
 // making the row look modified again.
 const putSession = async s => { s.updatedAt = Date.now(); return putSessionRaw(s); };
+
+/* ---------- vault ----------
+   Android treats this page's storage as a cache: with the phone nearly full it deletes it
+   whole, without a word (2026-09-29, at 124 of 128 GB). The next launch is a fresh install —
+   default settings, no issues, no server — and it pushes those defaults over the native
+   alarms. So a copy of everything small you set up goes to a native file (VaultPlugin) after
+   each change, and a boot that finds the database newly created restores it and reloads.
+   Not in it: the audio (far too big), play positions, and the logs that ride the upload —
+   those are on the Mac. Pictures on issue entries are dropped from the copy for size. */
+const nativeVault = (() => {
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Vault) || null;
+})();
+// The zone alarm's settings, its strap and its runs not yet sent. za-cur is left out: a run
+// the wipe interrupted must not come back as still running.
+const VAULT_LS = ['za-settings', 'za-device', 'za-sessions'];
+// Off until the boot has checked for a copy to restore — a wiped page saving its defaults
+// first would overwrite the very copy it needs.
+let vaultOn = false, vaultTimer = null;
+function vaultSoon(){
+  if (!vaultOn || vaultTimer) return;   // a throttle, not a debounce: a busy run still gets saved
+  vaultTimer = setTimeout(vaultSave, 2000);
+}
+async function vaultSave(){
+  clearTimeout(vaultTimer); vaultTimer = null;
+  if (!vaultOn || !nativeVault) return;
+  try {
+    const m = await os('meta','readonly');
+    // Both requests before either is awaited, or the second lands on a committed transaction.
+    const kReq = m.getAllKeys(), vReq = m.getAll();
+    const [keys, vals] = await Promise.all([req(kReq), req(vReq)]);
+    const meta = {};
+    keys.forEach((k, i) => { if (vals[i] != null) meta[k] = vals[i]; });
+    const ls = {};
+    for (const k of VAULT_LS){ try { const v = localStorage.getItem(k); if (v != null) ls[k] = v; } catch(_){} }
+    const issuelogs = (await allEventLogs()).map(l => Object.assign({}, l, {photos: []}));
+    await nativeVault.save({data: JSON.stringify({v: 1, savedAt: new Date().toISOString(),
+      meta, ls, issues: await allEvents(), issuelogs})});
+  } catch(_){}
+}
+async function vaultBoot(){
+  if (!nativeVault) return;
+  try { await db(); } catch(_){ return; }   // opening it is what tells a new database from an old one
+  if (!freshDB){ vaultOn = true; vaultSave(); return; }
+  let snap;
+  try { const d = (await nativeVault.load()).data; snap = d ? JSON.parse(d) : null; }
+  catch(_){ return; }                      // unreadable: leave it alone rather than save over it
+  if (!snap){ vaultOn = true; vaultSave(); return; }   // a real first install
+  try {
+    // One transaction: the restore lands whole or not at all. A half-restored page would
+    // otherwise be saved over the copy on the next launch.
+    const t = (await db()).transaction(['meta', 'issues', 'issuelogs'], 'readwrite');
+    for (const [k, v] of Object.entries(snap.meta || {})) t.objectStore('meta').put(v, k);
+    for (const ev of snap.issues || []) t.objectStore('issues').put(ev);
+    for (const l of snap.issuelogs || []) t.objectStore('issuelogs').put(l);
+    await new Promise((res, rej) => { t.oncomplete = res; t.onerror = t.onabort = () => rej(t.error); });
+  } catch(_){ toast('Could not restore your settings'); return; }
+  for (const [k, v] of Object.entries(snap.ls || {})){ try { localStorage.setItem(k, v); } catch(_){} }
+  // Parts of the page read their settings once, as it loads: a reload is the clean way in.
+  location.reload();
+  await new Promise(() => {});             // the rest of this boot belongs to the reloaded page
+}
 const delSession = async id => req((await os('sessions','readwrite')).delete(id));
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID()
@@ -2044,7 +2110,17 @@ let upNative = null;                // last {pending, lastError, lastOkAt} the o
    cannot drift — an APK upgrade, or settings entered before this build, still ends up
    configured without the user opening ⚙ again. */
 async function loadUpCfg(){
-  upCfg = (await getMeta('upload')) || null;
+  let saved = await getMeta('upload');
+  // Never set here (null is "Stop sending"): a wiped page, or one from before the setting
+  // lived in IndexedDB. The outbox's copy is the config then — pushing an empty one over it
+  // would also throw away the nights still queued.
+  if (saved === undefined && nativeUpload && nativeUpload.config){
+    try {
+      const c = await nativeUpload.config();
+      if (c && c.url){ saved = {url: c.url, token: c.token || ''}; await setMeta('upload', saved); }
+    } catch(_){}
+  }
+  upCfg = saved || null;
   if (nativeUpload){
     try { await nativeUpload.configure({url: upCfg && upCfg.url || '', token: upCfg && upCfg.token || ''}); }
     catch(_){}
@@ -2812,6 +2888,14 @@ function whenLabel(ms){
 async function loadFatigueChecks(){
   let saved;
   try { saved = await getMeta('fatigueChecks'); } catch(_){}
+  // Never saved here, yet the native side may hold the list from before a wipe: adopt it
+  // rather than push the default over the alarms.
+  if (saved === undefined && nativeFatigue){
+    try {
+      const k = JSON.parse((await nativeFatigue.status()).checks || 'null');
+      if (Array.isArray(k) && k.length){ saved = k; await setMeta('fatigueChecks', k); }
+    } catch(_){}
+  }
   // Never saved: the one check the app always had. An empty list is a choice, and is kept.
   fatigueChecks = Array.isArray(saved) ? saved : FC_DEFAULT.map(k => Object.assign({}, k));
   fcLoaded = true;
@@ -3452,10 +3536,10 @@ function paintSun(){
    historical names, issues/issuelogs/issueId: renaming them means migrating user data for
    zero benefit — "event" is the concept, not the storage key.) */
 const allEvents   = async () => req((await os('issues','readonly')).getAll());
-const putEvent    = async ev => req((await os('issues','readwrite')).put(ev));
-const delEvent    = async id => req((await os('issues','readwrite')).delete(id));
-const putEventLog = async l => req((await os('issuelogs','readwrite')).put(l));
-const delEventLog = async id => req((await os('issuelogs','readwrite')).delete(id));
+const putEvent    = async ev => { await req((await os('issues','readwrite')).put(ev)); vaultSoon(); };
+const delEvent    = async id => { await req((await os('issues','readwrite')).delete(id)); vaultSoon(); };
+const putEventLog = async l => { await req((await os('issuelogs','readwrite')).put(l)); vaultSoon(); };
+const delEventLog = async id => { await req((await os('issuelogs','readwrite')).delete(id)); vaultSoon(); };
 const allEventLogs = async () => req((await os('issuelogs','readonly')).getAll());
 const putFatigueCheck = async k => req((await os('fatiguechecks','readwrite')).put(k));
 const delFatigueCheck = async id => req((await os('fatiguechecks','readwrite')).delete(id));
@@ -3718,6 +3802,7 @@ $('#posfile').onchange = async e => {
   for (const k in PROFILE) if (!(settings[k] > 0)) settings[k] = PROFILE[k];
   function saveSettings(){
     try { localStorage.setItem('za-settings', JSON.stringify(settings)); } catch(e){}
+    vaultSoon();
   }
 
   // ------------------------------------------------------------ session log
@@ -3741,6 +3826,7 @@ $('#posfile').onchange = async e => {
     const cutoff = Date.now() - 14 * 86400e3;
     sessLog = sessLog.filter(s => Date.parse(s.started) > cutoff);
     try { localStorage.setItem('za-sessions', JSON.stringify(sessLog)); } catch(e){}
+    vaultSoon();
   }
   // The runs are listed on Audio Timer's own log page, which reads the store directly. What
   // it cannot do from there is delete: this script holds the log in memory and would write
@@ -5329,6 +5415,10 @@ $('#posfile').onchange = async e => {
 
 /* ---------- boot ---------- */
 (async () => {
+  await vaultBoot();                  // first: a wiped page restores itself before pushing anything
+  // Leaving the app is the last sure moment to save: the strap's address is written by the
+  // BLE layer, which does not tell the vault.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') vaultSave(); });
   await loadSettings();
   await loadUpCfg();
   await loadFatigueChecks();          // before the schedule: pushing it pushes these too
