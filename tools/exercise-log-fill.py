@@ -34,8 +34,9 @@ ACTIVITY = {"walk": "brisk walk", "run": "run"}
 # What the session was first (brisk walk or run), then the run's whole record: when it started and ended, the settings it ran under (range low
 # and high, alert delay, max and resting bpm), the time in each band from very light (<30 %
 # of reserve) up, the warm-up, each part's reach (mN) and rest (rN), and the cool down.
+# m_min / r_min: the whole session's time reaching the max and resting, summed over its parts.
 COLUMNS = ["activity", "date", "peak", "max_set", "start", "end", "low_set", "alert_s", "max_bpm",
-           "rest_bpm", "total_min", "vlight_min", "light_min", "mod_min", "vig_min",
+           "rest_bpm", "total_min", "m_min", "r_min", "vlight_min", "light_min", "mod_min", "vig_min",
            "over90_min", "warmup"] + \
           [f"{k}{i}" for i in range(1, 7) for k in ("m", "r")] + ["cooldown", "rpe", "note"]
 
@@ -134,6 +135,15 @@ def row_for(day, sessions):
                 row[f"m{i}"] = mmss(p.get("toMax"))
                 row[f"r{i}"] = mmss(p.get("recovery"))
 
+    # Every part of every session, not just the six with columns; a session from a build
+    # that did not record its parts adds nothing, and a day none of whose did stays blank.
+    parts = [p for s in ss if isinstance(s.get("partsDetail"), list)
+             for p in s["partsDetail"] if isinstance(p, dict)]
+    if parts:
+        for key, field in (("m_min", "toMax"), ("r_min", "recovery")):
+            vals = [p[field] for p in parts if isinstance(p.get(field), (int, float))]
+            row[key] = minutes(sum(vals)) if vals else ""
+
     notes = []
     if len(ss) > 1:
         notes.append(f"{len(ss)} sessions this day — totals summed, per-part columns left blank")
@@ -154,6 +164,20 @@ def row_for(day, sessions):
     return row
 
 
+def seconds_of(mmss_text):
+    m = re.fullmatch(r"(\d+):(\d{2})", (mmss_text or "").strip())
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def sum_parts(row):
+    """A hand-written row's m_min / r_min, from its m1..m6 / r1..r6 cells when it has any."""
+    for key, k in (("m_min", "m"), ("r_min", "r")):
+        if str(row.get(key) or "").strip():
+            continue
+        vals = [v for v in (seconds_of(row.get(f"{k}{i}")) for i in range(1, 7)) if v is not None]
+        row[key] = minutes(sum(vals)) if vals else ""
+
+
 def main():
     if not CSV_PATH.exists():
         sys.exit(f"no exercise log at {CSV_PATH}")
@@ -164,7 +188,11 @@ def main():
     by_date = {r["date"]: r for r in existing}
     # The file's own column order wins (Maxime reorders it in vd, 2026-09-30); a column this
     # tool knows and the file lacks is added at the end.
-    fields = header + [c for c in COLUMNS if c not in header]
+    fields = list(header)
+    for n, c in enumerate(COLUMNS):
+        if c not in fields:            # beside the column it follows in COLUMNS, if the file has it
+            prev = COLUMNS[n - 1] if n else None
+            fields.insert(fields.index(prev) + 1 if prev in fields else len(fields), c)
 
     added = updated = kept = 0
     for day, sessions in load_sessions().items():
@@ -180,6 +208,8 @@ def main():
             kept += 1                          # a human wrote this row; it wins
 
     rows = sorted(by_date.values(), key=lambda r: r["date"], reverse=True)
+    for r in rows:
+        sum_parts(r)
     with CSV_PATH.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
