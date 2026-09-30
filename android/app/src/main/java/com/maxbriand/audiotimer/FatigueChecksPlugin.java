@@ -66,6 +66,9 @@ public class FatigueChecksPlugin extends Plugin {
     r.put("armed", armed);
     r.put("bedtime", String.valueOf(FatigueChecks.bedtime(c)));
     r.put("strapKnown", !FatigueChecks.strap(c).isEmpty());
+    // The list as last pushed: a page whose storage was wiped adopts it rather than
+    // pushing its default over it.
+    r.put("checks", all.toString());
     call.resolve(r);
   }
 

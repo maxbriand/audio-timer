@@ -54,6 +54,7 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(WakeAlarmPlugin.class);
     registerPlugin(PhoneUsagePlugin.class);
     registerPlugin(FatigueChecksPlugin.class);
+    registerPlugin(VaultPlugin.class);
     super.onCreate(savedInstanceState);
     // Android 13+ hides the shake-watch notification unless this is granted. The service
     // runs either way — the notification is just how the night-time watch stays honest.

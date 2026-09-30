@@ -47,6 +47,16 @@ public class LogUploadPlugin extends Plugin {
     call.resolve();
   }
 
+  /* The config as last pushed. A page whose storage was wiped reads it back rather than
+     pushing its empty one — which would also throw away the nights still queued. */
+  @PluginMethod
+  public void config(PluginCall call){
+    JSObject r = new JSObject();
+    r.put("url", Outbox.url(getContext()));
+    r.put("token", Outbox.token(getContext()));
+    call.resolve(r);
+  }
+
   /* One finished run. Re-enqueuing the same id overwrites the staged copy rather than adding
      a second one, which is what makes a night reopened within the 10-minute gap safe to send
      again. */
