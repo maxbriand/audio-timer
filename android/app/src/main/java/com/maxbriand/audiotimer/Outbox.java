@@ -40,6 +40,17 @@ final class Outbox {
   private static final String KEY_OK_AT = "lastOkAt";
   private static final String UPLOADED = "uploaded.txt";
 
+  /* Nothing is sent until an hour after it was logged (Maxime, 2026-09-30), so an entry made
+     by mistake can still be deleted — and deleting it withdraws its file from here. Each file
+     carries the moment it may go (_notBefore); UploadWorker sleeps until the first one. */
+  static final long HOLD_MS = 3600000L;
+
+  /* A staged row says where it goes, beside its own fields: _route (appended to the server
+     URL: "" is the night log, then "fatigue", "night", "cardio"), _key (the body's list:
+     "sessions", "checks", "nights") and _device (the body's device; "" = this install's id).
+     A file from before these fields is a night-log row, due at once. */
+  static final String F_ROUTE = "_route", F_KEY = "_key", F_DEVICE = "_device", F_NOT_BEFORE = "_notBefore";
+
   private Outbox(){}
 
   static SharedPreferences prefs(Context c){
@@ -101,6 +112,22 @@ final class Outbox {
         tmp.delete();
         throw new IOException("could not stage " + id);
       }
+    }
+  }
+
+  /* A row for any route, due at notBefore. The meta fields ride inside the row and are
+     stripped before it is sent. */
+  static void put(Context c, String id, String rowJson, String route, String key, String device,
+                  long notBefore) throws IOException {
+    try {
+      org.json.JSONObject o = new org.json.JSONObject(rowJson);
+      o.put(F_ROUTE, route == null ? "" : route);
+      o.put(F_KEY, key == null || key.isEmpty() ? "sessions" : key);
+      o.put(F_DEVICE, device == null ? "" : device);
+      o.put(F_NOT_BEFORE, notBefore);
+      put(c, id, o.toString());
+    } catch (org.json.JSONException e){
+      throw new IOException("not a JSON row: " + id);
     }
   }
 
