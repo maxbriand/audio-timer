@@ -650,6 +650,15 @@ def main():
     have = {n["date"] for n in nights + pending}
     pending += [day_row(d) for d in sorted({d for col in fatigue_vals.values() for d in col}
                                            - have)]
+    # A morning light the app never logged, given by hand: "light": "HH:MM" under the day's
+    # key sets that day's morning_light, and makes the day's row if it has none yet.
+    by_date = {n["date"]: n for n in nights + pending}
+    for date, o in sorted(overrides.items()):
+        if o.get("light"):
+            if date not in by_date:
+                by_date[date] = day_row(date)
+                pending.append(by_date[date])
+            by_date[date]["light"] = datetime.fromisoformat(f"{date}T{o['light']}").astimezone()
     # Newest first, like the app's own log; pending inputs-only rows fall into date
     # order with the nights instead of stacking on top out of sequence.
     nights = sorted(nights + pending, key=lambda n: n["date"], reverse=True)
