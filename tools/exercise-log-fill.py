@@ -34,9 +34,10 @@ ACTIVITY = {"walk": "brisk walk", "run": "run"}
 # What the session was first (brisk walk or run), then the run's whole record: when it started and ended, the settings it ran under (range low
 # and high, alert delay, max and resting bpm), the time in each band from very light (<30 %
 # of reserve) up, the warm-up, each part's reach (mN) and rest (rN), and the cool down.
-# m_min / r_min: the whole session's time reaching the max and resting, summed over its parts.
+# m_min / r_min: the whole session's time reaching the max and resting, summed over its parts;
+# total_run: the two together, the time spent in the parts (blank unless both are known).
 COLUMNS = ["activity", "date", "peak", "max_set", "start", "end", "low_set", "alert_s", "max_bpm",
-           "rest_bpm", "total_min", "m_min", "r_min", "vlight_min", "light_min", "mod_min", "vig_min",
+           "rest_bpm", "total_min", "m_min", "r_min", "total_run", "vlight_min", "light_min", "mod_min", "vig_min",
            "over90_min", "warmup"] + \
           [f"{k}{i}" for i in range(1, 7) for k in ("m", "r")] + ["cooldown", "rpe", "note"]
 
@@ -178,6 +179,14 @@ def sum_parts(row):
         row[key] = minutes(sum(vals)) if vals else ""
 
 
+def total_run(row):
+    m, r = str(row.get("m_min") or "").strip(), str(row.get("r_min") or "").strip()
+    try:
+        row["total_run"] = round(float(m) + float(r), 1) if m and r else ""
+    except ValueError:
+        row["total_run"] = ""
+
+
 def main():
     if not CSV_PATH.exists():
         sys.exit(f"no exercise log at {CSV_PATH}")
@@ -210,6 +219,7 @@ def main():
     rows = sorted(by_date.values(), key=lambda r: r["date"], reverse=True)
     for r in rows:
         sum_parts(r)
+        total_run(r)
     with CSV_PATH.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
