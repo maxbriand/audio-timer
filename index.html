@@ -3840,7 +3840,7 @@ $('#posfile').onchange = async e => {
   // The page then only renders the state the service pushes up.
   const NATIVE = !!window.NativeSession;
   let natElapsed = 0, natPartEl = 0, natReach = 0, natRest = 0, lastPartsSig = '', lastBattAt = 0;
-  let natGps = { reach: null, rest: null, reachSec: 0, restSec: 0 };
+  let natGps = { reach: null, rest: null, reachSec: 0, restSec: 0, walk: null, walkSec: 0 };
 
   let device = null, wantConnected = false, wakeLock = null, nativeConnected = false;
   let hr = 0, lastHrAt = 0, connectedAt = 0, peak = 0;
@@ -3952,7 +3952,12 @@ $('#posfile').onchange = async e => {
   // and the cool down ride beside them. Called again when the service's closing frame
   // lands: it finishes the last stage on the end tap, a moment after logEnd() has run.
   function logParts(e){
-    if (e.activity === 'walk') return;                  // one session, no stages to keep
+    const kmh = v => typeof v === 'number' && isFinite(v) ? Math.round(v * 10) / 10 : null;
+    if (e.activity === 'walk') {                        // one session, no stages to keep:
+      e.walkKmh = kmh(natGps.walk);                     // one average speed over the walk
+      e.walkGpsSeconds = Math.round(natGps.walkSec);
+      return;
+    }
     const num = numbered();
     const dur = k => { const p = parts.find(x => x.kind === k); return p ? Math.round(p.dur) : null; };
     e.parts = num.length;
@@ -3965,7 +3970,6 @@ $('#posfile').onchange = async e => {
     e.warmupSeconds = dur('warmup');
     e.cooldownSeconds = dur('cooldown');
     // Average speed over every climb (m) and every rest (r) — blank without a GPS fix.
-    const kmh = v => typeof v === 'number' && isFinite(v) ? Math.round(v * 10) / 10 : null;
     e.reachKmh = kmh(natGps.reach);
     e.restKmh = kmh(natGps.rest);
     e.reachGpsSeconds = Math.round(natGps.reachSec);
@@ -4474,9 +4478,11 @@ $('#posfile').onchange = async e => {
     natPartEl = s.partElapsed || 0;
     natReach = s.reach || 0;
     natRest = s.rest || 0;
-    // GPS: the status beside the battery, and the session's two average speeds (km/h) for
-    // the record — climbs (m) and rests (r), over the seconds the GPS saw.
-    natGps = { reach: s.reachKmh, rest: s.restKmh, reachSec: s.reachGpsSec || 0, restSec: s.restGpsSec || 0 };
+    // GPS: the status beside the battery, and the session's average speeds (km/h) for the
+    // record — climbs (m) and rests (r) of a run, or the whole of a brisk walk, over the
+    // seconds the GPS saw.
+    natGps = { reach: s.reachKmh, rest: s.restKmh, reachSec: s.reachGpsSec || 0, restSec: s.restGpsSec || 0,
+      walk: s.walkKmh, walkSec: s.walkGpsSec || 0 };
     $('gpsst').textContent = s.gps === 'ready' ? 'GPS ready' + (s.speedKmh != null ? ' · ' + s.speedKmh.toFixed(1) + ' km/h' : '')
       : s.gps === 'searching' ? 'GPS searching…' : '';
     const wasStage = stage, wasPhase = phase0;

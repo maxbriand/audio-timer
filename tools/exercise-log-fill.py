@@ -38,8 +38,9 @@ ACTIVITY = {"walk": "brisk walk", "run": "run"}
 # total_run: the two together, the time spent in the parts (blank unless both are known).
 # m_kmh / r_kmh: the average speed over every climb and every rest, from the phone's GPS
 # (2026-10-01) — a day with two runs weighs each by the seconds of GPS behind it.
+# walk_kmh: a brisk walk's average speed over the whole walk, weighed the same way.
 COLUMNS = ["activity", "date", "peak", "max_set", "start", "end", "low_set", "alert_s", "max_bpm",
-           "rest_bpm", "total_min", "m_min", "r_min", "total_run", "m_kmh", "r_kmh", "vlight_min", "light_min", "mod_min", "vig_min",
+           "rest_bpm", "total_min", "m_min", "r_min", "total_run", "m_kmh", "r_kmh", "walk_kmh", "vlight_min", "light_min", "mod_min", "vig_min",
            "over90_min", "warmup"] + \
           [f"{k}{i}" for i in range(1, 7) for k in ("m", "r")] + ["cooldown", "rpe", "note"]
 
@@ -147,7 +148,8 @@ def row_for(day, sessions):
             vals = [p[field] for p in parts if isinstance(p.get(field), (int, float))]
             row[key] = minutes(sum(vals)) if vals else ""
 
-    for key, kmh, secs in (("m_kmh", "reachKmh", "reachGpsSeconds"), ("r_kmh", "restKmh", "restGpsSeconds")):
+    for key, kmh, secs in (("m_kmh", "reachKmh", "reachGpsSeconds"), ("r_kmh", "restKmh", "restGpsSeconds"),
+                           ("walk_kmh", "walkKmh", "walkGpsSeconds")):
         got = [(s[kmh], s.get(secs) or 0) for s in ss if isinstance(s.get(kmh), (int, float))]
         weight = sum(w for _, w in got)
         if got:

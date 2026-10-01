@@ -205,12 +205,13 @@ public class HrService extends Service {
        previous fix go to the stage in progress — the climbs (m) or the rests (r) — so each
        average is distance over time, over every climb or every rest of the run. A gap in
        the fixes (a tunnel, the phone losing the sky) is not credited to either: the average
-       covers the seconds the GPS actually saw, which the record keeps beside it. */
+       covers the seconds the GPS actually saw, which the record keeps beside it. A brisk
+       walk has no stages, so its fixes all go to one average over the whole walk (w). */
     private LocationManager lm;
     private boolean gpsWanted, gpsOn;
     private long lastFixAt;          // elapsedRealtime of the last fix with a speed
     private float lastSpeed = -1;    // m/s
-    private double mDist, mSec, rDist, rSec;
+    private double mDist, mSec, rDist, rSec, wDist, wSec;
     private static final long MAX_FIX_GAP_MS = 3000;
 
     // live sample + alert state
@@ -485,7 +486,7 @@ public class HrService extends Service {
         // Already at the range low on the tap: there is no warm-up to count.
         stage = reachedMin ? ST_REACH : ST_WARMUP;
         outSince = 0; outDir = null; alerting = false;
-        mDist = mSec = rDist = rSec = 0;
+        mDist = mSec = rDist = rSec = wDist = wSec = 0;
     }
 
     // -------------------------------------------------------------------- gps
@@ -529,9 +530,10 @@ public class HrService extends Service {
         if (loc == null || !loc.hasSpeed() || (loc.hasAccuracy() && loc.getAccuracy() > 50)) return;
         float v = loc.getSpeed();
         long gap = lastFixAt == 0 ? 0 : now - lastFixAt;
-        if (gap > 0 && gap <= MAX_FIX_GAP_MS && phase == PHASE_ACTIVE && !walk) {
+        if (gap > 0 && gap <= MAX_FIX_GAP_MS && phase == PHASE_ACTIVE) {
             double sec = gap / 1000.0;
-            if (stage == ST_REACH) { mDist += v * sec; mSec += sec; }
+            if (walk) { wDist += v * sec; wSec += sec; }
+            else if (stage == ST_REACH) { mDist += v * sec; mSec += sec; }
             else if (stage == ST_REST) { rDist += v * sec; rSec += sec; }
         }
         lastFixAt = now;
@@ -867,6 +869,8 @@ public class HrService extends Service {
             s.put("restKmh", rSec > 0 ? (Object) (rDist / rSec * 3.6) : JSONObject.NULL);
             s.put("reachGpsSec", mSec);
             s.put("restGpsSec", rSec);
+            s.put("walkKmh", wSec > 0 ? (Object) (wDist / wSec * 3.6) : JSONObject.NULL);
+            s.put("walkGpsSec", wSec);
         } catch (Exception e) { /* fall through with whatever was set */ }
         return s;
     }
