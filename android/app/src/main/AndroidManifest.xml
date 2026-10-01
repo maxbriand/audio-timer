@@ -58,14 +58,15 @@
         <!-- Fatigue tracking (⚙ → Day): any number of checks a day, hung on the last wake-up
              or on the next bedtime. The receiver fires the ring; FatigueCheckActivity is the
              check itself — strap test, PVT, fatigue question — allowed over the lock screen
-             like the alarm it is. BootReceiver re-arms them. -->
+             like the alarm it is. In Recents while under way (so it can be switched back
+             to), gone from there once done. BootReceiver re-arms them. -->
         <receiver
             android:name=".FatigueCheckReceiver"
             android:exported="false" />
         <activity
             android:name=".FatigueCheckActivity"
             android:exported="false"
-            android:excludeFromRecents="true"
+            android:autoRemoveFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:screenOrientation="portrait"

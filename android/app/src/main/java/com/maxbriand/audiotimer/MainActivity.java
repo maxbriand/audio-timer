@@ -42,6 +42,13 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
+  public void onResume(){
+    super.onResume();
+    // A fatigue check left half-way for another app is still waiting: back to it.
+    FatigueCheckActivity.bringBack(this);
+  }
+
+  @Override
   public void onCreate(Bundle savedInstanceState) {
     applyWakeFlags(getIntent());
     applyWakeUp(getIntent());
