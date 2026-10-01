@@ -127,6 +127,22 @@ public class FatigueCheckActivity extends Activity {
     return s.isEmpty() ? "no step" : android.text.TextUtils.join(" · ", s);
   }
 
+  /* The check under way, if any. It lives in a task of its own, so leaving for another app
+     and coming back through the launcher lands on the app, not on the check — which then sat
+     unseen behind it (2026-10-01). MainActivity hands the screen back to it on every resume. */
+  private static FatigueCheckActivity live;
+
+  /** Bring the running check back in front; false when none is under way. */
+  static boolean bringBack(Context c){
+    FatigueCheckActivity a = live;
+    if (a == null || a.isFinishing() || a.saved) return false;
+    try {
+      c.startActivity(new Intent(c, FatigueCheckActivity.class)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+      return true;
+    } catch (Exception e){ return false; }
+  }
+
   private final Handler ui = new Handler(Looper.getMainLooper());
   private MediaPlayer player;
   private Vibrator vibrator;
@@ -169,6 +185,9 @@ public class FatigueCheckActivity extends Activity {
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     Intent in = getIntent();
+    // A bring-back that arrived after the check was gone carries no check: nothing to show.
+    if (in.getStringExtra(EXTRA_CHECK_ID) == null){ saved = true; finish(); return; }
+    live = this;
     test = in.getBooleanExtra(EXTRA_TEST, false);
     label = in.getStringExtra(EXTRA_LABEL);
     day = in.getStringExtra(EXTRA_DAY);
@@ -700,6 +719,7 @@ public class FatigueCheckActivity extends Activity {
 
   @Override
   protected void onDestroy(){
+    if (live == this) live = null;
     quiet();
     ui.removeCallbacksAndMessages(null);
     if (!saved && index >= 0) finishCheck();      // closed half-way: keep what was done
