@@ -71,6 +71,9 @@ CARDIO_FIELDS = (
     # The rest of the run's record (2026-09-19): the band under the four (<30 % of reserve)
     # and the alert delay, the one setting of the run that was not being kept.
     "veryLightSeconds", "alertDelaySeconds",
+    # The run's speed (2026-10-01): average km/h over every climb (m) and every rest (r),
+    # from the GPS, and the seconds of GPS each average covers.
+    "reachKmh", "restKmh", "reachGpsSeconds", "restGpsSeconds",
 )
 
 
