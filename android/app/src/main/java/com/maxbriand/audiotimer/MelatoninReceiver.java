@@ -21,7 +21,8 @@ import android.os.Build;
  */
 public class MelatoninReceiver extends BroadcastReceiver {
   static final String CHANNEL = "melatonin";
-  static final int NOTIF_ID = 46;
+  // Its own id: 46 is the fatigue check's, and a dose logged used to clear a check ringing.
+  static final int NOTIF_ID = 49;
   static final String ACTION_TAKEN = "com.maxbriand.audiotimer.MELATONIN_TAKEN";
   static final String ACTION_SNOOZE = "com.maxbriand.audiotimer.MELATONIN_SNOOZE";
 
@@ -69,7 +70,9 @@ public class MelatoninReceiver extends BroadcastReceiver {
      .setContentTitle("Melatonin — 0.5 mg now")
      .setContentText(MelatoninAlarm.leadLabel(c) + " before your " + MelatoninAlarm.bedtime(c) + " bedtime.")
      .setCategory(Notification.CATEGORY_ALARM)
-     .setOngoing(true)
+     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
+     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
+     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true)
      .addAction(new Notification.Action.Builder(null, "Taken ✓", takenPi).build())

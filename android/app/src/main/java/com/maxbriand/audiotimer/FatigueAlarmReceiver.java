@@ -50,7 +50,9 @@ public class FatigueAlarmReceiver extends BroadcastReceiver {
      .setContentTitle("How tired are you?")
      .setContentText("Score the morning fatigue — 10 is the maximum.")
      .setCategory(Notification.CATEGORY_ALARM)
-     .setOngoing(true)
+     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
+     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
+     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true);
     nm.notify(NOTIF_ID, b.build());

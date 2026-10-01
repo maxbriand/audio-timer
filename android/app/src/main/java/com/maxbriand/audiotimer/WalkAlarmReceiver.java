@@ -58,7 +58,9 @@ public class WalkAlarmReceiver extends BroadcastReceiver {
      .setContentTitle("Morning light — go get it")
      .setContentText("30 minutes up and no walk logged. Done stamps it now.")
      .setCategory(Notification.CATEGORY_ALARM)
-     .setOngoing(true)
+     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
+     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
+     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(openPi)
      .addAction(new Notification.Action.Builder(null, "Done ✓", donePi).build());
     nm.notify(NOTIF_ID, b.build());

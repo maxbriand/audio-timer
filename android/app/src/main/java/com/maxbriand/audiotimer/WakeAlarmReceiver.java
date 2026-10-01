@@ -63,7 +63,9 @@ public class WakeAlarmReceiver extends BroadcastReceiver {
      .setContentText(snoozed ? "Snoozed once already — time to get up."
                              : "It's " + WakeAlarm.clock(System.currentTimeMillis()) + " — your wake-up time.")
      .setCategory(Notification.CATEGORY_ALARM)
-     .setOngoing(true)
+     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
+     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
+     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true)
      .addAction(new Notification.Action.Builder(null, "I'm up", upPi).build());
