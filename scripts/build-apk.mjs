@@ -25,6 +25,10 @@ if (!existsSync(join(ANDROID, 'keystore.properties'))) {
   );
 }
 
+// The ring rules (no ongoing ring, rings built by Ring.java, unique notification ids): a
+// broken one stops the build here rather than a missed alarm on the phone.
+execFileSync(process.execPath, [join(ROOT, 'scripts', 'check-rings.mjs')], { stdio: 'inherit' });
+
 execFileSync(join(ANDROID, 'gradlew'), ['assembleRelease'], {
   cwd: ANDROID,
   stdio: 'inherit',

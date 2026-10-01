@@ -88,7 +88,7 @@ public class FatigueChecksPlugin extends Plugin {
       String strap = call.getString("strapAddress", "");
       if (strap != null && !strap.isEmpty())
         FatigueChecks.configureStrap(getContext(), strap);
-      getContext().startActivity(FatigueCheckActivity.intent(getContext(), k, 0, true));
+      FatigueChecks.ringTest(getContext(), k);      // through the real ring, not straight to the screen
       call.resolve();
     } catch (Exception e){
       call.reject(e.getMessage());

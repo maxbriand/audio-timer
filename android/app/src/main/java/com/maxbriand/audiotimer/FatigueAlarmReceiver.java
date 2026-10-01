@@ -22,7 +22,7 @@ import android.os.Build;
  */
 public class FatigueAlarmReceiver extends BroadcastReceiver {
   static final String CHANNEL = "fatigue-alarm";
-  static final int NOTIF_ID = 45;
+  static final int NOTIF_ID = Ring.ID_FATIGUE_ALARM;   // ids live in Ring: one per ring
 
   @Override
   public void onReceive(Context c, Intent intent){
@@ -31,30 +31,15 @@ public class FatigueAlarmReceiver extends BroadcastReceiver {
   }
 
   static void show(Context c){
-    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null){
-      NotificationChannel ch = new NotificationChannel(CHANNEL, "Fatigue check",
-        NotificationManager.IMPORTANCE_HIGH);
-      ch.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-        new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
     Intent full = new Intent(c, AlarmActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     PendingIntent fullPi = PendingIntent.getActivity(c, 2, full,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-    Notification.Builder b = Build.VERSION.SDK_INT >= 26
-      ? new Notification.Builder(c, CHANNEL)
-      : new Notification.Builder(c).setPriority(Notification.PRIORITY_MAX);
-    b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-     .setContentTitle("How tired are you?")
+    // The ring's notification: Ring keeps it non-ongoing (MIUI drops ongoing ones), alarm sound.
+    Notification.Builder b = Ring.builder(c, CHANNEL, "Fatigue check");
+    b.setContentTitle("How tired are you?")
      .setContentText("Score the morning fatigue — 10 is the maximum.")
-     .setCategory(Notification.CATEGORY_ALARM)
-     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
-     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
-     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true);
-    nm.notify(NOTIF_ID, b.build());
+    Ring.post(c, NOTIF_ID, b);
   }
 }

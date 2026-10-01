@@ -20,7 +20,7 @@ import android.os.Build;
  */
 public class WalkAlarmReceiver extends BroadcastReceiver {
   static final String CHANNEL = "morning-walk";
-  static final int NOTIF_ID = 47;
+  static final int NOTIF_ID = Ring.ID_WALK;   // ids live in Ring: one per ring
   static final String ACTION_DONE = "com.maxbriand.audiotimer.WALK_DONE";
 
   @Override
@@ -36,33 +36,18 @@ public class WalkAlarmReceiver extends BroadcastReceiver {
   }
 
   static void show(Context c){
-    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null){
-      NotificationChannel ch = new NotificationChannel(CHANNEL, "Morning light reminder",
-        NotificationManager.IMPORTANCE_HIGH);
-      ch.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-        new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
     Intent open = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     PendingIntent openPi = PendingIntent.getActivity(c, 22, open,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     PendingIntent donePi = PendingIntent.getBroadcast(c, 23,
       new Intent(c, WalkAlarmReceiver.class).setAction(ACTION_DONE),
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-    Notification.Builder b = Build.VERSION.SDK_INT >= 26
-      ? new Notification.Builder(c, CHANNEL)
-      : new Notification.Builder(c).setPriority(Notification.PRIORITY_MAX);
-    b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-     .setContentTitle("Morning light — go get it")
+    // The ring's notification: Ring keeps it non-ongoing (MIUI drops ongoing ones), alarm sound.
+    Notification.Builder b = Ring.builder(c, CHANNEL, "Morning light reminder");
+    b.setContentTitle("Morning light — go get it")
      .setContentText("30 minutes up and no walk logged. Done stamps it now.")
-     .setCategory(Notification.CATEGORY_ALARM)
-     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
-     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
-     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(openPi)
      .addAction(new Notification.Action.Builder(null, "Done ✓", donePi).build());
-    nm.notify(NOTIF_ID, b.build());
+    Ring.post(c, NOTIF_ID, b);
   }
 }

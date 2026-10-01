@@ -21,8 +21,7 @@ import android.os.Build;
  */
 public class MelatoninReceiver extends BroadcastReceiver {
   static final String CHANNEL = "melatonin";
-  // Its own id: 46 is the fatigue check's, and a dose logged used to clear a check ringing.
-  static final int NOTIF_ID = 49;
+  static final int NOTIF_ID = Ring.ID_MELATONIN;   // ids live in Ring: one per ring
   static final String ACTION_TAKEN = "com.maxbriand.audiotimer.MELATONIN_TAKEN";
   static final String ACTION_SNOOZE = "com.maxbriand.audiotimer.MELATONIN_SNOOZE";
 
@@ -45,15 +44,6 @@ public class MelatoninReceiver extends BroadcastReceiver {
 
   static void show(Context c){
     MelatoninAlarm.markShown(c);              // this ring happened — it was not swallowed
-    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null){
-      NotificationChannel ch = new NotificationChannel(CHANNEL, "Melatonin reminder",
-        NotificationManager.IMPORTANCE_HIGH);
-      ch.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-        new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
     Intent full = new Intent(c, MelatoninActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     PendingIntent fullPi = PendingIntent.getActivity(c, 12, full,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -63,20 +53,14 @@ public class MelatoninReceiver extends BroadcastReceiver {
     PendingIntent snoozePi = PendingIntent.getBroadcast(c, 14,
       new Intent(c, MelatoninReceiver.class).setAction(ACTION_SNOOZE),
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-    Notification.Builder b = Build.VERSION.SDK_INT >= 26
-      ? new Notification.Builder(c, CHANNEL)
-      : new Notification.Builder(c).setPriority(Notification.PRIORITY_MAX);
-    b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-     .setContentTitle("Melatonin — 0.5 mg now")
+    // The ring's notification: Ring keeps it non-ongoing (MIUI drops ongoing ones), alarm sound.
+    Notification.Builder b = Ring.builder(c, CHANNEL, "Melatonin reminder");
+    b.setContentTitle("Melatonin — 0.5 mg now")
      .setContentText(MelatoninAlarm.leadLabel(c) + " before your " + MelatoninAlarm.bedtime(c) + " bedtime.")
-     .setCategory(Notification.CATEGORY_ALARM)
-     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
-     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
-     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true)
      .addAction(new Notification.Action.Builder(null, "Taken ✓", takenPi).build())
      .addAction(new Notification.Action.Builder(null, "Snooze 10 min", snoozePi).build());
-    nm.notify(NOTIF_ID, b.build());
+    Ring.post(c, NOTIF_ID, b);
   }
 }

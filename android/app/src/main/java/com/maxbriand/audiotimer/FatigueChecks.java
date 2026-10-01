@@ -178,6 +178,33 @@ final class FatigueChecks {
     e.apply();
   }
 
+  /* The Test button: the check given, rung through the real path — an alarm 5 s ahead, the
+     receiver, the notification — so a test also proves the ring itself (2026-10-01: the old
+     Test opened the screen directly, and passed every time while the real checks, dropped by
+     MIUI at the notification, never rang). The check rides in prefs: it may be unsaved. */
+  private static final String KEY_TEST = "testCheck";
+  static final long TEST_DELAY_MS = 5000;
+
+  static void ringTest(Context c, JSONObject k){
+    prefs(c).edit().putString(KEY_TEST, k.toString()).apply();
+    AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+    if (am == null) return;
+    Intent i = new Intent(c, FatigueCheckReceiver.class)
+      .setData(Uri.parse("fatiguecheck://test"))
+      .putExtra(FatigueCheckReceiver.EXTRA_TEST, true);
+    PendingIntent pi = PendingIntent.getBroadcast(c, REQ_BASE + 2 * MAX + 1, i,
+      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    long at = System.currentTimeMillis() + TEST_DELAY_MS;
+    PendingIntent show = PendingIntent.getActivity(c, REQ_BASE + 2 * MAX + 2, new Intent(c, MainActivity.class),
+      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), pi);
+  }
+
+  static JSONObject testCheck(Context c){
+    try { return new JSONObject(prefs(c).getString(KEY_TEST, "")); }
+    catch (Exception e){ return null; }
+  }
+
   /** The armed moment of a check, 0 when it is not armed — what ⚙ shows under each one. */
   static long armedAt(Context c, String id){ return prefs(c).getLong(ARMED_AT + id, 0); }
 
