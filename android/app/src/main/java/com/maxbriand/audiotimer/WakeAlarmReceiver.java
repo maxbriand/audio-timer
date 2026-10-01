@@ -22,7 +22,7 @@ import android.os.Build;
  */
 public class WakeAlarmReceiver extends BroadcastReceiver {
   static final String CHANNEL = "wake-alarm";
-  static final int NOTIF_ID = 48;
+  static final int NOTIF_ID = Ring.ID_WAKE;   // ids live in Ring: one per ring
   static final String ACTION_SNOOZE = "com.maxbriand.audiotimer.WAKE_SNOOZE";
 
   @Override
@@ -38,15 +38,6 @@ public class WakeAlarmReceiver extends BroadcastReceiver {
 
   static void show(Context c){
     boolean snoozed = WakeAlarm.snoozed(c);          // already postponed once: no second offer
-    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null){
-      NotificationChannel ch = new NotificationChannel(CHANNEL, "Wake-up alarm",
-        NotificationManager.IMPORTANCE_HIGH);
-      ch.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-        new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
     Intent full = new Intent(c, WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     PendingIntent fullPi = PendingIntent.getActivity(c, 32, full,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -55,17 +46,11 @@ public class WakeAlarmReceiver extends BroadcastReceiver {
       .putExtra(MainActivity.EXTRA_WAKE_UP, true);
     PendingIntent upPi = PendingIntent.getActivity(c, 33, up,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-    Notification.Builder b = Build.VERSION.SDK_INT >= 26
-      ? new Notification.Builder(c, CHANNEL)
-      : new Notification.Builder(c).setPriority(Notification.PRIORITY_MAX);
-    b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-     .setContentTitle("Wake up")
+    // The ring's notification: Ring keeps it non-ongoing (MIUI drops ongoing ones), alarm sound.
+    Notification.Builder b = Ring.builder(c, CHANNEL, "Wake-up alarm");
+    b.setContentTitle("Wake up")
      .setContentText(snoozed ? "Snoozed once already — time to get up."
                              : "It's " + WakeAlarm.clock(System.currentTimeMillis()) + " — your wake-up time.")
-     .setCategory(Notification.CATEGORY_ALARM)
-     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
-     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
-     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true)
      .addAction(new Notification.Action.Builder(null, "I'm up", upPi).build());
@@ -75,6 +60,6 @@ public class WakeAlarmReceiver extends BroadcastReceiver {
         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
       b.addAction(new Notification.Action.Builder(null, "Snooze 10 min", snoozePi).build());
     }
-    nm.notify(NOTIF_ID, b.build());
+    Ring.post(c, NOTIF_ID, b);
   }
 }

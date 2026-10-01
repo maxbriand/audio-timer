@@ -24,10 +24,17 @@ import org.json.JSONObject;
  */
 public class FatigueCheckReceiver extends BroadcastReceiver {
   static final String CHANNEL = "fatigue-check";
-  static final int NOTIF_ID = 46;
+  static final int NOTIF_ID = Ring.ID_FATIGUE_CHECK;   // ids live in Ring: one per ring
+
+  static final String EXTRA_TEST = "ringTest";
 
   @Override
   public void onReceive(Context c, Intent intent){
+    if (intent.getBooleanExtra(EXTRA_TEST, false)){       // ⚙'s Test: FatigueChecks.ringTest
+      JSONObject k = FatigueChecks.testCheck(c);
+      if (k != null) show(c, k, System.currentTimeMillis(), true);
+      return;
+    }
     String id = intent.getStringExtra(FatigueCheckActivity.EXTRA_CHECK_ID);
     if (id == null || id.isEmpty()) return;
     long due = FatigueChecks.armedAt(c, id);
@@ -38,30 +45,19 @@ public class FatigueCheckReceiver extends BroadcastReceiver {
   static void show(Context c, String id, long dueAt){
     JSONObject k = FatigueChecks.check(c, id);
     if (k == null) return;                    // deleted since it was armed
-    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null){
-      NotificationChannel ch = new NotificationChannel(CHANNEL, "Fatigue tracking",
-        NotificationManager.IMPORTANCE_HIGH);
-      ch.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-        new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
-    Intent full = FatigueCheckActivity.intent(c, k, dueAt, false);
+    show(c, k, dueAt, false);
+  }
+
+  static void show(Context c, JSONObject k, long dueAt, boolean test){
+    Intent full = FatigueCheckActivity.intent(c, k, dueAt, test);
     PendingIntent fullPi = PendingIntent.getActivity(c, 3, full,
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-    Notification.Builder b = Build.VERSION.SDK_INT >= 26
-      ? new Notification.Builder(c, CHANNEL)
-      : new Notification.Builder(c).setPriority(Notification.PRIORITY_MAX);
-    b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-     .setContentTitle("Fatigue check")
+    // The ring's notification: Ring keeps it non-ongoing (MIUI drops ongoing ones), alarm sound.
+    Notification.Builder b = Ring.builder(c, CHANNEL, "Fatigue tracking");
+    b.setContentTitle(test ? "Fatigue check — test" : "Fatigue check")
      .setContentText(FatigueChecks.label(k) + " — " + FatigueCheckActivity.stepsLine(k))
-     .setCategory(Notification.CATEGORY_ALARM)
-     // Not ongoing: MIUI's SystemUI removes an ongoing notification from an app like this
-     // one the instant it is posted ("filter out ongoing notif"), and its full-screen
-     // intent — the ring itself — goes with it (Redmi Note 10S, 2026-10-01).
      .setContentIntent(fullPi)
      .setFullScreenIntent(fullPi, true);
-    nm.notify(NOTIF_ID, b.build());
+    Ring.post(c, NOTIF_ID, b);
   }
 }

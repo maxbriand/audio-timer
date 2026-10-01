@@ -2992,6 +2992,9 @@ async function testFatigueCheck(k){
   try {
     await nativeFatigue.test({id: k.id, anchor: k.anchor, offsetMin: k.offsetMin, strap: !!k.strap,
       pvt: !!k.pvt, question: !!k.question, strapAddress: strapAddress()});
+    // It rings through the real path (alarm → notification → screen), so locking the phone
+    // tests what a real check does.
+    toast('Rings in 5 seconds — lock the phone to test it like a real check');
   } catch(err){ toast('Could not start the test: ' + (err && err.message || 'error')); }
 }
 
