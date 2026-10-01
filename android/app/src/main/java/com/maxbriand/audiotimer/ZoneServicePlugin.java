@@ -24,7 +24,9 @@ import com.getcapacitor.annotation.PermissionCallback;
 @CapacitorPlugin(
     name = "ZoneService",
     permissions = {
-        @Permission(strings = { Manifest.permission.POST_NOTIFICATIONS }, alias = "notifications")
+        @Permission(strings = { Manifest.permission.POST_NOTIFICATIONS }, alias = "notifications"),
+        @Permission(strings = { Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION }, alias = "location")
     }
 )
 public class ZoneServicePlugin extends Plugin {
@@ -55,6 +57,30 @@ public class ZoneServicePlugin extends Plugin {
             .putExtra("on", Boolean.TRUE.equals(call.getBoolean("on", false)));
         send(i);
         call.resolve();
+    }
+
+    /** GPS on while the run screen is open (asking for location the first time), off when it
+     *  closes — the engine keeps it on anyway for as long as a session runs. */
+    @PluginMethod
+    public void gps(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        if (on && getPermissionState("location") != PermissionState.GRANTED) {
+            requestPermissionForAlias("location", call, "gpsAfterPermission");
+            return;
+        }
+        sendGps(on);
+        call.resolve();
+    }
+
+    @PermissionCallback
+    private void gpsAfterPermission(PluginCall call) {
+        sendGps(getPermissionState("location") == PermissionState.GRANTED);
+        call.resolve();
+    }
+
+    private void sendGps(boolean on) {
+        Intent i = new Intent(getContext(), HrService.class).setAction(HrService.ACTION_GPS).putExtra("on", on);
+        startService(i, on);
     }
 
     /** Cool down pressed or taken back — only ever addressed to a running engine. */

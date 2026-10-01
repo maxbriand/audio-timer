@@ -89,6 +89,9 @@ if (Capacitor.isNativePlatform()) {
     // Cool down pressed (or taken back): the below-range alarm goes quiet and the next
     // drop under the range low opens the cool down instead of another part.
     cooldown(on) { ZoneService.cooldown({ on }).catch(() => {}); },
-    settings(s) { ZoneService.settings(s).catch(() => {}); }
+    settings(s) { ZoneService.settings(s).catch(() => {}); },
+    // GPS for the run's speed: on while the run screen shows (the first time asks for
+    // location), so it has a fix before the start tap; the engine holds it through a session.
+    gps(on) { ZoneService.gps({ on: !!on }).catch(() => {}); }
   };
 }

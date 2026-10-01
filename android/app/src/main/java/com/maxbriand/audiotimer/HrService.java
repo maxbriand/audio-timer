@@ -14,7 +14,11 @@ import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -52,6 +56,8 @@ public class HrService extends Service {
     public static final String ACTION_SESSION = "com.maxbriand.audiotimer.SESSION";
     public static final String ACTION_LIVE = "com.maxbriand.audiotimer.LIVE";
     public static final String ACTION_COOLDOWN = "com.maxbriand.audiotimer.COOLDOWN";
+    /** GPS on/off: on while the run screen is open, so it has a fix before the start tap. */
+    public static final String ACTION_GPS = "com.maxbriand.audiotimer.GPS";
     /** Night tracking on/off (NightTrack): the strap held through the night, one line a minute. */
     public static final String ACTION_NIGHT = "com.maxbriand.audiotimer.NIGHT";
 
@@ -193,6 +199,20 @@ public class HrService extends Service {
     // starting a session at rest must not trip the below-range alarm.
     private boolean reachedMin;
 
+    /* Speed (Maxime, 2026-10-01): the GPS runs while the run screen is open (`gpsWanted`)
+       and all through a session, whatever the screen does. Each fix carries a speed measured
+       from the satellite signals (Doppler), not from two positions; its seconds since the
+       previous fix go to the stage in progress — the climbs (m) or the rests (r) — so each
+       average is distance over time, over every climb or every rest of the run. A gap in
+       the fixes (a tunnel, the phone losing the sky) is not credited to either: the average
+       covers the seconds the GPS actually saw, which the record keeps beside it. */
+    private LocationManager lm;
+    private boolean gpsWanted, gpsOn;
+    private long lastFixAt;          // elapsedRealtime of the last fix with a speed
+    private float lastSpeed = -1;    // m/s
+    private double mDist, mSec, rDist, rSec;
+    private static final long MAX_FIX_GAP_MS = 3000;
+
     // live sample + alert state
     private int hr;
     private long lastSampleAt, lastTickAt;
@@ -286,6 +306,11 @@ public class HrService extends Service {
             case ACTION_SESSION:
                 if (i.getBooleanExtra("start", false)) startSession(i.getBooleanExtra("walk", false));
                 else endSession();
+                updateGps();
+                break;
+            case ACTION_GPS:
+                gpsWanted = i.getBooleanExtra("on", false);
+                updateGps();
                 break;
             case ACTION_COOLDOWN:
                 if (phase != PHASE_ACTIVE || stage == ST_WARMUP || stage == ST_COOLDOWN) break;
@@ -460,6 +485,57 @@ public class HrService extends Service {
         // Already at the range low on the tap: there is no warm-up to count.
         stage = reachedMin ? ST_REACH : ST_WARMUP;
         outSince = 0; outDir = null; alerting = false;
+        mDist = mSec = rDist = rSec = 0;
+    }
+
+    // -------------------------------------------------------------------- gps
+
+    private boolean locationGranted() {
+        return Build.VERSION.SDK_INT < 23
+            || checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** On while wanted or while a session runs; off otherwise. Runs on the engine thread. */
+    private void updateGps() {
+        boolean want = (gpsWanted || phase == PHASE_ACTIVE) && locationGranted();
+        if (want == gpsOn) return;
+        if (lm == null) lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (lm == null) return;
+        try {
+            if (want) {
+                gpsOn = true;
+                startForegroundNotification();       // now with the location type, so it keeps running screen-off
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, gpsListener, thread.getLooper());
+            } else {
+                lm.removeUpdates(gpsListener);
+                gpsOn = false;
+                lastFixAt = 0; lastSpeed = -1;
+                startForegroundNotification();
+            }
+        } catch (SecurityException e) {
+            gpsOn = false;
+        }
+    }
+
+    private final LocationListener gpsListener = new LocationListener() {
+        @Override public void onLocationChanged(Location loc) { onFix(loc); }
+        @Override public void onStatusChanged(String p, int s, android.os.Bundle b) {}
+        @Override public void onProviderEnabled(String p) {}
+        @Override public void onProviderDisabled(String p) { lastFixAt = 0; lastSpeed = -1; }
+    };
+
+    private void onFix(Location loc) {
+        long now = SystemClock.elapsedRealtime();
+        if (loc == null || !loc.hasSpeed() || (loc.hasAccuracy() && loc.getAccuracy() > 50)) return;
+        float v = loc.getSpeed();
+        long gap = lastFixAt == 0 ? 0 : now - lastFixAt;
+        if (gap > 0 && gap <= MAX_FIX_GAP_MS && phase == PHASE_ACTIVE && !walk) {
+            double sec = gap / 1000.0;
+            if (stage == ST_REACH) { mDist += v * sec; mSec += sec; }
+            else if (stage == ST_REST) { rDist += v * sec; rSec += sec; }
+        }
+        lastFixAt = now;
+        lastSpeed = v;
     }
 
     private void endSession() {
@@ -784,6 +860,13 @@ public class HrService extends Service {
             s.put("outFor", outSince == 0 ? 0 : (now - outSince) / 1000.0);
             s.put("alerting", alerting);
             s.put("night", nightOn);
+            // "off", "searching" (on, no fix yet or lost it) or "ready" (a fix in the last 5 s).
+            s.put("gps", !gpsOn ? "off" : lastFixAt > 0 && now - lastFixAt < 5000 ? "ready" : "searching");
+            s.put("speedKmh", gpsOn && lastSpeed >= 0 && lastFixAt > 0 && now - lastFixAt < 5000 ? lastSpeed * 3.6 : JSONObject.NULL);
+            s.put("reachKmh", mSec > 0 ? (Object) (mDist / mSec * 3.6) : JSONObject.NULL);
+            s.put("restKmh", rSec > 0 ? (Object) (rDist / rSec * 3.6) : JSONObject.NULL);
+            s.put("reachGpsSec", mSec);
+            s.put("restGpsSec", rSec);
         } catch (Exception e) { /* fall through with whatever was set */ }
         return s;
     }
@@ -800,9 +883,16 @@ public class HrService extends Service {
             ch.setShowBadge(false);
             nm.createNotificationChannel(ch);
         }
-        if (Build.VERSION.SDK_INT >= 29)
-            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
-        else
+        if (Build.VERSION.SDK_INT >= 29) {
+            int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
+            if (gpsOn && locationGranted()) type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
+            try {
+                startForeground(NOTIFICATION_ID, buildNotification(), type);
+            } catch (SecurityException e) {
+                // Location type refused (e.g. asked from the background): keep the session going.
+                startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            }
+        } else
             startForeground(NOTIFICATION_ID, buildNotification());
     }
 
@@ -853,6 +943,7 @@ public class HrService extends Service {
         running = false;
         wantConnected = false;
         closeGatt();
+        if (lm != null) try { lm.removeUpdates(gpsListener); } catch (Exception ignored) {}
         alerts.cancel();
         if (engine != null) engine.removeCallbacksAndMessages(null);
         if (thread != null) thread.quitSafely();
