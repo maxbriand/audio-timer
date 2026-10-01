@@ -74,6 +74,8 @@ CARDIO_FIELDS = (
     # The run's speed (2026-10-01): average km/h over every climb (m) and every rest (r),
     # from the GPS, and the seconds of GPS each average covers.
     "reachKmh", "restKmh", "reachGpsSeconds", "restGpsSeconds",
+    # A brisk walk's speed (2026-10-01): one average km/h over the whole walk.
+    "walkKmh", "walkGpsSeconds",
 )
 
 
