@@ -224,7 +224,7 @@ public class AlarmActivity extends Activity {
     quiet();
     try {
       stageRow(this, score, n, FatigueAlarm.nightDay(this));
-      UploadWorker.schedule(this);
+      UploadWorker.scheduleDue(this);
     } catch (Exception ignored){}    // staging failed: better a lost score than a stuck alarm
     finish();
   }
@@ -264,7 +264,8 @@ public class AlarmActivity extends Activity {
     o.put("note", noteText == null ? "" : noteText);
     o.put("minutesUntouchedBeforeStop", 0);
     o.put("fatigueScore", score);
-    Outbox.put(c, id, o.toString());
+    // Held like every other log (Outbox.HOLD_MS).
+    Outbox.put(c, id, o.toString(), "", "sessions", "", System.currentTimeMillis() + Outbox.HOLD_MS);
   }
 
   @Override

@@ -68,7 +68,7 @@ public class LogUploadPlugin extends Plugin {
       call.reject("id and json are required");
       return;
     }
-    // Where it goes and when it may: the page stages every log here, each due an hour after
+    // Where it goes and when it may: the page stages every log here, each due 2 hours after
     // it was logged (Outbox.HOLD_MS), so it goes out on time with the app closed.
     String route = call.getString("route", ""), key = call.getString("key", "sessions");
     String device = call.getString("device", "");

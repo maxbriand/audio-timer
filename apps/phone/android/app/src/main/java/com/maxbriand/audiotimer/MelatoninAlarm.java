@@ -166,8 +166,9 @@ final class MelatoninAlarm {
       o.put("stopPositionSeconds", 0);
       o.put("note", "");
       o.put("minutesUntouchedBeforeStop", 0);
-      Outbox.put(c, id, o.toString());
-      UploadWorker.schedule(c);
+      // Held like every other log (Outbox.HOLD_MS), so it can still be deleted from the log.
+      Outbox.put(c, id, o.toString(), "", "sessions", "", System.currentTimeMillis() + Outbox.HOLD_MS);
+      UploadWorker.scheduleDue(c);
     } catch (Exception ignored){}    // an unrecorded dose must not leave the alarm stuck
     scheduleNext(c);
   }

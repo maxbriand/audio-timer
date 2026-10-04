@@ -491,6 +491,11 @@ public class HrService extends Service {
 
     // -------------------------------------------------------------------- gps
 
+    private boolean bluetoothGranted() {
+        return Build.VERSION.SDK_INT < 31
+            || checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
+    }
+
     private boolean locationGranted() {
         return Build.VERSION.SDK_INT < 23
             || checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
@@ -888,14 +893,24 @@ public class HrService extends Service {
             nm.createNotificationChannel(ch);
         }
         if (Build.VERSION.SDK_INT >= 29) {
-            int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
-            if (gpsOn && locationGranted()) type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
-            try {
-                startForeground(NOTIFICATION_ID, buildNotification(), type);
-            } catch (SecurityException e) {
-                // Location type refused (e.g. asked from the background): keep the session going.
-                startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            /* Only the types whose permission is granted: Android 14+ kills the app outright
+               for a connectedDevice service without Bluetooth permission. Opening Running on a
+               phone that never paired the strap starts this service for the GPS alone
+               (2026-10-04, a fresh install crashed on the Running tab). */
+            final int dev = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
+            final int loc = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
+            int type = bluetoothGranted() ? dev : 0;
+            if (locationGranted() && (gpsOn || gpsWanted || type == 0)) type |= loc;
+            // Tried in order: everything allowed, then each type alone (location refused from
+            // the background, say). None accepted: stop rather than crash.
+            for (int t : new int[]{type, type & dev, type & loc}) {
+                if (t == 0) continue;
+                try {
+                    startForeground(NOTIFICATION_ID, buildNotification(), t);
+                    return;
+                } catch (SecurityException ignored) {}
             }
+            stopSelf();
         } else
             startForeground(NOTIFICATION_ID, buildNotification());
     }

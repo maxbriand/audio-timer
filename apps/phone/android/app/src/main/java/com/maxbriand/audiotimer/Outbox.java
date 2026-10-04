@@ -40,10 +40,10 @@ final class Outbox {
   private static final String KEY_OK_AT = "lastOkAt";
   private static final String UPLOADED = "uploaded.txt";
 
-  /* Nothing is sent until an hour after it was logged (Maxime, 2026-09-30), so an entry made
+  /* Nothing is sent until 2 hours after it was logged (Maxime, 2026-09-30; 2 h since 2026-10-04), so an entry made
      by mistake can still be deleted — and deleting it withdraws its file from here. Each file
      carries the moment it may go (_notBefore); UploadWorker sleeps until the first one. */
-  static final long HOLD_MS = 3600000L;
+  static final long HOLD_MS = 2 * 3600000L;
 
   /* A staged row says where it goes, beside its own fields: _route (appended to the server
      URL: "" is the night log, then "fatigue", "night", "cardio"), _key (the body's list:

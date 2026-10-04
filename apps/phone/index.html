@@ -71,7 +71,11 @@
   .setcat[hidden]{display:none}
   .setcat > .setsplit:first-child{border-top:0;margin-top:0;padding-top:0}
   .setcat > p{margin-top:0}
-  .pagetop{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  /* Stays at the top while the page scrolls under it — covering the box's own top padding,
+     so nothing shows through above it. */
+  .pagetop{display:flex;align-items:center;gap:12px;position:sticky;z-index:2;background:var(--bg);
+    top:calc(-14px - var(--safe-t));margin:calc(-14px - var(--safe-t)) 0 8px;
+    padding:calc(14px + var(--safe-t)) 0 8px}
   .pagetop h2{margin:0}
   .pagetop button{flex:none;padding:9px 13px;border-radius:10px;border:1px solid var(--line);
     background:var(--surface);color:var(--text);font-size:14px;font-weight:500}
@@ -147,22 +151,35 @@
   .chip.sm{padding:11px 0;font-size:13.5px}
   .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
   #loglist{margin-bottom:6px}
-  #logtabs{grid-template-columns:repeat(2,1fr);margin:4px 0 12px}
-  #logday[hidden],#lognight[hidden]{display:none}
   .logpics{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
   .logpics:empty{display:none}
   .logpics img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
-  .logrow{position:relative;padding:10px 44px 10px 0;border-bottom:1px solid var(--line)}
-  .logdel{position:absolute;top:8px;right:0;width:34px;height:34px;border-radius:10px;
-    border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px}
-  .logdel:active{background:var(--surface-2);color:var(--danger)}
+  .logrow{position:relative;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+  .logrow:active{background:var(--surface)}
+  /* One entry of the log, over the page: read it, change it, delete it in its first 2 hours. */
+  #entrysheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:35}
+  #entrysheet.on{display:flex}
+  #entrysheet .sheetbox{max-width:520px;margin:0 auto;max-height:85vh;overflow-y:auto}
+  #enlines{font-size:12.5px;color:var(--muted);white-space:pre-line;line-height:1.5;margin:4px 0 12px;font-variant-numeric:tabular-nums}
+  #enlines:empty{display:none}
+  .enrow{margin-bottom:10px}
+  .enrow[hidden]{display:none}
+  .enrow label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px}
+  .enrow .syncin{margin-bottom:0;color-scheme:dark}
+  #ennote{width:100%;min-height:70px;padding:12px;border-radius:12px;background:var(--surface-2);
+    border:1px solid var(--line);color:var(--text);font:15px/1.4 inherit;resize:vertical;-webkit-appearance:none}
+  #ennote:focus{outline:0;border-color:var(--accent)}
+  #enlock{font-size:12.5px;color:var(--muted);margin-top:4px;white-space:pre-line;line-height:1.5}
+  #enlock:empty{display:none}
+  #ensave{color:var(--accent);border-color:var(--accent-dim)}
+  #endelete{color:var(--danger)}
+  #endelete[hidden],#enaddpics[hidden],#ensave[hidden],#enfields[hidden],#ensendrow[hidden]{display:none}
+  #ensend{color:var(--accent);border-color:var(--accent-dim)}
   .logrow:last-child{border-bottom:0}
+  .logline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .logday{font-size:14px;font-weight:600}
   .logmeta{font-size:12.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
   .logempty{color:var(--muted);font-size:13.5px;padding:20px 0;text-align:center}
-  #logcount,#daycount{font-size:12.5px;color:var(--muted);margin-bottom:6px;font-variant-numeric:tabular-nums}
-  .logsub{opacity:.75}
-  .logsub:empty{display:none}
 
   main{flex:1;overflow-y:auto;padding:12px 12px calc(16px + var(--safe-b));-webkit-overflow-scrolling:touch}
 
@@ -879,6 +896,29 @@
 </section>
 </div>
 
+<div id="entrysheet">
+  <div class="sheetbox">
+    <h2 id="entitle"></h2>
+    <div id="enlines"></div>
+    <div id="enfields">
+      <div class="enrow" id="enstartrow"><label for="enstart" id="enstartlbl">Started</label><input type="datetime-local" id="enstart" class="syncin"></div>
+      <div class="enrow" id="enendrow"><label for="enend">Stopped</label><input type="datetime-local" id="enend" class="syncin"></div>
+      <div id="enextra"></div>
+      <div class="enrow" id="ennoterow"><label for="ennote">Note</label><textarea id="ennote" placeholder="A note about it (optional)"></textarea></div>
+      <div id="enpics" class="logpics"></div>
+      <input type="file" id="enpicfile" accept="image/*" multiple hidden>
+    </div>
+    <div id="enlock"></div>
+    <div class="sheetfoot" id="ensendrow"><button id="ensend">Send to the server now</button></div>
+    <div class="sheetfoot">
+      <button id="endelete">Delete</button>
+      <button id="enaddpics">+ Photo</button>
+      <button id="ensave">Save</button>
+      <button id="enclose">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="eventsheet">
   <div class="sheetbox">
     <h2 id="evtitle"></h2>
@@ -956,7 +996,7 @@
                wake-up or before the next sleep time (next alarm − sleep duration). A check runs
                its steps in order — strap test (5 calm minutes; HR and HRV over the last 3),
                PVT (on the computer), fatigue question — each with its own Skip, and lands as
-               one entry in the log's ☀️ Day part (needs the APK)</label>
+               one entry in the log (needs the APK)</label>
         <div id="fclist"></div>
         <button class="addevent" id="fcadd">+ Add a fatigue check</button>
         <div id="fcstatus"></div>
@@ -1024,29 +1064,7 @@
 <div id="logsheet">
   <div class="sheetbox">
     <div class="pagetop"><button id="closelog">&#8592; Back</button><h2>Log</h2></div>
-    <div class="chips sm" id="logtabs">
-      <button class="chip sm on" data-part="day">☀️ Day</button>
-      <button class="chip sm" data-part="night">🌙 Night</button>
-    </div>
-    <div id="logday">
-      <p>What the day recorded: the rise, the fatigue checks (strap test, PVT, question — one entry each), the runs, the habits and the issues with their notes and pictures.</p>
-      <div id="daycount"></div>
-      <div id="daylist"></div>
-    </div>
-    <div id="lognight" hidden>
-      <p>The tracked nights first (heart rate, HRV and sleeping position, minute by minute, when you said yes at the switch), then what this app saw of the audio: when it started, how long it played, and what stopped it.</p>
-      <div id="tracklist"></div>
-      <div id="logcount"></div>
-      <div id="loglist"></div>
-      <div class="sheetfoot">
-        <button id="exportcsv">Export CSV</button>
-      </div>
-      <div class="sheetfoot">
-        <button id="exportpos">Back up positions</button>
-        <button id="importpos">Restore positions</button>
-      </div>
-    </div>
-    <input type="file" id="posfile" accept="application/json,.json" hidden>
+    <div id="loglist"></div>
   </div>
 </div>
 
@@ -1149,7 +1167,8 @@ const putSession = async s => { s.updatedAt = Date.now(); return putSessionRaw(s
    default settings, no issues, no server — and it pushes those defaults over the native
    alarms. So a copy of everything small you set up goes to a native file (VaultPlugin) after
    each change, and a boot that finds the database newly created restores it and reloads.
-   Not in it: the audio (far too big), play positions, and the logs that ride the upload —
+   Play positions ride along by file name (positionsByName, in meta). Not in it: the audio
+   (far too big) and the logs that ride the upload —
    those are on the Mac. Pictures on issue entries are dropped from the copy for size. */
 const nativeVault = (() => {
   const C = window.Capacitor;
@@ -1237,6 +1256,30 @@ const MAX_ROWS = 300;     // painting 1000+ rows on every pause is what makes a 
 async function refresh(){
   tracks = (await allTracks()).sort(byName);
   paintList();
+  // Positions saved before the by-name copy existed join it now.
+  const saved = await loadPosByName();
+  let added = false;
+  for (const t of tracks) if (t.position > 0 && !saved[t.name]){ saved[t.name] = {position: t.position, lastPlayed: t.lastPlayed || 0}; added = true; }
+  if (added) setMeta('positionsByName', saved).catch(() => {});
+}
+
+/* Where each track is up to, by file name, kept in meta — so it rides the vault with the
+   settings, automatically. After Android wipes the page, the audio has to be imported again
+   and gets new ids; a file whose name is in here resumes where it was. Written at most once
+   a minute while playing (the vault rewrites a native file each time), and at once on a
+   pause, a skip, a track change or an end. */
+let posByName = null, posByNameAt = 0;
+async function loadPosByName(){
+  if (!posByName){ try { posByName = (await getMeta('positionsByName')) || {}; } catch(_){ posByName = {}; } }
+  return posByName;
+}
+function rememberPos(t, force){
+  if (!t || !t.name || !posByName) return;
+  posByName[t.name] = {position: t.position || 0, lastPlayed: t.lastPlayed || 0};
+  const now = Date.now();
+  if (!force && now - posByNameAt < 60000) return;
+  posByNameAt = now;
+  setMeta('positionsByName', posByName).catch(() => {});
 }
 
 // Repaint from the in-memory list — no IndexedDB round trip, so it is cheap enough to call
@@ -1393,6 +1436,7 @@ $('#file').onchange = async e => {
   if (!files.length) return;
 
   const totalBytes = files.reduce((n, f) => n + f.size, 0);
+  const savedPos = await loadPosByName();
   let doneBytes = 0, ok = 0, failed = [];
   const t0 = Date.now();
 
@@ -1423,10 +1467,11 @@ $('#file').onchange = async e => {
     let dur = 0;
     try { dur = await probeDuration(body); } catch(_) { failed.push(f.name); doneBytes += f.size; continue; }
     try {
+      const name = f.name.replace(/\.[^.]+$/, ''), was = savedPos[name];   // a re-import resumes
       const rec = {
         id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)),
-        name: f.name.replace(/\.[^.]+$/, ''), type: typeOf(f), size: f.size, blob: body,
-        duration: dur, position: 0, addedAt: Date.now(), lastPlayed: 0
+        name: name, type: typeOf(f), size: f.size, blob: body,
+        duration: dur, position: was ? was.position : 0, addedAt: Date.now(), lastPlayed: was ? was.lastPlayed : 0
       };
       await putTrack(rec);
       // Append in memory rather than re-reading the whole store per file — with a thousand
@@ -1566,6 +1611,7 @@ function savePos(force){
   current.position = pos;
   current.lastPlayed = now;
   putPos(current.id, pos, now);
+  rememberPos(current, force);
 }
 
 function drawTimes(){
@@ -1607,6 +1653,7 @@ audio.addEventListener('ended', async () => {
     finished.position = 0;                 // played through, so start it over next time
     finished.lastPlayed = Date.now();
     await putPos(finished.id, 0, finished.lastPlayed);
+    rememberPos(finished, true);
     // Detach before loading the next one: load() saves the outgoing track's position,
     // which would immediately write the end of the file back over that reset.
     current = null;
@@ -2036,7 +2083,7 @@ document.addEventListener('pointerdown', () => {
 }, {passive: true});
 
 /* ---------- what leaves the phone ----------
-   Shared by the server upload below and by the CSV export: which day a run belongs to,
+   Used by the server upload below: which day a run belongs to,
    the revision stamp, and the explicit allowlist of exported fields. (The private GitHub
    sync that used to live here was removed 2026-08-27 — the receiver on the Mac has been
    the one destination since the VPS stopped storing, and nothing read the repo any more.) */
@@ -2054,7 +2101,7 @@ function dayKey(ms){
 const sessionRev = s => s.updatedAt || s.endedAt || s.startedAt || 0;
 
 // How long a run played on untouched before it stopped: the gap between the last interaction
-// and the end. Reported by the log, the CSV, and the JSON that leaves the phone.
+// and the end. Reported by the log and the JSON that leaves the phone.
 const quietBeforeStop = s => s.endedAt && s.lastInteraction ? Math.max(0, s.endedAt - s.lastInteraction) : 0;
 
 /* What actually leaves the phone. Explicit, so adding an internal field to a session row
@@ -2100,23 +2147,36 @@ function exportSession(s){
 const UPLOAD_KEEP_DAYS = 14;
 const UPLOAD_DEBOUNCE_MS = 4000;
 const UPLOAD_BATCH = 100;
-/* Nothing leaves the phone until an hour after it ended (Maxime, 2026-09-30): a wrong tap, a
-   test, a run started by mistake can still be deleted from the log, and a deleted entry is
-   then never sent. Once the server has a copy, the phone cannot take it back. Applies to
-   every log — nights and day markers, cardio runs, fatigue checks, tracked nights.
-   On the APK every log is staged in the native outbox at once, due at its end + the hour
+/* Nothing leaves the phone until 2 hours after it ended (Maxime, 2026-09-30; 2 h since
+   2026-10-04, the same window the log allows a delete in): a wrong tap, a test, a run
+   started by mistake can still be deleted from the log, and a deleted entry is then never
+   sent. Once the server has a copy, the phone cannot take it back. Applies to every log —
+   nights and day markers, cardio runs, fatigue checks, tracked nights.
+   On the APK every log is staged in the native outbox at once, due at its end + the hold
    (stage()), and the upload job wakes at that moment with the app closed; deleting withdraws
-   the staged copy. The page's own timers below only drive the browser fallback. */
-const UPLOAD_HOLD_MS = 3600e3;
-const ripe = endMs => !!endMs && Date.now() - endMs >= UPLOAD_HOLD_MS;
+   the staged copy. The page's own timers below only drive the browser fallback.
+   The log's "Send now" lifts the hold for one entry: its id is kept here (localStorage, so a
+   restage after a restart does not put the hold back) and it is due at once. */
+const UPLOAD_HOLD_MS = 2 * 3600e3;
+let sendNowIds = [];
+try { sendNowIds = JSON.parse(localStorage.getItem('sendNowIds') || '[]'); } catch(_){}
+function forceSend(id){
+  if (sendNowIds.includes(id)) return;
+  sendNowIds = sendNowIds.concat(id).slice(-200);
+  try { localStorage.setItem('sendNowIds', JSON.stringify(sendNowIds)); } catch(_){}
+}
+const forced = id => !!id && sendNowIds.includes(id);
+const ripe = (endMs, id) => forced(id) || (!!endMs && Date.now() - endMs >= UPLOAD_HOLD_MS);
+// When a row may go: at its end + the hold, or now for one sent by hand.
+const dueAt = (id, endMs) => forced(id) ? Date.now() : (endMs || Date.now()) + UPLOAD_HOLD_MS;
 // Stage one row of any log, due UPLOAD_HOLD_MS after its end. Same id, same file: staging
 // again just rewrites it.
 function stage(id, row, route, key, device, endMs){
   return nativeUpload.enqueue({id: id, json: JSON.stringify(row), route: route, key: key,
-    device: device || '', notBefore: String((endMs || Date.now()) + UPLOAD_HOLD_MS)});
+    device: device || '', notBefore: String(dueAt(id, endMs))});
 }
 const unstage = id => nativeUpload ? nativeUpload.discard({id: id}).catch(() => {}) : Promise.resolve();
-// An entry still within its hour: come back when the first one is up. Timers stop while the
+// An entry still within its hold: come back when the first one is up. Timers stop while the
 // page is frozen; coming back to the foreground pushes again anyway.
 const ripeTimers = {};
 function retryWhenRipe(key, ends, fn){
@@ -2160,8 +2220,8 @@ const nativeUpload = (() => {
 // Same shape as the GitHub sync's own test, against its own stamp: a run that was edited
 // after it went out (a night reopened within the 10-minute gap) goes back in the queue.
 const unsent = s => !!s.endedAt && (!s.uploadedAt || s.uploadedAt < sessionRev(s));
-const needsUpload = s => unsent(s) && ripe(s.endedAt);
-const heldBack = s => unsent(s) && !ripe(s.endedAt);
+const needsUpload = s => unsent(s) && ripe(s.endedAt, s.id);
+const heldBack = s => unsent(s) && !ripe(s.endedAt, s.id);
 
 function uploadMessage(status){
   if (status === 401 || status === 403) return 'server rejected the token';
@@ -2227,7 +2287,7 @@ async function stampUploaded(ids){
 /* APK: hand every due run to the outbox. This is not sending — it is putting the night
    somewhere that outlives the app, so the upload can happen days later with the app closed. */
 async function queueUploads(){
-  const due = (await allSessions()).filter(unsent);       // held ones too: the outbox waits the hour
+  const due = (await allSessions()).filter(unsent);       // held ones too: the outbox waits the hold
   let n = 0;
   for (const s of due){
     try {
@@ -2295,7 +2355,7 @@ async function uploadStatusLine(){
   const sent = all.filter(s => s.uploadedAt).length;
   const bits = [upHost(upCfg.url), sent + ' sent'];
   if (waiting) bits.push(waiting + ' waiting');
-  if (held) bits.push(held + ' held for their first hour');
+  if (held) bits.push(held + ' held for their first 2 hours');
   bits.push('cleared after ' + UPLOAD_KEEP_DAYS + ' days');
   if (upNative && upNative.lastError) return setUpStatus(bits.join(' · ') + ' — ' + upNative.lastError, true);
   setUpStatus(bits.join(' · '));
@@ -2392,103 +2452,381 @@ function fmtDay(ms){
   return new Date(ms).toLocaleDateString(undefined, {weekday:'short', day:'numeric', month:'short'});
 }
 
-/* The log has two parts, like the app: ☀️ Day (the rise, habits, issues, cardio) and
-   🌙 Night (the listening runs). It always opens on Day — the log is read in the daytime,
-   and the day's entries had no reader at all before this page showed them. The zero-length
-   marker rows the day screen writes into the sessions store (wake-up, morning-walk,
-   screens-off) belong to the day; everything else in that store is a night. */
+/* The log: one list, newest first, of everything the app records — the nights, the rise and
+   the habits, the events, the fatigue checks, the runs, the tracked nights, the phone time.
+   Tapping an entry opens it over the page: its times, its note and whatever else it holds
+   can be changed, and it can be deleted in its first 2 hours. The zero-length marker rows
+   the day screen writes into the sessions store (wake-up, morning-walk, …) are day entries;
+   everything else in that store is a listening night. */
 const DAY_MARKERS = {'wake-up': '☀️ Woke up', 'morning-walk': '☀️ Morning walk', 'melatonin': '💊 Melatonin', 'screens-off': '📵 Screens off'};
 const isDayMarker = s => Object.prototype.hasOwnProperty.call(DAY_MARKERS, s.stopReason);
+/* An entry can be deleted for 2 hours after it was logged (Maxime, 2026-10-04) — counted
+   from when it was recorded, which an edit of its times does not move: loggedAt is frozen
+   on the first edit. */
+const DELETE_WINDOW_MS = 2 * 3600e3;
 
-function showLogPart(part){
-  $('#logday').hidden = part !== 'day';
-  $('#lognight').hidden = part !== 'night';
-  for (const b of $('#logtabs').querySelectorAll('.chip')) b.classList.toggle('on', b.dataset.part === part);
-}
-for (const b of $('#logtabs').querySelectorAll('.chip')) b.onclick = () => showLogPart(b.dataset.part);
-
-/* Every day entry ever recorded, newest first. Event logs live in their own store with
-   their pictures; the markers come from the sessions store. A walk is saved in both (the
-   event log carries the pictures, the marker rides the upload), so its marker is dropped
-   when the matching event log is there — one walk, one row. */
-let dayPicUrls = [];
-async function renderDay(sessions){
-  for (const u of dayPicUrls) URL.revokeObjectURL(u);
-  dayPicUrls = [];
+/* Every entry, as the list and the popup read it:
+   {at, title, lines | note, photos, edit: {start, end, note, extra, photos, loggedAt, save, del, upload}}
+   end undefined = an instant (no Stopped field); save or del null = not changeable;
+   upload {sent, due, send} for what goes to the server, null for what stays on the phone. */
+async function logItems(){
+  const sessions = await allSessions();
   let logs = [];
   try { logs = await allEventLogs(); } catch(_){}
   let cats = {};
   try { for (const ev of await allEvents()) cats[ev.id] = ev.cat === 'habit' ? 'habit' : 'issue'; } catch(_){}
+  // A walk is saved in both stores (the event log carries the pictures, the marker rides the
+  // upload), so its marker is dropped when the matching event log is there — one walk, one row.
   const pinnedTaps = new Set(logs.filter(l => PINNED_MARKER[l.issueId]).map(l => PINNED_MARKER[l.issueId] + '@' + l.at));
   let checks = [];
   try { checks = await allFatigueChecks(); } catch(_){}
+  let tracks = [];
+  try { tracks = await allNightTracks(); } catch(_){}
   const running = window.ZoneLog ? window.ZoneLog.running() : null;
   const phone = await phoneDays();
-  const items = [
-    // A day's phone time: one entry per closed day, written at midnight (see phoneDays).
-    ...phone.map(d => ({
-      del: null, at: d.at, title: '📱 Phone time — ' + d.day, note: '', photos: [], kind: 'phone', lines: d.lines
-    })),
-    // A run is one entry too, read from zone-alarm's own store (see runLines).
+  return [
+    // A day's phone time is read from Android, not recorded here: nothing to change.
+    ...phone.map(d => ({at: d.at, title: '📱 Phone time — ' + d.day, lines: d.lines, photos: [], edit: null})),
     ...allRuns().map(r => ({
-      del: r.id === running ? null : () => deleteRun(r), at: Date.parse(r.started),
-      title: runTitle(r, running), note: '', photos: [], kind: 'run', lines: runLines(r)
+      at: Date.parse(r.started), title: runTitle(r, running), lines: runLines(r), photos: [],
+      edit: r.id === running ? null : {
+        start: Date.parse(r.started), end: r.ended ? Date.parse(r.ended) : null, note: r.note || '',
+        extra: [{key: 'rpe', label: 'RPE (0–10)', value: r.rpe}],
+        loggedAt: r.loggedAt || (r.ended ? Date.parse(r.ended) : Date.parse(r.started)),
+        save: v => saveRun(r, v), del: () => deleteRun(r),
+        upload: r.ended ? {sent: !!r.syncedAt, due: dueAt(r.id, Date.parse(r.ended)),
+                           send: () => sendNow(r.id, () => window.ZoneLog && window.ZoneLog.push())} : null
+      }
     })),
-    // A fatigue check is one entry, whatever it was made of — its lines say the rest.
-    ...checks.map(k => ({
-      del: () => deleteFatigueCheck(k), at: k.at, title: '🩺 Fatigue check' + (k.test ? ' — test' : ''),
-      note: '', photos: [], kind: 'check', lines: fatigueCheckLines(k)
-    })),
-    ...logs.map(l => ({
-      del: () => deleteDayEntry(l, sessions), at: l.at, title: l.issue || 'Event', note: l.note, photos: l.photos || [],
-      kind: PINNED_MARKER[l.issueId] ? 'habit' : (cats[l.issueId] || 'entry')
-    })),
+    ...checks.map(k => {
+      const q = (k.steps || {}).question;
+      return {
+        at: k.at, title: '🩺 Fatigue check' + (k.test ? ' — test' : ''), lines: fatigueCheckLines(k), photos: [],
+        edit: {
+          start: k.at, end: k.endedAt || null, note: q && q.status === 'done' ? q.note || '' : undefined,
+          extra: q && q.status === 'done' ? [{key: 'score', label: 'Fatigue (0–10)', value: q.score}] : [],
+          loggedAt: k.loggedAt || k.endedAt || k.at,
+          save: v => saveFatigueCheck(k, v), del: () => deleteFatigueCheck(k),
+          upload: k.test ? null : {sent: !!k.syncedAt, due: dueAt(k.id, k.endedAt || k.at), send: () => sendNow(k.id, pushFatigueLog)}
+        }
+      };
+    }),
+    ...logs.map(l => {
+      const kind = PINNED_MARKER[l.issueId] ? 'habit' : (cats[l.issueId] || '');
+      return {
+        at: l.at, title: l.issue || 'Event', photos: l.photos || [],
+        note: [kind, l.note && '“' + l.note + '”'].filter(Boolean).join(' · ') || 'no note',
+        edit: {start: l.at, note: l.note || '', photos: l.photos || [], loggedAt: l.loggedAt || l.at,
+               save: v => saveDayEntry(l, sessions, v), del: () => deleteDayEntry(l, sessions),
+               // Only the walk and the dose leave the phone, through their twin marker.
+               upload: sessionUpload(PINNED_MARKER[l.issueId] &&
+                 sessions.find(x => x.stopReason === PINNED_MARKER[l.issueId] && x.startedAt === l.at))}
+      };
+    }),
     ...sessions.filter(isDayMarker)
       .filter(s => !pinnedTaps.has(s.stopReason + '@' + s.startedAt))
-      .map(s => ({del: () => deleteNight(s), at: s.startedAt, title: DAY_MARKERS[s.stopReason], note: s.note, photos: [],
-                  kind: s.stopReason === 'wake-up' ? 'rise' : 'habit'}))
-  ].sort((a, b) => b.at - a.at);
-  const box = $('#daylist'), count = $('#daycount');
+      .map(s => ({
+        at: s.startedAt, title: DAY_MARKERS[s.stopReason], photos: [],
+        note: [s.stopReason === 'wake-up' ? 'rise' : 'habit', s.note && '“' + s.note + '”'].filter(Boolean).join(' · '),
+        edit: {start: s.startedAt, note: s.note || '', loggedAt: s.loggedAt || s.startedAt,
+               save: v => saveSession(s, v), del: () => deleteNight(s), upload: sessionUpload(s)}
+      })),
+    ...sessions.filter(s => !isDayMarker(s)).map(s => {
+      const live = session && session.id === s.id;     // the night being recorded right now
+      return {
+        at: s.startedAt, title: '🌙 Night · ' + fmtClock(s.startedAt) + (s.endedAt ? '–' + fmtClock(s.endedAt) : ''),
+        lines: nightSessionLines(s), photos: [],
+        edit: live ? null : {start: s.startedAt, end: s.endedAt || null, note: s.note || '',
+                             loggedAt: s.loggedAt || s.endedAt || s.startedAt,
+                             save: v => saveSession(s, v), del: () => deleteNight(s), upload: sessionUpload(s)}
+      };
+    }),
+    ...tracks.map(n => ({
+      at: n.start, title: '🫀 Tracked night ' + fmtClock(n.start) + ' → ' + fmtClock(n.end) + ' · ' + secDur((n.end - n.start) / 1000),
+      lines: nightLines(n), photos: [],
+      edit: {start: n.start, end: n.end, loggedAt: n.loggedAt || n.end,
+             save: v => saveNightTrack(n, v), del: () => deleteNightTrack(n),
+             upload: {sent: !!n.syncedAt, due: dueAt(n.id, n.end), send: () => sendNow(n.id, pushNights)}}
+    }))
+  ].filter(it => it.at && !isNaN(it.at)).sort((a, b) => b.at - a.at);
+}
+
+const sessionUpload = s => s && s.endedAt ? {sent: !unsent(s), due: dueAt(s.id, s.endedAt),
+                                              send: () => sendNow(s.id, () => uploadNow(false))} : null;
+
+/* "Send now": the entry skips the rest of its hold. On the APK it is restaged due now and the
+   upload job is started at once; it still needs a network, like everything in the outbox. */
+async function sendNow(id, push){
+  forceSend(id);
+  await push();
+  if (nativeUpload){ try { await nativeUpload.flush(); } catch(_){} }
+}
+
+function nightSessionLines(s){
+  const quiet = quietBeforeStop(s);
+  return [
+    fmt(s.listenedSeconds) + ' played'
+      + (s.timerMinutes ? ' · ' + s.timerMinutes + 'm timer'
+          + (s.timerCancelled ? ' (cancelled)' : '') + (s.autoArmed ? ' (auto)' : '') : ' · no timer')
+      + (s.stopReason ? ' · ' + s.stopReason : ' · still running')
+      + (quiet > 60000 ? ' · untouched for ' + fmt(quiet/1000) : ''),
+    [s.note && '“' + s.note + '”',
+     s.trackStart && 'from ' + s.trackStart,
+     s.trackEnd && s.trackEnd !== s.trackStart && 'to ' + s.trackEnd,
+     s.speed && s.speed !== 1 && s.speed + '×',
+     s.fadeInSeconds ? s.fadeInSeconds + 's fade-in' : ''
+    ].filter(Boolean).join(' · ')
+  ].filter(Boolean);
+}
+
+let logPicUrls = [];
+function picUrl(blob){
+  const u = URL.createObjectURL(blob);
+  logPicUrls.push(u);
+  return u;
+}
+async function renderLog(){
+  for (const u of logPicUrls) URL.revokeObjectURL(u);
+  logPicUrls = [];
+  const items = await logItems();
+  const box = $('#loglist');
   box.innerHTML = '';
   if (!items.length){
-    box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you log habits and issues on the day screen, and as you run.</div>';
-    count.textContent = '';
+    box.innerHTML = '<div class="logempty">Nothing recorded yet.</div>';
     return;
   }
-  const n = k => items.filter(i => i.kind === k).length;
-  count.textContent = [
-    n('issue') && n('issue') + (n('issue') === 1 ? ' issue' : ' issues'),
-    n('habit') && n('habit') + (n('habit') === 1 ? ' habit' : ' habits'),
-    n('rise') && n('rise') + (n('rise') === 1 ? ' rise' : ' rises'),
-    n('check') && n('check') + (n('check') === 1 ? ' fatigue check' : ' fatigue checks'),
-    n('phone') && n('phone') + (n('phone') === 1 ? ' day of phone time' : ' days of phone time'),
-    n('run') && n('run') + (n('run') === 1 ? ' run' : ' runs'),
-    n('entry') && n('entry') + ' from deleted buttons'
-  ].filter(Boolean).join(' · ');
   for (const it of items){
     const el = document.createElement('div');
     el.className = 'logrow';
     el.innerHTML = '<div class="logday"></div><div class="logmeta"></div><div class="logpics"></div>';
     el.querySelector('.logday').textContent = fmtDay(it.at) + ' · ' + fmtClock(it.at) + ' · ' + it.title;
-    if (it.lines){
-      el.querySelector('.logmeta').style.whiteSpace = 'pre-line';
-      el.querySelector('.logmeta').textContent = it.lines.join('\n');
-    } else el.querySelector('.logmeta').textContent =
-      [it.kind !== 'rise' && it.kind !== 'entry' && it.kind, it.note && '“' + it.note + '”']
-        .filter(Boolean).join(' · ') || (it.kind === 'rise' ? 'rise' : 'no note');
-    for (const blob of it.photos){
-      try {
-        const u = URL.createObjectURL(blob);
-        dayPicUrls.push(u);
-        const img = document.createElement('img');
-        img.src = u;
-        img.onclick = () => window.open(u);
-        el.querySelector('.logpics').appendChild(img);
-      } catch(_){}
+    // The list shows the first 2 lines, one row each; the popup has them all.
+    const meta = el.querySelector('.logmeta');
+    for (const line of (it.lines || [it.note]).filter(Boolean).slice(0, 2)){
+      const d = document.createElement('div');
+      d.className = 'logline';
+      d.textContent = line;
+      meta.appendChild(d);
     }
-    if (it.del) el.appendChild(delButton(it.del));   // the run in progress is not deletable
+    for (const blob of it.photos){
+      try { const img = document.createElement('img'); img.src = picUrl(blob); el.querySelector('.logpics').appendChild(img); } catch(_){}
+    }
+    el.onclick = () => openEntry(it);
     box.appendChild(el);
   }
+}
+
+async function openLog(){
+  await renderLog();
+  $('#logsheet').classList.add('on');
+  if (window.ZoneLog) window.ZoneLog.push();
+}
+// Something changed under an open log page (an upload ack, a check fetched): paint it again.
+function refreshLog(){ if ($('#logsheet').classList.contains('on')) renderLog().catch(() => {}); }
+
+/* ---- the entry popup ---- */
+// <input type="datetime-local"> speaks local wall-clock "YYYY-MM-DDTHH:MM".
+const toLocalInput = ms => { const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+let entry = null, entryPhotos = [];
+function openEntry(it){
+  entry = it;
+  const e = it.edit;
+  $('#entitle').textContent = fmtDay(it.at) + ' · ' + it.title;
+  $('#enlines').textContent = it.lines ? it.lines.join('\n') : '';
+  $('#enfields').hidden = !e || !e.save;
+  if (e && e.save){
+    $('#enstart').value = toLocalInput(e.start);
+    $('#enendrow').hidden = e.end === undefined;
+    $('#enstartlbl').textContent = e.end === undefined ? 'When' : 'Started';
+    $('#enend').value = e.end ? toLocalInput(e.end) : '';
+    $('#ennoterow').hidden = e.note === undefined;
+    $('#ennote').value = e.note || '';
+    const extra = $('#enextra');
+    extra.innerHTML = '';
+    for (const f of e.extra || []){
+      const row = document.createElement('div'); row.className = 'enrow';
+      row.innerHTML = '<label></label><input type="number" min="0" max="10" step="1" inputmode="numeric" class="syncin">';
+      row.querySelector('label').textContent = f.label;
+      const inp = row.querySelector('input');
+      inp.dataset.key = f.key;
+      inp.value = f.value == null ? '' : f.value;
+      extra.appendChild(row);
+    }
+    entryPhotos = (e.photos || []).slice();
+    paintEntryPics();
+  } else { entryPhotos = []; $('#enpics').innerHTML = ''; }
+  $('#enaddpics').hidden = !(e && e.photos);
+  $('#ensave').hidden = !(e && e.save);
+  const deletable = !!(e && e.del && Date.now() - e.loggedAt < DELETE_WINDOW_MS);
+  $('#endelete').hidden = !deletable;
+  const up = e && e.upload;
+  $('#ensendrow').hidden = !up || up.sent || !upReady();
+  $('#enlock').textContent = [
+    !e ? 'Read from the phone — nothing to change.'
+      : deletable ? 'Can be deleted until ' + fmtClock(e.loggedAt + DELETE_WINDOW_MS) + '.'
+      : e.del ? 'Logged more than 2 hours ago — can be changed, not deleted.' : '',
+    !up ? (e ? 'Stays on this phone.' : '')
+      : !upReady() ? 'No server set up.'
+      : up.sent ? 'On the server.'
+      : up.due <= Date.now() ? 'Waiting for the server.'
+      : 'Goes to the server at ' + fmtClock(up.due) + '.'
+  ].filter(Boolean).join('\n');
+  $('#entrysheet').classList.add('on');
+}
+function paintEntryPics(){
+  const box = $('#enpics');
+  box.innerHTML = '';
+  entryPhotos.forEach((blob, i) => {
+    const img = document.createElement('img');
+    img.src = picUrl(blob);
+    img.onclick = () => { if (confirm('Remove this picture?')){ entryPhotos.splice(i, 1); paintEntryPics(); } };
+    box.appendChild(img);
+  });
+}
+function closeEntry(){ $('#entrysheet').classList.remove('on'); entry = null; entryPhotos = []; }
+$('#enclose').onclick = closeEntry;
+$('#entrysheet').onclick = ev => { if (ev.target.id === 'entrysheet') closeEntry(); };
+$('#enaddpics').onclick = () => $('#enpicfile').click();
+$('#enpicfile').onchange = async ev => {
+  for (const f of [...ev.target.files]){
+    try { entryPhotos.push(new Blob([await f.arrayBuffer()], {type: f.type || 'image/jpeg'})); }
+    catch(_){ toast('Could not read a picture — skipped'); }
+  }
+  ev.target.value = '';
+  paintEntryPics();
+};
+$('#ensave').onclick = async () => {
+  if (!entry || !entry.edit || !entry.edit.save) return;
+  const e = entry.edit;
+  // An untouched field keeps its exact time: the input only holds minutes.
+  const read = (el, orig) => !el.value ? null : (orig && el.value === toLocalInput(orig) ? orig : new Date(el.value).getTime());
+  const start = read($('#enstart'), e.start);
+  if (!start) return toast('Set when it started');
+  let end;
+  if (e.end !== undefined){
+    end = read($('#enend'), e.end);
+    if (e.end && !end) return toast('Set when it stopped');
+    if (end && end < start) return toast('It cannot stop before it started');
+  }
+  const extra = {};
+  for (const inp of $('#enextra').querySelectorAll('input')){
+    const v = inp.value === '' ? null : Math.round(Number(inp.value));
+    if (v != null && (isNaN(v) || v < 0 || v > 10)) return toast('Keep it between 0 and 10');
+    extra[inp.dataset.key] = v;
+  }
+  await e.save({start, end, note: $('#ennote').value.trim(), extra, photos: entryPhotos, loggedAt: e.loggedAt});
+  closeEntry();
+  await renderLog();
+  toast('Saved');
+};
+$('#ensend').onclick = async () => {
+  if (!entry || !entry.edit || !entry.edit.upload) return;
+  const btn = $('#ensend');
+  btn.disabled = true;
+  try { await entry.edit.upload.send(); } finally { btn.disabled = false; }
+  closeEntry();
+  await renderLog();
+  toast(nativeUpload ? 'Sending now — needs the phone online' : 'Sent');
+};
+$('#endelete').onclick = async () => {
+  if (!entry || !entry.edit || !entry.edit.del) return;
+  if (await entry.edit.del()){ closeEntry(); await renderLog(); toast('Deleted'); }
+};
+
+/* ---- saving an edit ----
+   Each kind goes back to its own store, and back into the upload: a night or a marker is
+   re-stamped (putSession) and so due again, the other logs lose their syncedAt. The server
+   upserts every route by id, so the edited copy replaces the one it has. */
+async function saveSession(s, v){
+  s.loggedAt = v.loggedAt;
+  s.startedAt = v.start;
+  s.endedAt = isDayMarker(s) ? v.start : v.end;
+  if (isDayMarker(s)) s.lastInteraction = v.start;
+  s.note = v.note;
+  await putSession(s);
+  uploadSoon();
+  // A moved wake-up may be the one the alarm is derived from: recompute it.
+  if (s.stopReason === 'wake-up' && wakeGoal){ await pushSchedule(); paintSchedule(); }
+}
+async function saveDayEntry(l, sessions, v){
+  const twin = PINNED_MARKER[l.issueId], oldAt = l.at;
+  Object.assign(l, {loggedAt: v.loggedAt, at: v.start, note: v.note, photos: v.photos});
+  await putEventLog(l);
+  // The walk's and the dose's twin marker carries the same time and note to the server.
+  if (twin) for (const s of sessions.filter(x => x.stopReason === twin && x.startedAt === oldAt))
+    await saveSession(s, {loggedAt: s.loggedAt || oldAt, start: v.start, note: v.note});
+}
+async function saveFatigueCheck(k, v){
+  k.loggedAt = v.loggedAt;
+  k.at = v.start;
+  if (v.end) k.endedAt = v.end;
+  k.localDay = dayKey(v.start);
+  const q = (k.steps || {}).question;
+  if (q && q.status === 'done'){ if (v.extra.score != null) q.score = v.extra.score; q.note = v.note; }
+  delete k.syncedAt;
+  await putFatigueCheck(k);
+  pushFatigueLog();
+}
+function saveRun(r, v){
+  const patch = {loggedAt: v.loggedAt, started: new Date(v.start).toISOString(), note: v.note, rpe: v.extra.rpe};
+  if (v.end){
+    patch.ended = new Date(v.end).toISOString();
+    patch.durationSeconds = Math.round((v.end - v.start) / 1000);
+  }
+  patch.localDay = dayKey(v.start);
+  if (window.ZoneLog) window.ZoneLog.update(r.id, patch);
+}
+async function saveNightTrack(n, v){
+  Object.assign(n, {loggedAt: v.loggedAt, start: v.start, end: v.end || n.end, localDay: dayKey(v.start)});
+  n.summary = nightSummary(nightEpochs(n));
+  delete n.syncedAt;
+  await putNightTrack(n);
+  pushNights();
+}
+
+/* ---- deleting ----
+   Deleting takes the entry off the phone and out of everything still waiting to send it: the
+   row itself, and on the APK the copy staged in the native outbox, which would otherwise go
+   out later with the app closed. A copy the server already confirmed stays there — the phone
+   has no way to take it back. Each returns true once the entry is gone. */
+async function deleteFatigueCheck(k){
+  if (!confirm('Delete this fatigue check from the log?')) return false;
+  await unstage(k.id);
+  await delFatigueCheck(k.id);
+  return true;
+}
+// A day entry goes with its pictures, and a walk with its twin marker.
+async function deleteDayEntry(l, sessions){
+  if (!confirm('Delete this entry' + ((l.photos || []).length ? ' and its pictures' : '') + '?')) return false;
+  await delEventLog(l.id);
+  const twin = PINNED_MARKER[l.issueId];
+  if (twin){
+    for (const s of sessions.filter(x => x.stopReason === twin && x.startedAt === l.at)){
+      await unstage(s.id);
+      await delSession(s.id);
+    }
+  }
+  return true;
+}
+async function deleteNight(s){
+  if (!confirm('Delete this entry? It leaves this phone and will not be sent to the server.' +
+      (s.uploadedAt ? ' The copy the server already has stays there.' : ''))) return false;
+  await unstage(s.id);
+  await delSession(s.id);
+  if (s.stopReason === 'wake-up' && wakeGoal){ await pushSchedule(); paintSchedule(); }
+  return true;
+}
+function deleteRun(r){
+  if (!confirm('Delete this run? It leaves this phone and will not be sent to the server.' +
+      (r.syncedAt ? ' The copy the server already has stays there.' : ''))) return false;
+  if (window.ZoneLog && window.ZoneLog.remove(r.id)) unstage(r.id);
+  return true;
+}
+async function deleteNightTrack(n){
+  if (!confirm('Delete this tracked night from the phone?')) return false;
+  await unstage(n.id);
+  await delNightTrack(n.id);
+  return true;
 }
 
 /* The phone's screen time, one entry per closed day. The native side writes each day's
@@ -2534,105 +2872,6 @@ function fatigueCheckLines(k){
     : 'skipped'));
   return out;
 }
-async function deleteFatigueCheck(k){
-  if (!confirm('Delete this fatigue check from the log?')) return;
-  await unstage(k.id);
-  await delFatigueCheck(k.id);
-  openLog('day');
-}
-
-/* A day entry goes with its pictures. A walk also has its twin in the sessions store (the
-   marker that rides the upload), so that one is withdrawn the same way a night is. */
-async function deleteDayEntry(l, sessions){
-  if (!confirm('Delete this entry' + ((l.photos || []).length ? ' and its pictures' : '') + '?')) return;
-  await delEventLog(l.id);
-  const twin = PINNED_MARKER[l.issueId];
-  if (twin){
-    for (const s of sessions.filter(x => x.stopReason === twin && x.startedAt === l.at)){
-      if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
-      await delSession(s.id);
-    }
-  }
-  openLog('day');
-}
-
-/* Every run ever recorded, newest first — the whole history, not a recent window. */
-async function openLog(part){
-  const sessions = await allSessions();
-  await renderDay(sessions);
-  await renderNightTracks();
-  const rows = sessions.filter(s => !isDayMarker(s)).sort((a,b) => b.startedAt - a.startedAt);
-  const box = $('#loglist');
-  const count = $('#logcount');
-  if (!rows.length){
-    box.innerHTML = '<div class="logempty">Nothing recorded yet. It fills up as you listen.</div>';
-    count.textContent = '';
-  } else {
-    const total = rows.reduce((n, s) => n + (s.listenedSeconds || 0), 0);
-    count.textContent = rows.length + (rows.length === 1 ? ' night' : ' nights') +
-                        ' · ' + fmt(total) + ' listened in total';
-    box.innerHTML = '';
-    for (const s of rows){
-      const quiet = quietBeforeStop(s);
-      const el = document.createElement('div');
-      el.className = 'logrow';
-      el.innerHTML =
-        '<div class="logday"></div>' +
-        '<div class="logmeta"></div>' +
-        '<div class="logmeta logsub"></div>';
-      el.querySelector('.logday').textContent =
-        fmtDay(s.startedAt) + ' · ' + fmtClock(s.startedAt)
-        + (s.endedAt ? '–' + fmtClock(s.endedAt) : '');
-      el.querySelector('.logmeta').textContent =
-        fmt(s.listenedSeconds) + ' played'
-        + (s.timerMinutes ? ' · ' + s.timerMinutes + 'm timer'
-            + (s.timerCancelled ? ' (cancelled)' : '') + (s.autoArmed ? ' (auto)' : '') : ' · no timer')
-        + (s.stopReason ? ' · ' + s.stopReason : ' · still running')
-        + (quiet > 60000 ? ' · untouched for ' + fmt(quiet/1000) : '');
-      el.querySelector('.logsub').textContent =
-        [s.note && '“' + s.note + '”',
-         s.trackStart && 'from ' + s.trackStart,
-         s.trackEnd && s.trackEnd !== s.trackStart && 'to ' + s.trackEnd,
-         s.speed && s.speed !== 1 && s.speed + '×',
-         s.fadeInSeconds ? s.fadeInSeconds + 's fade-in' : ''
-        ].filter(Boolean).join(' · ');
-      // The night being recorded right now is not a log entry yet.
-      if (!(session && session.id === s.id)) el.appendChild(delButton(() => deleteNight(s)));
-      box.appendChild(el);
-    }
-  }
-  showLogPart(part === 'night' ? 'night' : 'day');   // Day unless a re-render asks to stay
-  $('#logsheet').classList.add('on');
-  if (window.ZoneLog) window.ZoneLog.push();
-}
-
-function delButton(onTap){
-  const b = document.createElement('button');
-  b.className = 'logdel'; b.textContent = '✕'; b.setAttribute('aria-label', 'Delete this entry');
-  b.onclick = onTap;
-  return b;
-}
-
-/* Deleting an entry takes it off the phone and out of everything still waiting to send it: the
-   row itself, and on the APK the copy staged in the native outbox, which would otherwise go
-   out days later with the app closed. A copy the server already confirmed stays there — the
-   phone has no way to take it back. */
-async function deleteNight(s){
-  if (!confirm('Delete this entry? It leaves this phone and will not be sent to the server.' +
-      (s.uploadedAt ? ' The copy the server already has stays there.' : ''))) return;
-  if (nativeUpload){ try { await nativeUpload.discard({id: s.id}); } catch(_){} }
-  await delSession(s.id);
-  // A deleted wake-up may have been the one the alarm was derived from: recompute it.
-  if (s.stopReason === 'wake-up' && wakeGoal){ await pushSchedule(); paintSchedule(); }
-  openLog(isDayMarker(s) ? 'day' : 'night');
-}
-function deleteRun(r){
-  if (!confirm('Delete this run? It leaves this phone and will not be sent to the server.' +
-      (r.syncedAt ? ' The copy the server already has stays there.' : ''))) return;
-  if (window.ZoneLog && window.ZoneLog.remove(r.id)) unstage(r.id);
-  openLog('day');
-}
-
 /* The cardio sessions, as entries of the day log — everything a row of
    sources/exercise-log.csv needs, so it can be filled from here without reading numbers off
    the end screen. Read straight from zone-alarm's own store rather than through its script:
@@ -2678,65 +2917,6 @@ function runLines(r){
   if (stages.filter(Boolean).length) out.push(j(stages));
   if (r.note) out.push('“' + r.note + '”');
   return out.filter(Boolean);
-}
-
-function download(filename, text, type){
-  const url = URL.createObjectURL(new Blob([text], {type}));
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
-
-async function exportCSV(){
-  const rows = (await allSessions()).sort((a,b) => a.startedAt - b.startedAt);
-  if (!rows.length) return toast('Nothing to export yet');
-  const head = ['started','ended','listened_minutes','timer_minutes','timer_cancelled',
-                'timer_auto_armed','speed','fade_in_seconds','stop_reason',
-                'track_start','track_end','stop_position_seconds','minutes_untouched_before_stop'];
-  const csv = [head.join(',')].concat(rows.map(s => {
-    const quiet = quietBeforeStop(s);
-    return [
-      new Date(s.startedAt).toISOString(),
-      s.endedAt ? new Date(s.endedAt).toISOString() : '',
-      ((s.listenedSeconds || 0) / 60).toFixed(1),
-      s.timerMinutes || '',
-      s.timerCancelled ? 'yes' : '',
-      s.autoArmed ? 'yes' : '',
-      s.speed || '',
-      s.fadeInSeconds || '',
-      s.stopReason || '',
-      '"' + String(s.trackStart || '').replace(/"/g,'""') + '"',
-      '"' + String(s.trackEnd || '').replace(/"/g,'""') + '"',
-      Math.round(s.stopPosition || 0),
-      (quiet / 60000).toFixed(1)
-    ].join(',');
-  })).join('\n');
-  download('audio-timer-sessions.csv', csv, 'text/csv');
-  toast(rows.length + ' sessions exported');
-}
-
-/* Positions are keyed by filename, not id, so they can be restored onto a re-imported
-   library after the phone clears site data. */
-async function exportPositions(){
-  const data = (await allTracks()).map(t => ({name: t.name, position: Math.round(t.position || 0)}));
-  if (!data.length) return toast('Nothing to back up yet');
-  download('audio-timer-positions.json', JSON.stringify(data, null, 1), 'application/json');
-  toast(data.length + ' positions backed up');
-}
-
-async function importPositions(file){
-  let data;
-  try { data = JSON.parse(await file.text()); } catch(_) { return toast('That file is not readable'); }
-  if (!Array.isArray(data)) return toast('That file is not a positions backup');
-  const byName = new Map(data.map(d => [d.name, Number(d.position) || 0]));
-  let n = 0;
-  for (const t of await allTracks()){
-    const p = byName.get(t.name);
-    if (p != null && p !== t.position){ t.position = p; await putPos(t.id, p, t.lastPlayed || 0); n++; }
-  }
-  await refresh();
-  toast(n + ' positions restored');
 }
 
 /* settings sheet */
@@ -3067,8 +3247,8 @@ async function collectFatigueResults(){
     await nativeFatigue.ack({ids: list.map(k => k.id)});
     if (!kept.length){ toast('Test finished — not logged'); return; }
     pushFatigueLog();
-    if ($('#logsheet').classList.contains('on')) openLog('day');
-    toast('Fatigue check logged — see 📊 → ☀️ Day');
+    refreshLog();
+    toast('Fatigue check logged — see 📊 Log');
   } catch(_){}
 }
 
@@ -3101,7 +3281,7 @@ async function pushFatigueLog(){
     return;
   }
   retryWhenRipe('fatigue', all.filter(k => !ripe(end(k))).map(end), pushFatigueLog);
-  all = all.filter(k => ripe(end(k)));
+  all = all.filter(k => ripe(end(k), k.id));
   if (!all.length) return;
   fatiguePushing = true;
   try {
@@ -3114,7 +3294,7 @@ async function pushFatigueLog(){
     if (res.ok && Array.isArray(out.accepted)){
       const now = Date.now();
       for (const k of all) if (out.accepted.includes(k.id) && !k.syncedAt){ k.syncedAt = now; await putFatigueCheck(k); }
-      if ($('#logsheet').classList.contains('on')) openLog('day');
+      refreshLog();
     }
   } catch(_){ /* offline: kept, retried on the next launch, foreground or network */ }
   fatiguePushing = false;
@@ -3208,11 +3388,11 @@ async function collectNights(){
       const epochs = (got && got.epochs) || [];
       await putNightTrack({id: 'night-' + start, start, end, localDay: dayKey(start), epochs, summary: nightSummary(epochs)});
       await nativeNight.nightAck({start: String(start)});
-      toast('Night tracked — ' + epochs.filter(e => !e.off).length + ' minutes recorded. See 📊 → 🌙 Night');
+      toast('Night tracked — ' + epochs.filter(e => !e.off).length + ' minutes recorded. See 📊 Log');
     }
     if (list.length){
       pushNights();
-      if ($('#logsheet').classList.contains('on')) openLog('night');
+      refreshLog();
     }
   } catch(_){}
 }
@@ -3220,7 +3400,7 @@ async function collectNights(){
 const secDur = s => s >= 3600 ? Math.floor(s / 3600) + ' h ' + String(Math.round(s % 3600 / 60)).padStart(2, '0')
                                : Math.round(s / 60) + ' min';
 function nightLines(n){
-  const s = n.summary || nightSummary(n.epochs || []), out = [];
+  const s = n.summary || nightSummary(nightEpochs(n)), out = [];
   out.push('HR — ' + (s.hrAvg == null ? 'nothing recorded' : 'average ' + s.hrAvg + ' bpm · lowest minute ' + s.hrMin + ' at ' + fmtClock(s.hrMinAt)));
   out.push('HRV — ' + (s.rmssdAvg == null ? 'nothing recorded' : 'RMSSD ' + s.rmssdAvg + ' ms, mean of ' + s.rmssdMinutes + ' one-minute values'));
   const ps = Object.entries(s.positionSeconds || {}).sort((a, b) => b[1] - a[1]);
@@ -3230,7 +3410,7 @@ function nightLines(n){
     (upCfg && upCfg.url ? (n.syncedAt ? ' · on the server' : ' · waiting for the server') : ''));
   // Hour by hour: the night's shape, not just its average.
   const byHour = new Map();
-  for (const e of n.epochs || []){
+  for (const e of nightEpochs(n)){
     if (e.off) continue;
     const h = new Date(e.t).getHours();
     if (!byHour.has(h)) byHour.set(h, []);
@@ -3243,25 +3423,8 @@ function nightLines(n){
   }
   return out;
 }
-async function renderNightTracks(){
-  const box = $('#tracklist');
-  box.textContent = '';
-  let nights = [];
-  try { nights = await allNightTracks(); } catch(_){}
-  for (const n of nights.sort((a, b) => b.start - a.start)){
-    const el = document.createElement('div'); el.className = 'logrow';
-    const day = document.createElement('div'); day.className = 'logday';
-    day.textContent = fmtDay(n.start) + ' · 🫀 Tracked night ' + fmtClock(n.start) + ' → ' + fmtClock(n.end) +
-      ' · ' + secDur((n.end - n.start) / 1000);
-    const meta = document.createElement('div'); meta.className = 'logmeta'; meta.style.whiteSpace = 'pre-line';
-    meta.textContent = nightLines(n).join('\n');
-    el.append(day, meta, delButton(async () => {
-      if (!confirm('Delete this tracked night from the phone?')) return;
-      await unstage(n.id); await delNightTrack(n.id); openLog('night');
-    }));
-    box.append(el);
-  }
-}
+/* A night's minutes inside its start and end — all of them, unless the log moved either. */
+const nightEpochs = n => (n.epochs || []).filter(e => !e.t || (e.t >= n.start - 60e3 && e.t <= n.end + 60e3));
 
 /* To the server: own route, own folder, body key "nights" (a receiver without the route
    refuses it rather than filing it as a listening run). A night is tens of kilobytes, so
@@ -3277,12 +3440,12 @@ async function pushNights(){
   if (nativeUpload){
     for (const n of todo){
       try { await stage(n.id, {id: n.id, started: new Date(n.start).toISOString(), ended: new Date(n.end).toISOString(),
-        localDay: n.localDay, summary: n.summary, epochs: n.epochs}, 'night', 'nights', 'audio-timer', n.end); } catch(_){}
+        localDay: n.localDay, summary: n.summary, epochs: nightEpochs(n)}, 'night', 'nights', 'audio-timer', n.end); } catch(_){}
     }
     return;
   }
   retryWhenRipe('tracks', todo.filter(n => !ripe(n.end)).map(n => n.end), pushNights);
-  todo = todo.filter(n => ripe(n.end));
+  todo = todo.filter(n => ripe(n.end, n.id));
   if (!todo.length) return;
   nightsPushing = true;
   try {
@@ -3291,7 +3454,7 @@ async function pushNights(){
         method: 'POST',
         headers: {'Authorization': 'Bearer ' + (upCfg.token || ''), 'Content-Type': 'application/json'},
         body: JSON.stringify({device: 'audio-timer', nights: [{id: n.id, started: new Date(n.start).toISOString(),
-          ended: new Date(n.end).toISOString(), localDay: n.localDay, summary: n.summary, epochs: n.epochs}]})
+          ended: new Date(n.end).toISOString(), localDay: n.localDay, summary: n.summary, epochs: nightEpochs(n)}]})
       });
       const out = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(out.accepted) && out.accepted.includes(n.id)){ n.syncedAt = Date.now(); await putNightTrack(n); }
@@ -3806,13 +3969,6 @@ $('#wakesheet').onclick = e => { if (e.target.id === 'wakesheet') e.currentTarge
 
 $('#lognav').onclick = openLog;
 $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
-$('#exportcsv').onclick = exportCSV;
-$('#exportpos').onclick = exportPositions;
-$('#importpos').onclick = () => $('#posfile').click();
-$('#posfile').onchange = async e => {
-  const f = e.target.files[0]; e.target.value = '';
-  if (f) await importPositions(f);
-};
 
 
 /* ---------- zone alarm (the cardio app, embedded whole — ported 2026-09-09) ----------
@@ -3918,6 +4074,15 @@ $('#posfile').onchange = async e => {
       let n = 0;
       for (const x of sessLog) if (got.has(x.id) && !x.syncedAt){ x.syncedAt = now; n++; }
       if (n) saveLog();
+    },
+    // An edit from the log's popup: the run is due again, and the whole log goes up.
+    update(id, patch){
+      const x = sessLog.find(y => y.id === id);
+      if (!x || id === curSessionId) return false;
+      Object.assign(x, patch);
+      delete x.syncedAt;
+      saveLog(); pushLog();
+      return true;
     },
     remove(id){
       if (id === curSessionId) return false;
@@ -4034,7 +4199,7 @@ $('#posfile').onchange = async e => {
     if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url))
       return setSync('The server URL must be https.', true);
     if (!sessLog.length) return setSync('No session logged yet.');
-    // The run in progress and the ones in their first hour stay here (UPLOAD_HOLD_MS).
+    // The run in progress and the ones in their first 2 hours stay here (UPLOAD_HOLD_MS).
     const endOf = x => x.ended ? Date.parse(x.ended) : 0;
     const LU = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
       && window.Capacitor.Plugins && window.Capacitor.Plugins.LogUpload;
@@ -4042,13 +4207,13 @@ $('#posfile').onchange = async e => {
       const todo = sessLog.filter(x => x.ended && !x.syncedAt);
       for (const x of todo){
         try { await LU.enqueue({id: x.id, json: JSON.stringify(x), route: 'cardio', key: 'sessions',
-          device: 'zone-alarm', notBefore: String(endOf(x) + UPLOAD_HOLD_MS)}); } catch(_){}
+          device: 'zone-alarm', notBefore: String(dueAt(x.id, endOf(x)))}); } catch(_){}
       }
       const left = sessLog.filter(x => !x.syncedAt).length;
       return setSync(sessLog.length + ' session' + (sessLog.length === 1 ? '' : 's') + ' logged · ' +
-        (left ? left + ' waiting (each sent an hour after it ends)' : 'all synced'), false);
+        (left ? left + ' waiting (each sent 2 hours after it ends)' : 'all synced'), false);
     }
-    const due = sessLog.filter(x => ripe(endOf(x)));
+    const due = sessLog.filter(x => ripe(endOf(x), x.id));
     retryWhenRipe('cardio', sessLog.filter(x => x.ended && !ripe(endOf(x))).map(endOf), pushLog);
     if (!due.length) return;
     // The WHOLE log goes up every time, synced entries included: the server
@@ -4078,8 +4243,7 @@ $('#posfile').onchange = async e => {
     }
     pushing = false;
     // The ack may have flipped rows to synced — the log page shows that per run.
-    if (typeof renderDay === 'function' && document.getElementById('logsheet').classList.contains('on'))
-      allSessions().then(renderDay).catch(() => {});
+    if (typeof refreshLog === 'function') refreshLog();
   }
   window.addEventListener('online', pushLog);
   // Coming back to the foreground is the retry moment a phone actually has:
