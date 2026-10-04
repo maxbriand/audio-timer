@@ -108,11 +108,21 @@ _night_env = os.environ.get("AUDIO_TIMER_NIGHT_DIR")
 NIGHT_ROOT = Path(_night_env).expanduser() if _night_env else ROOT.parent / "night-tracking"
 NIGHT_FIELDS = ("id", "started", "ended", "localDay", "summary", "epochs")
 
+# POST /events files the day screen's own events — the issues and habits made on the phone
+# (headache, stretching, …), one row per tap — under the body key "events", in a folder of
+# their own (2026-10-04; until then they never left the phone). `eventId` is the button, `name`
+# its label when tapped, `cat` "issue" or "habit", `at` the tap. The pictures stay on the phone;
+# `photos` is how many there are. The morning walk and melatonin are not here: they already
+# ride the night log as zero-length marker rows.
+_events_env = os.environ.get("AUDIO_TIMER_EVENTS_DIR")
+EVENTS_ROOT = Path(_events_env).expanduser() if _events_env else ROOT.parent / "day-events"
+EVENTS_FIELDS = ("id", "started", "localDay", "eventId", "name", "cat", "note", "photos")
+
 # A fatigue check's results belong in the daily record (daily.csv, beside the day-file
 # folders) as soon as they arrive, not at the next 16:00 sync (Maxime, 2026-09-25): after
 # storing checks the receiver re-runs the diary, which makes the column of any check it
 # has not seen before. The diary is derived and idempotent, so a failed run loses nothing.
-DIARY = Path(__file__).resolve().parent / "sleep-diary.py"
+DIARY = Path(__file__).resolve().parents[2] / "scripts" / "sleep-diary.py"   # apps/receiver/ → repo root
 
 
 def refresh_diary() -> None:
@@ -322,7 +332,9 @@ class Handler(BaseHTTPRequestHandler):
 
         route = self.path.rstrip("/")
         fatigue, night, phone = route == "/fatigue", route == "/night", route == "/phone"
-        key = "checks" if fatigue else "nights" if night else "screens" if phone else "sessions"
+        events = route == "/events"
+        key = ("checks" if fatigue else "nights" if night else "screens" if phone
+               else "events" if events else "sessions")
         sessions = body.get(key)
         if not isinstance(sessions, list):
             return self.reply(400, {"error": "no " + key})
@@ -335,6 +347,7 @@ class Handler(BaseHTTPRequestHandler):
             accepted = (store_phone(sessions) if phone
                         else store(device, sessions, FATIGUE_ROOT, FATIGUE_FIELDS, "fatigue-checks") if fatigue
                         else store(device, sessions, NIGHT_ROOT, NIGHT_FIELDS, "night-tracking") if night
+                        else store(device, sessions, EVENTS_ROOT, EVENTS_FIELDS, "day-events") if events
                         else store(device, sessions, CARDIO_ROOT, CARDIO_FIELDS, "zone-alarm") if cardio
                         else store(device, sessions))
         except Exception as e:  # noqa: BLE001 — a 5xx is what keeps the night on the phone
@@ -343,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
 
         print(f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} "
               f"{len(accepted)}/{len(sessions)} stored"
-              f"{' (fatigue)' if fatigue else ' (night)' if night else ' (phone)' if phone else ' (cardio)' if cardio else ''}", flush=True)
+              f"{' (fatigue)' if fatigue else ' (night)' if night else ' (phone)' if phone else ' (events)' if events else ' (cardio)' if cardio else ''}", flush=True)
         self.reply(200, {"accepted": accepted})
         if fatigue and accepted:
             refresh_diary()

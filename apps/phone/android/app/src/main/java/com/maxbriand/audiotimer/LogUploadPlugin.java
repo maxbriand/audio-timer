@@ -113,6 +113,40 @@ public class LogUploadPlugin extends Plugin {
     call.resolve(out);
   }
 
+  /* The rows staged natively (the reminders' buttons), for the page to take into its log;
+     `staged` false means the worker already sent it. handoffAck once they are written. */
+  @PluginMethod
+  public void handoff(PluginCall call){
+    JSArray rows = new JSArray();
+    for (java.io.File f : Outbox.handoff(getContext())){
+      try {
+        byte[] buf = new byte[(int) f.length()];
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)){
+          int n = 0, r;
+          while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
+        }
+        String json = new String(buf, java.nio.charset.StandardCharsets.UTF_8);   // minSdk 23: no Files
+        String id = new org.json.JSONObject(json).optString("id");
+        JSObject o = new JSObject();
+        o.put("id", id);
+        o.put("json", json);
+        o.put("staged", Outbox.staged(getContext(), id));
+        rows.put(o);
+      } catch (Exception ignored){}
+    }
+    JSObject out = new JSObject();
+    out.put("rows", rows);
+    call.resolve(out);
+  }
+
+  @PluginMethod
+  public void handoffAck(PluginCall call){
+    JSArray ids = call.getArray("ids");
+    try { for (int i = 0; ids != null && i < ids.length(); i++) Outbox.handoffAck(getContext(), ids.getString(i)); }
+    catch (Exception ignored){}
+    call.resolve();
+  }
+
   @PluginMethod
   public void flush(PluginCall call){
     UploadWorker.scheduleNow(getContext());

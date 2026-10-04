@@ -18,6 +18,9 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -169,6 +172,19 @@ final class PhoneTime {
           o.put("sessions", e.getValue()[1]);
           days.put(e.getKey(), o);
         }
+        // Cleaned like every log (Maxime, 2026-10-04): a day older than 10 days goes once the
+        // server has it — its sessions were sent after the midnight that closed it.
+        SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        long now = System.currentTimeMillis(), sent = lastOkAt(c);
+        List<String> gone = new ArrayList<>();
+        for (Iterator<String> it = days.keys(); it.hasNext();){
+          String k = it.next();
+          Date d = f.parse(k);
+          if (d == null) continue;
+          long closed = d.getTime() + 86400000L;
+          if (now - closed >= 10 * 86400000L && sent >= closed) gone.add(k);
+        }
+        for (String k : gone) days.remove(k);
         prefs(c).edit().putString(KEY_DAYS, days.toString()).apply();
       }
     } catch (Exception ignored){}
