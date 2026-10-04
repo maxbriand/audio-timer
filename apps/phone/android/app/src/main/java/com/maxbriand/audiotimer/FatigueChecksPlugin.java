@@ -95,6 +95,19 @@ public class FatigueChecksPlugin extends Plugin {
     }
   }
 
+  /** The heart page's HR / HRV test. Not a ring: the app is in front, the screen opens now. */
+  @PluginMethod
+  public void manualTest(PluginCall call){
+    try {
+      String strap = call.getString("strapAddress", "");
+      if (strap != null && !strap.isEmpty()) FatigueChecks.configureStrap(getContext(), strap);
+      getActivity().startActivity(FatigueCheckActivity.manualIntent(getContext()));
+      call.resolve();
+    } catch (Exception e){
+      call.reject(e.getMessage());
+    }
+  }
+
   @PluginMethod
   public void results(PluginCall call){
     JSObject r = new JSObject();

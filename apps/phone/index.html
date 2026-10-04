@@ -794,6 +794,8 @@
       <h2 id="liveTitle">Live data</h2>
     </div>
     <p class="cardsub">Everything the strap sends, as it arrives.</p>
+    <!-- The fatigue check's strap test, run by hand: HR and HRV over 3 still minutes. -->
+    <button id="liveTest" class="startbtn" style="width:100%;margin-top:10px">HR / HRV test</button>
     <p id="liveNote"></p>
 
     <div class="card" style="margin-top:12px">
@@ -2556,7 +2558,8 @@ async function logItems(){
     ...checks.map(k => {
       const q = (k.steps || {}).question;
       return {
-        at: k.at, title: '🩺 Fatigue check' + (k.test ? ' — test' : ''), lines: fatigueCheckLines(k), photos: [],
+        at: k.at, title: k.anchor === 'manual' ? '🫀 Manual test' : '🩺 Fatigue check' + (k.test ? ' — test' : ''),
+        lines: fatigueCheckLines(k), photos: [],
         edit: {
           start: k.at, end: k.endedAt || null, note: q && q.status === 'done' ? q.note || '' : undefined,
           extra: q && q.status === 'done' ? [{key: 'score', label: 'Fatigue (0–10)', value: q.score}] : [],
@@ -2929,7 +2932,7 @@ function phoneDays(){
    done says so — skipped, or (the strap test) too few beats — and never shows a number. */
 function fatigueCheckLines(k){
   const st = k.steps || {}, out = [];
-  out.push((k.label || 'fatigue check') + ' (' + fcColumn(k) + ')' +
+  out.push((k.label || 'fatigue check') + (k.anchor === 'manual' ? '' : ' (' + fcColumn(k) + ')') +
     (k.dueAt ? ' · due ' + fmtClock(k.dueAt) + ', started ' + fmtClock(k.at) : ' · started ' + fmtClock(k.at)) +
     (upCfg && upCfg.url ? (k.syncedAt ? ' · on the server' : ' · waiting for the server') : ''));
   const r = st.strap;
@@ -3150,6 +3153,7 @@ function fcLabel(k){
 /* The same fact as a column suffix — "+5min", "+1h30", "-1h sleep" — so a results column can
    be named "<what> <when>": "HRV +5min", "Fatigue -1h sleep". */
 function fcColumn(k){
+  if (k.anchor === 'manual') return 'manual_test';     // the heart page's test, by hand
   const m = Math.max(0, k.offsetMin | 0), sleep = k.anchor === 'sleep';
   const d = m < 60 ? m + 'min' : Math.floor(m / 60) + 'h' + (m % 60 ? String(m % 60).padStart(2, '0') : '');
   return (sleep ? '-' : '+') + d + (sleep ? ' sleep' : '');
@@ -3322,7 +3326,9 @@ async function collectFatigueResults(){
     if (!kept.length){ toast('Test finished — not logged'); return; }
     pushFatigueLog();
     refreshLog();
-    toast('Fatigue check logged — see 📊 Log');
+    const manual = kept.filter(k => k.anchor === 'manual').length;
+    toast(manual === kept.length ? (manual === 1 ? 'Manual test logged' : manual + ' manual tests logged') + ' — see 📊 Log'
+      : 'Fatigue check logged — see 📊 Log');
   } catch(_){}
 }
 
@@ -3374,6 +3380,15 @@ async function pushFatigueLog(){
   fatiguePushing = false;
 }
 addEventListener('online', pushFatigueLog);
+
+/* The heart page's HR / HRV test (Maxime, 2026-10-04): the fatigue check's strap test, run
+   by hand on the native screen. Its results come back like a check's (collectFatigueResults)
+   and are logged as manual tests. */
+document.getElementById('liveTest').onclick = async () => {
+  if (!nativeFatigue || !nativeFatigue.manualTest) return toast('The HR / HRV test needs the installed app');
+  try { await nativeFatigue.manualTest({strapAddress: strapAddress()}); }
+  catch(e){ toast('Could not start the test: ' + (e && e.message || 'error')); }
+};
 
 /* The day screen's own events (issues and habits made on the phone) go up too, since
    2026-10-04: own route (/events), body key "events", one row per tap, held 2 hours like
