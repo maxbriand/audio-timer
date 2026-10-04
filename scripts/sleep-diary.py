@@ -328,7 +328,8 @@ def check_day(r):
 
 
 def load_fatigue_checks():
-    """Returns (columns, values): the ordered column names, and {column: {day: value}}."""
+    """Returns (columns, values, manual): the ordered column names, {column: {day: value}},
+    and {day: "HH:MM HR/HRV; …"} for the manual tests."""
     runs = []
     for f in sorted(FATIGUE_DIR.glob("*.json")):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f.name):
@@ -337,10 +338,23 @@ def load_fatigue_checks():
             runs += json.loads(f.read_text()).get("sessions", [])
         except (OSError, ValueError, AttributeError):
             continue
-    checks = {}
+    checks, manual = {}, {}
     for r in sorted(runs, key=lambda r: r.get("started") or ""):
         day = check_day(r)
         if r.get("test") or not isinstance(r.get("steps"), dict) or not day:
+            continue
+        # The heart page's HR / HRV test, run by hand (Maxime, 2026-10-04): every one of the
+        # day's tests, in order, in one manual_test cell — "14:05 62/48; 14:12 60/—" (HR bpm /
+        # HRV ms; a dash for an HRV over 5% of whose intervals were left out).
+        if r.get("anchor") == "manual":
+            st = r["steps"].get("strap")
+            if isinstance(st, dict) and st.get("status") == "done" and st.get("hr") is not None:
+                try:
+                    t = datetime.fromisoformat(r["started"].replace("Z", "+00:00")).astimezone()
+                except (KeyError, AttributeError, ValueError):
+                    continue
+                hrv = "—" if st.get("quality") == "poor" or st.get("rmssd") is None else f"{st['rmssd']:g}"
+                manual.setdefault(day, []).append(f"{t:%H:%M} {st['hr']:g}/{hrv}")
             continue
         try:
             key = (r["anchor"], int(r["offsetMin"]))
@@ -381,7 +395,7 @@ def load_fatigue_checks():
                 name = f"{what} {checks[k]['when']}"
                 columns.append(name)
                 values[name] = checks[k]["values"][what]
-    return columns, values
+    return columns, values, {d: "; ".join(v) for d, v in manual.items()}
 
 
 PHONE_LAUNCH_MIN = 5   # phone use this close to bedtime is starting the night's audio
@@ -666,11 +680,11 @@ def main():
     cad_sessions = load_cadence()
     attach_day_inputs(nights, doses, lights, load_phone_uses(), [b for _, b, _ in cad_sessions])
     pending = pending_day_rows(nights, doses, lights)
-    fatigue_cols, fatigue_vals = load_fatigue_checks()
+    fatigue_cols, fatigue_vals, manual_tests = load_fatigue_checks()
     # A day with a check but nothing else yet still gets its row, so no result is dropped.
     have = {n["date"] for n in nights + pending}
-    pending += [day_row(d) for d in sorted({d for col in fatigue_vals.values() for d in col}
-                                           - have)]
+    pending += [day_row(d) for d in sorted(({d for col in fatigue_vals.values() for d in col}
+                                            | set(manual_tests)) - have)]
     # A morning light the app never logged, given by hand: "light": "HH:MM" under the day's
     # key sets that day's morning_light, and makes the day's row if it has none yet.
     by_date = {n["date"]: n for n in nights + pending}
@@ -722,7 +736,7 @@ def main():
     with OUT_CSV.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["night", "morning_light", "melatonin", "computer",
-                    "work", "personal", "computer_off", "phone", "phone_off", *fatigue_cols, "bedtime", "sol",
+                    "work", "personal", "computer_off", "phone", "phone_off", *fatigue_cols, "manual_test", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
                     "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
@@ -734,6 +748,7 @@ def main():
                 iso(n["cadence_off"]), hm(phone.get(n["date"])),
                 iso(n["phone_off"]),
                 *[fatigue_cell(fatigue_vals[c].get(n["date"])) for c in fatigue_cols],
+                manual_tests.get(n["date"], ""),
                 iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
                 iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),

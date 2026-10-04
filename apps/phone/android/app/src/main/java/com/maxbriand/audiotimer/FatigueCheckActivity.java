@@ -77,12 +77,31 @@ import java.util.UUID;
  * sensor" scans for heart-rate straps and connects the one picked — the way in when no
  * strap is known yet, Bluetooth was never allowed, or the known one is not answering
  * (Maxime, 2026-09-25). The pick becomes the strap the checks use from then on.
+ *
+ * The strap test's two settling minutes can be skipped (Maxime, 2026-10-04): recording starts
+ * at the tap — or at the first beat, when tapped before it — and lasts the same 3 minutes.
+ *
+ * The heart page (🫀) starts the same strap test by hand (`manual`): no ring, no other step,
+ * and every result is its own record, saved when it is shown — "Run again" starts another,
+ * and the screen lists all of this sitting's results. Its records carry anchor "manual" and
+ * the column "manual_test": the diary keeps them out of the fatigue columns and lists the
+ * day's tests in one manual_test column.
  */
 public class FatigueCheckActivity extends Activity {
   static final String EXTRA_CHECK_ID = "checkId";
   private static final String EXTRA_LABEL = "label", EXTRA_STRAP = "strap", EXTRA_PVT = "pvt",
     EXTRA_QUESTION = "question", EXTRA_TEST = "test", EXTRA_DUE = "dueAt",
-    EXTRA_DAY = "localDay", EXTRA_ANCHOR = "anchor", EXTRA_OFFSET = "offsetMin";
+    EXTRA_DAY = "localDay", EXTRA_ANCHOR = "anchor", EXTRA_OFFSET = "offsetMin", EXTRA_MANUAL = "manual";
+
+  /** The heart page's HR / HRV test: the strap test alone, started now, no ring. */
+  static Intent manualIntent(Context c){
+    return new Intent(c, FatigueCheckActivity.class)
+      .putExtra(EXTRA_CHECK_ID, "manual")
+      .putExtra(EXTRA_LABEL, "Manual test")
+      .putExtra(EXTRA_ANCHOR, "manual")
+      .putExtra(EXTRA_STRAP, true)
+      .putExtra(EXTRA_MANUAL, true);
+  }
 
   private static final long CALM_MS = 5 * 60000L, RECORD_FROM_MS = 2 * 60000L;
   private static final long SILENT_MS = 10000L;     // no packet for this long: say so
@@ -151,7 +170,14 @@ public class FatigueCheckActivity extends Activity {
 
   private final ArrayList<String> steps = new ArrayList<>();
   private int index = -1;
-  private boolean test, saved;
+  private boolean test, saved, manual;
+  // The manual test's results this sitting, newest last: "HH:MM — HR bpm · HRV ms".
+  private final ArrayList<String> sitting = new ArrayList<>();
+  // When recording starts and ends, counted from the first beat: 2 and 5 minutes, unless the
+  // settling was skipped.
+  private long recFrom = RECORD_FROM_MS, calmEnd = CALM_MS;
+  private boolean skipAsked;
+  private Button skipSettleBtn;
   private String label, day, anchor;
   private long startedAt;
   private final JSONObject record = new JSONObject(), results = new JSONObject();
@@ -202,6 +228,7 @@ public class FatigueCheckActivity extends Activity {
     if (in.getStringExtra(EXTRA_CHECK_ID) == null){ saved = true; finish(); return; }
     live = this;
     test = in.getBooleanExtra(EXTRA_TEST, false);
+    manual = in.getBooleanExtra(EXTRA_MANUAL, false);
     label = in.getStringExtra(EXTRA_LABEL);
     day = in.getStringExtra(EXTRA_DAY);
     anchor = in.getStringExtra(EXTRA_ANCHOR);
@@ -235,6 +262,7 @@ public class FatigueCheckActivity extends Activity {
     sv.addView(root);
     setContentView(sv);
 
+    if (manual){ index = 0; showStrap(); return; }   // started by hand: no ring, straight in
     showIntro();
     ring();
   }
@@ -287,7 +315,7 @@ public class FatigueCheckActivity extends Activity {
   /** "Step 2 of 3 · PVT" — where in the check this screen is. */
   private void head(String name){
     root.removeAllViews();
-    add(text((test ? "TEST · " : "") + "Step " + (index + 1) + " of " + steps.size(), 13, MUTED, false), 0);
+    add(text(manual ? "HR / HRV — manual test" : (test ? "TEST · " : "") + "Step " + (index + 1) + " of " + steps.size(), 13, MUTED, false), 0);
     add(text(name, 26, TEXT, true), 6);
   }
 
@@ -385,8 +413,12 @@ public class FatigueCheckActivity extends Activity {
     connectBtn = button("Connect sensor", false, this::pickSensor);
     connectBtn.setTextColor(ACCENT);
     connectBtn.setTextSize(17);
-    button("Skip the strap test", false, () -> { endStrap(); put("strap", status("skipped")); next(); });
+    skipSettleBtn = button("Skip the 2 min — record now", false, this::skipSettle);
+    skipSettleBtn.setTextColor(ACCENT);
+    if (manual) button("Stop", false, this::finishCheck);
+    else button("Skip the strap test", false, () -> { endStrap(); put("strap", status("skipped")); next(); });
 
+    recFrom = RECORD_FROM_MS; calmEnd = CALM_MS; skipAsked = false;
     firstBeatAt = lastBeatAt = recFromWall = 0;
     hrSum = 0; hrN = 0; dropped = 0; rr.clear();
     ectopic = 0; rrRaw.clear(); rrFlag.clear(); rrPending.clear(); rrRef = Float.NaN; rrRejectRun = 0;
@@ -421,6 +453,14 @@ public class FatigueCheckActivity extends Activity {
     ui.postDelayed(tick, 500);
   }
 
+  /** The two settling minutes, skipped: the 3 recorded minutes start now (or at the first beat). */
+  private void skipSettle(){
+    skipAsked = true;
+    long el = firstBeatAt == 0 ? 0 : SystemClock.elapsedRealtime() - firstBeatAt;
+    if (el < recFrom){ recFrom = el; calmEnd = el + (CALM_MS - RECORD_FROM_MS); }
+    if (skipSettleBtn != null) skipSettleBtn.setVisibility(View.GONE);
+  }
+
   private void connect(String address){
     try {
       Intent i = new Intent(this, HrService.class).setAction(HrService.ACTION_CONNECT)
@@ -442,7 +482,7 @@ public class FatigueCheckActivity extends Activity {
       if (connectBtn != null) connectBtn.setVisibility(View.GONE);
       stopScan();
     }
-    if (now - firstBeatAt < RECORD_FROM_MS || now - firstBeatAt >= CALM_MS) return;
+    if (now - firstBeatAt < recFrom || now - firstBeatAt >= calmEnd) return;
     if (recFromWall == 0) recFromWall = System.currentTimeMillis();
     hrSum += bpm; hrN++;
     for (float v : rrMs){
@@ -487,13 +527,13 @@ public class FatigueCheckActivity extends Activity {
       long now = SystemClock.elapsedRealtime();
       if (firstBeatAt != 0){
         long el = now - firstBeatAt;
-        if (el >= CALM_MS){ finishStrap(); return; }
-        boolean rec = el >= RECORD_FROM_MS;
-        if (rec && !recording){ recording = true; buzz(200); }
-        long left = CALM_MS - el;
+        if (el >= calmEnd){ finishStrap(); return; }
+        boolean rec = el >= recFrom;
+        if (rec && !recording){ recording = true; buzz(200); if (skipSettleBtn != null) skipSettleBtn.setVisibility(View.GONE); }
+        long left = calmEnd - el;
         clockView.setText(String.format(Locale.US, "%d:%02d", left / 60000, (left / 1000) % 60));
         clockView.setTextColor(rec ? GOOD : ACCENT);
-        long toRec = RECORD_FROM_MS - el;
+        long toRec = recFrom - el;
         phaseView.setText(rec
           ? "Recording — stay still, breathe normally."
           : String.format(Locale.US, "Settle down — recording starts in %d:%02d.", toRec / 60000, (toRec / 1000) % 60));
@@ -518,6 +558,7 @@ public class FatigueCheckActivity extends Activity {
       add(text("The strap sent " + n + " beat-to-beat intervals in the three minutes — too few to mean anything. "
         + "Check the contact (wet the electrodes) and run it again, or skip.", 15, MUTED, false), 10);
       button("Run it again", true, this::showStrap);
+      if (manual){ showSitting(); button("Done", false, this::finishCheck); return; }
       button("Skip the strap test", false, () -> {
         JSONObject f = status("failed");
         try { f.put("beats", beats); } catch (Exception ignored){}
@@ -553,7 +594,14 @@ public class FatigueCheckActivity extends Activity {
       add(text("Unreliable: " + (dropped + ectopic) + " of " + rrFlag.size()
         + " intervals were left out (over 5%), so this HRV isn't counted. "
         + "Wet the electrodes, sit still and run it again.", 15, WARN, false), 14);
-      button("Run it again", false, this::showStrap);
+      if (!manual) button("Run it again", false, this::showStrap);
+    }
+    if (manual){
+      saveManual(r, poor);
+      showSitting();
+      button("Run again", true, this::showStrap);
+      button("Done", false, this::finishCheck);
+      return;
     }
     button(index + 1 < steps.size() ? "Next" : "Done", true, this::next);
   }
@@ -654,6 +702,40 @@ public class FatigueCheckActivity extends Activity {
     pickSensor();
   }
 
+  /* A manual result is a record of its own, saved now: leaving the screen afterwards loses
+     nothing, and each one is a line in the log and in the day's manual_test cell. */
+  private void saveManual(JSONObject strap, boolean poor){
+    long now = System.currentTimeMillis();
+    long at = strap.optLong("from", now);
+    try {
+      JSONObject rec = new JSONObject();
+      rec.put("id", UUID.randomUUID().toString());
+      rec.put("checkId", "manual");
+      rec.put("label", "Manual test");
+      rec.put("anchor", "manual");
+      rec.put("offsetMin", 0);
+      rec.put("test", false);
+      rec.put("dueAt", 0);
+      rec.put("at", at);
+      rec.put("endedAt", now);
+      rec.put("localDay", new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(at)));
+      JSONObject steps = new JSONObject();
+      steps.put("strap", strap);
+      rec.put("steps", steps);
+      FatigueChecks.addResult(this, rec);
+      stageUpload(rec);
+    } catch (Exception ignored){}
+    sitting.add(new SimpleDateFormat("HH:mm", Locale.US).format(new Date(at)) + " — "
+      + strap.optDouble("hr") + " bpm · " + strap.optDouble("rmssd") + " ms" + (poor ? " (unreliable)" : ""));
+  }
+
+  /** This sitting's results, oldest first. */
+  private void showSitting(){
+    if (sitting.isEmpty()) return;
+    add(text("This sitting", 13, MUTED, false), 26);
+    add(text(android.text.TextUtils.join("\n", sitting), 16, TEXT, false), 6);
+  }
+
   /** Stop listening; and if this test asked for the strap, give it back. */
   private void endStrap(){
     stopScan();
@@ -747,6 +829,7 @@ public class FatigueCheckActivity extends Activity {
 
   /* The page's fcColumn(): "+5min", "+1h", "+1h30", "-1h30 sleep". */
   static String column(String anchor, int offsetMin){
+    if ("manual".equals(anchor)) return "manual_test";
     int m = Math.max(0, offsetMin);
     boolean sleep = "sleep".equals(anchor);
     String d = m < 60 ? m + "min" : (m / 60) + "h" + (m % 60 != 0 ? String.format(Locale.US, "%02d", m % 60) : "");
@@ -759,6 +842,7 @@ public class FatigueCheckActivity extends Activity {
     if (saved) return;
     saved = true;
     endStrap();
+    if (manual){ finish(); return; }       // each result was saved as it came
     try {
       for (String s : steps) if (!results.has(s)) results.put(s, status("skipped"));
       record.put("steps", results);
@@ -771,7 +855,11 @@ public class FatigueCheckActivity extends Activity {
   }
 
   @Override
-  public void onBackPressed(){ /* an alarm is answered, not backed out of — every screen has its Skip */ }
+  public void onBackPressed(){
+    // An alarm is answered, not backed out of — every screen has its Skip. A manual test is
+    // no alarm: Back leaves it (a test in progress is dropped; finished ones are saved).
+    if (manual) finishCheck();
+  }
 
   @Override
   protected void onDestroy(){
