@@ -9,7 +9,7 @@
 #
 #   Day files    ~/Documents/Body/sources/audio-sessions/YYYY-MM-DD.json
 #                (written live by log-receiver.py as the phone uploads)
-#   Derived      sessions.csv next to them, and the daily record (tools/sleep-diary.py)
+#   Derived      sessions.csv next to them, and the daily record (scripts/sleep-diary.py)
 #                as ~/Documents/Body/sources/daily.csv — the row spans the whole
 #                day (light, melatonin, work, the night), so it sits at the sources
 #                root, above the per-domain folders
@@ -34,7 +34,7 @@ DIARY_DIR="${AUDIO_SYNC_DIARY_DEST:-$HOME/Documents/Body/sources}"
 LOG_FILE="${AUDIO_SYNC_LOG:-$HOME/Library/Logs/audio-server-sync.log}"
 LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
 # The CSV roll-up lives next to this script, in the audio-timer checkout.
-TO_CSV="${0:A:h}/../tools/sessions-json-to-csv.py"
+TO_CSV="${0:A:h}/../scripts/sessions-json-to-csv.py"
 
 REPO_DIR="${AUDIO_SYNC_REPO:-$HOME/Projects/audio-timer}"
 STAMP="${AUDIO_SYNC_STAMP:-$HOME/Library/Logs/audio-server-sync.last-ok}"
@@ -104,18 +104,18 @@ log "rebuilt · $days day files · $rows sessions"
 # com.maxbriand.computer-time job already rewrites it live as each session ends; this run
 # is the safety net. A failed refresh only means the file keeps the sessions it had.
 mkdir -p "$DIARY_DIR"
-python3 "$REPO_DIR/tools/computer-time.py" "$DIARY_DIR/computer-time.csv" >/dev/null 2>&1 || log "computer-time refresh failed (the file keeps its sessions)"
+python3 "$REPO_DIR/scripts/computer-time.py" "$DIARY_DIR/computer-time.csv" >/dev/null 2>&1 || log "computer-time refresh failed (the file keeps its sessions)"
 
 # The daily record is derived, like the CSV: rebuilt whole on every run so it can never
-# drift from the day files. Its rules live in tools/sleep-diary.py. Read from the day
+# drift from the day files. Its rules live in scripts/sleep-diary.py. Read from the day
 # files, written as daily.csv at the sources root.
-python3 "$REPO_DIR/tools/sleep-diary.py" "$DEST_DIR" "$DIARY_DIR" >/dev/null 2>&1 || log "daily-record generation failed (data is safe; the record is derived)"
+python3 "$REPO_DIR/scripts/sleep-diary.py" "$DEST_DIR" "$DIARY_DIR" >/dev/null 2>&1 || log "daily-record generation failed (data is safe; the record is derived)"
 
 # The exercise log is NOT derived: it carries hand-written rows (a session logged from
 # memory, one recovered from a screenshot) beside the synced ones, so it can never be
 # rebuilt wholesale. The fill tool only adds days the file lacks and updates rows it wrote
 # itself — a human's row always wins — which makes it safe to run on every sync.
-python3 "$REPO_DIR/tools/exercise-log-fill.py" "$DIARY_DIR/exercise-log.csv" >/dev/null 2>&1 || log "exercise-log fill failed (the log keeps its rows)"
+python3 "$REPO_DIR/scripts/exercise-log-fill.py" "$DIARY_DIR/exercise-log.csv" >/dev/null 2>&1 || log "exercise-log fill failed (the log keeps its rows)"
 
 # Stamped only after a run that worked — a failed one leaves the run owed, so the next
 # trigger (a login, or tomorrow's 16:00) retries instead of skipping.

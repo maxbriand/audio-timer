@@ -44,7 +44,7 @@ out; a session still running into bedtime counts up to bedtime (Maxime, 2026-09-
 the phone is always the last screen, so one column says when screens stopped).
 The computer column is
 the day's time in Cadence work sessions, added up from computer-time.csv, the
-per-session file tools/computer-time.py writes. The work and personal columns are the
+per-session file scripts/computer-time.py writes. The work and personal columns are the
 time in Cadence's pro and personal sessions over the WAKING day — from the rise that
 ends the row below (the previous night) to this row's bedtime, not the calendar day
 (Maxime, 2026-09-25) — and computer_off the last Cadence session end before the night,
@@ -169,7 +169,7 @@ OVERRIDES_FILE = SRC / "diary-overrides.json"
 # with its bands, parts and effort — and a start time repeated here said nothing that file
 # does not say better.)
 
-# computer-time.csv, one row per Cadence session, written by tools/computer-time.py
+# computer-time.csv, one row per Cadence session, written by scripts/computer-time.py
 # (the sync refreshes it before this runs). The day's rows add up to its computer time;
 # a day with no session stays blank, like every other missing source.
 # Cadence (the work-tracking app) keeps its whole history in local JSON files, so the

@@ -9,9 +9,9 @@ already recorded to:
 De-duplicates on the `started` timestamp, so running it repeatedly on overlapping exports
 is safe. Prints a summary and changes nothing unless --write is passed.
 
-    python3 tools/sleep-log-to-body.py                      # show what would be added
-    python3 tools/sleep-log-to-body.py --write              # actually append
-    python3 tools/sleep-log-to-body.py path/to/export.csv --write
+    python3 scripts/sleep-log-to-body.py                      # show what would be added
+    python3 scripts/sleep-log-to-body.py --write              # actually append
+    python3 scripts/sleep-log-to-body.py path/to/export.csv --write
 
 What the columns mean: this records what the app observed, not a measurement of sleep.
 `minutes_untouched_before_stop` is the useful one — a long untouched stretch before the

@@ -36,10 +36,10 @@ while it is open and online. Useful for trying it out; not what the phone relies
 
 ## 1. Put the receiver on the server
 
-[`tools/log-receiver.py`](tools/log-receiver.py) — stdlib only, no dependencies.
+[`apps/receiver/log-receiver.py`](../apps/receiver/log-receiver.py) — stdlib only, no dependencies.
 
 ```bash
-scp ~/Projects/audio-timer/tools/log-receiver.py you@your-server:/opt/audio-timer/
+scp ~/Projects/audio-timer/apps/receiver/log-receiver.py you@your-server:/opt/audio-timer/
 ```
 
 Generate a token and keep it somewhere you can paste from:
@@ -129,14 +129,14 @@ night, sessions sorted by start time, upserted by id. The day a night is filed u
 one the *phone* says it is, not the server's own date, so a run starting at 00:30 lands where
 you would look for it even if the server sits in another timezone.
 
-`tools/sessions-json-to-csv.py` flattens these into one CSV exactly as it does for the pulled
+`scripts/sessions-json-to-csv.py` flattens these into one CSV exactly as it does for the pulled
 GitHub files.
 
 ## Getting the server files into the Body asset
 
 Since 2026-08-19 there is nothing to pull: the receiver itself runs **on the Mac**
-(`mac/com.maxbriand.audio-receiver.plist`), and the public URL reaches it through a reverse
-SSH tunnel the Mac holds open into the VPS (`mac/com.maxbriand.audio-tunnel.plist`) — the
+(`deploy/com.maxbriand.audio-receiver.plist`), and the public URL reaches it through a reverse
+SSH tunnel the Mac holds open into the VPS (`deploy/com.maxbriand.audio-tunnel.plist`) — the
 Mac's home connection is CGNAT'd, so the Mac dials out and the VPS only relays. Day files
 land in the Body asset the moment the phone uploads; the Mac is the durable record directly,
 which matters once the phone starts clearing uploaded nights after 14 days. The Mac being
@@ -150,7 +150,7 @@ catches up at the next login (the script knows whether a 16:00 run is still owed
 hand any time with `--force`.
 
 ```bash
-sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.audio-server-sync.plist > ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist
+sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/deploy/com.maxbriand.audio-server-sync.plist > ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist
 ```
 
 ```bash
@@ -177,11 +177,11 @@ launchctl kickstart gui/$(id -u)/com.maxbriand.audio-server-sync
 
 `computer-time.csv` (one row per Cadence work session, with its pro/personal category) is
 also kept live by its own job: launchd watches Cadence's `sessions.json`, which Cadence
-rewrites when a session ends, and reruns `tools/computer-time.py` on every change. Same
+rewrites when a session ends, and reruns `scripts/computer-time.py` on every change. Same
 `/bin/zsh` Full Disk Access grant as above.
 
 ```bash
-sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/mac/com.maxbriand.computer-time.plist > ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
+sed "s|__HOME__|$HOME|g" ~/Projects/audio-timer/deploy/com.maxbriand.computer-time.plist > ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
 ```
 
 ```bash
