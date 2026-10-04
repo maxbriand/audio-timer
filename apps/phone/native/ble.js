@@ -84,7 +84,8 @@ if (Capacitor.isNativePlatform()) {
     onState(cb) {
       ZoneService.addListener('state', cb);
     },
-    start(walk) { ZoneService.session({ start: true, walk: !!walk }).catch(() => {}); },
+    // The settings go with the start (s: min, max, delay, hrmax, resting, vib, snd).
+    start(walk, s) { ZoneService.session(Object.assign({}, s || {}, { start: true, walk: !!walk })).catch(() => {}); },
     end() { ZoneService.session({ start: false }).catch(() => {}); },
     // Cool down pressed (or taken back): the below-range alarm goes quiet and the next
     // drop under the range low opens the cool down instead of another part.

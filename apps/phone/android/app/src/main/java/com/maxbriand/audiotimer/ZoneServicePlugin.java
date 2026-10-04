@@ -190,6 +190,14 @@ public class ZoneServicePlugin extends Plugin {
             .setAction(HrService.ACTION_SESSION)
             .putExtra("start", start)
             .putExtra("walk", Boolean.TRUE.equals(call.getBoolean("walk", false)));
+        // The settings ride with the start, so the session cannot begin on stale limits.
+        if (start && call.getInt("max") != null) {
+            i.putExtra("min", call.getInt("min", 110)).putExtra("max", call.getInt("max", 170))
+             .putExtra("delay", call.getInt("delay", 10)).putExtra("hrmax", call.getInt("hrmax", 0))
+             .putExtra("resting", call.getInt("resting", 0))
+             .putExtra("vib", Boolean.TRUE.equals(call.getBoolean("vib", true)))
+             .putExtra("snd", Boolean.TRUE.equals(call.getBoolean("snd", false)));
+        }
         // Starting a session is reason enough to run the engine; ending one is not.
         startService(i, start);
         call.resolve();

@@ -169,6 +169,7 @@ public class HrService extends Service {
 
     // settings, mirrored from the UI
     private int min = 110, max = 170, delaySec = 10;
+    private static final String PREFS_SETTINGS = "zone-settings";
     private int hrmax = 189, resting = 57;             // profile, 0 = unset
     private boolean vibOn = true, sndOn = false;
 
@@ -229,6 +230,7 @@ public class HrService extends Service {
     public void onCreate() {
         super.onCreate();
         running = true;
+        loadSettings();
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         alerts = new Alerts(this);
         thread = new HandlerThread("zone-engine");
@@ -294,18 +296,18 @@ public class HrService extends Service {
                 stopSelf();
                 break;
             case ACTION_SETTINGS:
-                min = i.getIntExtra("min", min);
-                max = i.getIntExtra("max", max);
-                delaySec = i.getIntExtra("delay", delaySec);
-                hrmax = i.getIntExtra("hrmax", hrmax);
-                resting = i.getIntExtra("resting", resting);
-                vibOn = i.getBooleanExtra("vib", vibOn);
-                sndOn = i.getBooleanExtra("snd", sndOn);
+                applySettings(i);
                 // A limit change restarts the out-of-range clock, as on the web.
                 outSince = 0; outDir = null; alerting = false;
                 break;
             case ACTION_SESSION:
-                if (i.getBooleanExtra("start", false)) startSession(i.getBooleanExtra("walk", false));
+                // The start carries the settings: a run must never begin on the defaults
+                // because a settings push was lost (2026-10-04 — a run whose high was 155
+                // went on with the default 170, and 158 bpm never opened a rest).
+                if (i.getBooleanExtra("start", false)){
+                    if (i.hasExtra("max")) applySettings(i);
+                    startSession(i.getBooleanExtra("walk", false));
+                }
                 else endSession();
                 updateGps();
                 break;
@@ -464,6 +466,30 @@ public class HrService extends Service {
     }
 
     // ---------------------------------------------------------------- session
+
+    /* The limits and the profile, from the page. Kept in prefs too, so an engine the system
+       restarted between two pushes still runs on them rather than on the defaults. */
+    private void applySettings(Intent i) {
+        min = i.getIntExtra("min", min);
+        max = i.getIntExtra("max", max);
+        delaySec = i.getIntExtra("delay", delaySec);
+        hrmax = i.getIntExtra("hrmax", hrmax);
+        resting = i.getIntExtra("resting", resting);
+        vibOn = i.getBooleanExtra("vib", vibOn);
+        sndOn = i.getBooleanExtra("snd", sndOn);
+        getSharedPreferences(PREFS_SETTINGS, MODE_PRIVATE).edit()
+            .putInt("min", min).putInt("max", max).putInt("delay", delaySec)
+            .putInt("hrmax", hrmax).putInt("resting", resting)
+            .putBoolean("vib", vibOn).putBoolean("snd", sndOn).apply();
+    }
+
+    private void loadSettings() {
+        android.content.SharedPreferences p = getSharedPreferences(PREFS_SETTINGS, MODE_PRIVATE);
+        if (!p.contains("max")) return;
+        min = p.getInt("min", min); max = p.getInt("max", max); delaySec = p.getInt("delay", delaySec);
+        hrmax = p.getInt("hrmax", hrmax); resting = p.getInt("resting", resting);
+        vibOn = p.getBoolean("vib", vibOn); sndOn = p.getBoolean("snd", sndOn);
+    }
 
     private void startSession(boolean asWalk) {
         walk = asWalk;
