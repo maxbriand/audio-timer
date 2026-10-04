@@ -323,7 +323,8 @@ public class HrService extends Service {
                     if ("low".equals(outDir)) { outSince = 0; outDir = null; alerting = false; alerts.cancel(); }
                     // Mid-climb: the climb stops here and the part's rest starts now.
                     if (stage == ST_REACH) { stage = ST_REST; maxAt = SystemClock.elapsedRealtime(); maxHit = false; }
-                    if (isFresh()) stepStages(SystemClock.elapsedRealtime());
+                    // The tap closes nothing by itself (Maxime, 2026-10-04): the rest goes on,
+                    // and the cool down opens on a later sample at the range low.
                 }
                 break;
             case ACTION_LIVE:
@@ -958,9 +959,9 @@ public class HrService extends Service {
         else if (!isFresh()) text = "Waiting for signal…";
         else if (phase != PHASE_ACTIVE) text = hr + " bpm · no session running";
         else if (!reachedMin && hr < min) text = hr + " bpm · warm-up — alerts arm at " + min;
-        else if (stage == ST_COOLDOWN || (cool && hr < min)) text = hr + " bpm · cool down";
+        else if (stage == ST_COOLDOWN) text = hr + " bpm · cool down";
         else if (outDir == null) text = hr + " bpm · part " + (numbered() + 1)
-            + (stage == ST_REST ? " · rest down to " + min : " · reach " + max);
+            + (stage == ST_REST ? " · rest down to " + min + (cool ? ", then cool down" : "") : " · reach " + max);
         else text = hr + " bpm · " + ("high".equals(outDir) ? "above " + max : "below " + min);
 
         Intent launch = new Intent(this, MainActivity.class);
