@@ -656,7 +656,7 @@ public class FatigueCheckActivity extends Activity {
 
   // ------------------------------------------------------------------ the record
 
-  /* Straight into the upload outbox, due an hour from now: the page may not be opened again
+  /* Straight into the upload outbox, due 2 hours from now: the page may not be opened again
      for hours, and the check must still reach the server on time. The same row the page
      sends (pushFatigueLog) — the page stages it again when it collects it, same id, same file.
      A test never leaves the phone. */
