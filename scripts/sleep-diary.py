@@ -362,6 +362,8 @@ def load_fatigue_checks():
             v = st.get(field)
             if st.get("status") != "done" or v is None or day in cell:
                 continue
+            if what == "HRV" and st.get("quality") == "poor":
+                continue                # > 5% of the intervals left out: RMSSD not trusted
             if what == "PVT":
                 v = datetime.fromtimestamp(v / 1000).astimezone()
             cell[day] = v
