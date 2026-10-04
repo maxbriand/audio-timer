@@ -4581,14 +4581,16 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
         return;
       }
       zoneRoot.classList.remove('pulsing');
-      if (stage === 'cooldown' || (cool && hr < settings.min)){
+      // Cool down is said once it has begun, not on the tap (Maxime, 2026-10-04).
+      if (stage === 'cooldown'){
         setState('idle');
         line.innerHTML = 'Cool down<span class="sub">below-range alert off</span>';
         return;
       }
       setState('in');
       line.innerHTML = stage === 'rest'
-        ? 'Rest<span class="sub">part ' + (numbered().length + 1) + ' — back down to ' + settings.min + '</span>'
+        ? 'Rest<span class="sub">part ' + (numbered().length + 1) + ' — back down to ' + settings.min +
+          (cool ? ', then cool down' : '') + '</span>'
         : 'In range<span class="sub">part ' + (numbered().length + 1) + ' — push to ' + settings.max + '</span>';
     } else {
       const outFor = (performance.now() - outSince) / 1000;
@@ -4620,7 +4622,7 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
         ? '<b>' + cnt + '</b> part' + (cnt === 1 ? '' : 's') + ' this session'
         : stage === 'warmup' ? 'Part <b>0</b> · warm-up <b>' + fmt(partElapsed()) + '</b>'
         : stage === 'cooldown' ? 'Cool down · <b>' + fmt(partElapsed()) + '</b>'
-        : stage === 'rest' ? 'Part <b>' + n + '</b> · rest <b>' + fmt(curRest()) + '</b>'
+        : stage === 'rest' ? 'Part <b>' + n + '</b> · rest <b>' + fmt(curRest()) + '</b>' + (cool ? ' · then cool down' : '')
         : 'Part <b>' + n + '</b> · reach <b>' + fmt(curReach()) + '</b>';
     // Cool down appears with part 1 and stays to the end of the session. Pressed, it can be
     // taken back until the cool down itself has begun.
@@ -4629,7 +4631,7 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
     cb.setAttribute('aria-pressed', cool ? 'true' : 'false');
     cb.disabled = stage === 'cooldown';
     cb.textContent = stage === 'cooldown' ? 'Cooling down'
-      : cool ? 'Cool down · under ' + settings.min : 'Cool down';
+      : cool ? 'Cool down at ' + settings.min + ' · tap to cancel' : 'Cool down';
     // Read back from the dialog rather than trusting its close event — some
     // WebView builds never fire it, which would strand aria-expanded on true.
     $('partsBtn').setAttribute('aria-expanded', $('partsDlg').open ? 'true' : 'false');
@@ -4727,7 +4729,7 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
     if (cool){ outSince = null; outDir = null; alerting = false; if (navigator.vibrate) navigator.vibrate(0); }
     // Mid-climb: the climb stops here and the part's rest starts now.
     if (cool && stage === 'reach'){ stage = 'rest'; maxAt = Date.now(); maxHit = false; }
-    if (isConnected() && hr > 0) stepStages();
+    // The tap closes nothing by itself: the rest goes on until a sample at the range low.
     render();
   }
 
