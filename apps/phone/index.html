@@ -270,6 +270,23 @@
   .zone.connecting .card{background:none;border:0;padding:0}
   .zone #connCancel{width:100%}
   .zone #connCancel[hidden]{display:none}
+  /* A session in the tab has the room between the two bars, not the whole screen
+     (2026-10-04: the numeral ran into the strap line and pushed the state line out). The
+     numeral is sized for that room, the boxes are tighter, the hint goes, and a phone still
+     too short scrolls the page instead of cutting it. */
+  body.daytabs .zone .app{overflow-y:auto;-webkit-overflow-scrolling:touch}
+  body.daytabs .zone .hero{flex:none;overflow:visible;padding-top:6px}
+  body.daytabs .zone #bpm{font-size:min(30vw,13vh)}
+  body.daytabs .zone .unit{margin-top:4px}
+  body.daytabs .zone .band{margin-top:10px}
+  body.daytabs .zone #stateline{margin-top:8px;min-height:0}
+  body.daytabs .zone .card{margin-top:auto;padding:10px}
+  body.daytabs .zone.choose .card,body.daytabs .zone.connecting .card{margin:auto 0;padding:0}
+  body.daytabs .zone .bands{gap:6px;margin-top:8px}
+  body.daytabs .zone .bd{padding:6px 4px}
+  body.daytabs .zone .bd span{margin-bottom:4px}
+  body.daytabs .zone .bd.wide{padding:6px 12px}
+  body.daytabs .zone #hint{display:none}
   body.daytabs #zoneClose,body.daytabs #zonenav{display:none}   /* the bar is the way in and out */
 
   /* player */
