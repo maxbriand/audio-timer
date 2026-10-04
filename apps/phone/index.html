@@ -149,7 +149,11 @@
   #trackline{display:none;font-size:13px;color:var(--muted);padding:2px 2px 10px;line-height:1.5;font-variant-numeric:tabular-nums}
   #trackline b{color:var(--accent);font-weight:600}
   .chip.sm{padding:11px 0;font-size:13.5px}
-  .chip.on{background:var(--accent);color:#171205;border-color:var(--accent)}
+  .chip.on,.chip.tgl[aria-pressed="true"]{background:var(--accent);color:#171205;border-color:var(--accent)}
+  .runnums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .runnums.two{grid-template-columns:1fr 1fr}
+  .runnums label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
+  .runnums .syncin{text-align:center;font-size:17px;font-weight:600}
   #loglist{margin-bottom:6px}
   .logpics{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
   .logpics:empty{display:none}
@@ -250,8 +254,22 @@
   #daynav button.on,#setcats button.on{color:var(--accent)}
   #daynav button.on i,#setcats button.on i{filter:none;opacity:1}
   #habitspage[hidden],#strengthpage[hidden]{display:none}
-  body.daytabs #zoneapp{bottom:calc(58px + var(--safe-b))}
-  body.daytabs .zone .app{padding-bottom:10px}
+  /* As a day tab, the run page sits between the app's own top bar and the nav bar, like
+     Habits and Strength — under the full pages (⚙, the log), which open over it. */
+  body.daytabs #zoneapp{top:var(--hdr-h, 64px);bottom:calc(58px + var(--safe-b));z-index:5}
+  body.daytabs .zone .app{padding-top:14px;padding-bottom:10px}
+  /* The first screen is the choice alone: Brisk walk or Run (Maxime, 2026-10-04). Tapping
+     one shows the strap connecting (.connecting), and the session opens once the heart rate
+     comes in. */
+  .zone.choose .hero,.zone.choose .card > :not(#startChoice){display:none}
+  body.daytabs .zone.choose .strip{display:none}   /* opened from 🏃 at night, it keeps its ✕ */
+  .zone.choose .card{margin:auto 0;background:none;border:0;padding:0}
+  .zone.choose #startChoice{flex-direction:column;gap:14px;margin:0}
+  .zone.choose .startbtn{padding:30px 16px;font-size:20px}
+  .zone.connecting .card > :not(#connCancel){display:none}
+  .zone.connecting .card{background:none;border:0;padding:0}
+  .zone #connCancel{width:100%}
+  .zone #connCancel[hidden]{display:none}
   body.daytabs #zoneClose,body.daytabs #zonenav{display:none}   /* the bar is the way in and out */
 
   /* player */
@@ -667,8 +685,7 @@
 
   <div class="strip">
     <span style="display:flex;align-items:center;gap:8px"><button id="zoneClose" class="ghost" aria-label="Back to Audio Timer">&#10005;</button><span><span id="dot"></span><b>Polar H10</b></span></span>
-    <span style="display:flex;align-items:center;gap:8px"><span id="gpsst"></span><span id="batt"></span>
-      <button id="settingsBtn" class="ghost" aria-controls="settingsPage">Settings</button></span>
+    <span style="display:flex;align-items:center;gap:8px"><span id="gpsst"></span><span id="batt"></span></span>
   </div>
 
   <div class="hero">
@@ -715,6 +732,7 @@
       <button id="startRun" class="startbtn">Run</button>
     </div>
     <button id="session" hidden>End session</button>
+    <button id="connCancel" class="ghost" hidden>Cancel</button>
   </div>
 
 </div>
@@ -744,29 +762,7 @@
   </div>
 </dialog>
 
-<section id="settingsPage" class="page" role="region" aria-labelledby="setTitle">
-  <div class="inner">
-    <div class="pagehead">
-      <button id="setClose" class="ghost">&#8592; Back</button>
-      <h2 id="setTitle">Settings</h2>
-    </div>
-    <div class="grid" style="margin-top:14px">
-      <div class="field"><label for="min">Range low</label><input id="min" type="number" inputmode="numeric" value="110" min="40" max="230"></div>
-      <div class="field"><label for="max">Range high</label><input id="max" type="number" inputmode="numeric" value="170" min="40" max="230"></div>
-      <div class="field"><label for="delay">Alert after</label><input id="delay" type="number" inputmode="numeric" value="10" min="0" max="120"></div>
-    </div>
-    <div class="grid two" style="margin-top:10px">
-      <div class="field"><label for="hrmax">Max bpm</label><input id="hrmax" type="number" inputmode="numeric" placeholder="—" min="100" max="230"></div>
-      <div class="field"><label for="resting">Resting bpm</label><input id="resting" type="number" inputmode="numeric" placeholder="—" min="30" max="150"></div>
-    </div>
-    <p class="fieldhint">Max and resting bpm are yours, not the alert range — set them and the readout also shows % of max and % of heart-rate reserve.</p>
-    <div class="toggles">
-      <button id="vib" class="tgl" aria-pressed="true">Vibration on</button>
-      <button id="snd" class="tgl" aria-pressed="false">Sound off</button>
-    </div>
-    <p class="fieldhint">Sessions log locally for 14 days and upload to the server set in the app's own ⚙ settings — the same host and token, with /cardio on the end, which is the route the receiver files them under.</p>
-  </div>
-</section>
+
 
 
 <p id="live" class="sr-only" role="status" aria-live="polite"></p>
@@ -1004,6 +1000,27 @@
     </div>
     </section>
 
+    <!-- The run's settings (Maxime, 2026-10-04: one settings page for the whole app). The ids
+         are the ones zone alarm's script binds; it does not care where they sit. -->
+    <section class="setcat" data-cat="running" hidden>
+      <div class="setrow runnums">
+        <div><label for="min">Range low</label><input id="min" class="syncin" type="number" inputmode="numeric" value="110" min="40" max="230"></div>
+        <div><label for="max">Range high</label><input id="max" class="syncin" type="number" inputmode="numeric" value="170" min="40" max="230"></div>
+        <div><label for="delay">Alert after (s)</label><input id="delay" class="syncin" type="number" inputmode="numeric" value="10" min="0" max="120"></div>
+      </div>
+      <p>A run's part is the climb to the range high, then the rest back down to the range low.</p>
+      <div class="setrow runnums two">
+        <div><label for="hrmax">Max bpm</label><input id="hrmax" class="syncin" type="number" inputmode="numeric" placeholder="—" min="100" max="230"></div>
+        <div><label for="resting">Resting bpm</label><input id="resting" class="syncin" type="number" inputmode="numeric" placeholder="—" min="30" max="150"></div>
+      </div>
+      <p>Yours, not the alert range — they set the intensity bands (% of heart-rate reserve).</p>
+      <div class="setrow"><label>Alerts</label>
+        <div class="chips two">
+          <button id="vib" class="chip sm tgl" aria-pressed="true">Vibration on</button>
+          <button id="snd" class="chip sm tgl" aria-pressed="false">Sound off</button>
+        </div>
+      </div>
+    </section>
     <section class="setcat" data-cat="server" hidden>
     <div class="setsplit">
       <div class="setrow">
@@ -1057,6 +1074,7 @@
     <button data-cat="night" class="on"><i>🌙</i>Night audio</button>
     <button data-cat="sleep"><i>⏰</i>Sleep</button>
     <button data-cat="day"><i>☀️</i>Day</button>
+    <button data-cat="running"><i>🏃</i>Running</button>
     <button data-cat="server"><i>☁️</i>Server</button>
   </nav>
 </div>
@@ -3769,6 +3787,8 @@ function nightAllowed(){
 let dayTab = 'habits';
 function showDayTab(t){
   dayTab = t;
+  // The run page starts under the top bar, whatever its height on this phone.
+  document.body.style.setProperty('--hdr-h', document.querySelector('header').offsetHeight + 'px');
   $('#habitspage').hidden = t !== 'habits';
   $('#strengthpage').hidden = t !== 'strength';
   if (t !== 'running' && location.hash) location.hash = '';   // close a run sub-page through its router
@@ -4114,6 +4134,7 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   let hr = 0, lastHrAt = 0, connectedAt = 0, peak = 0;
   let outSince = null, outDir = null, alerting = false, lastAlertAt = 0;
   let phase = 'ready', startedAt = 0, endedAt = 0;
+  let connecting = null;            // 'walk' | 'run' while the strap connects for a start tap
   let tIn = 0, tBand = Array(NB).fill(0), lastTick = performance.now();
   // The run is a chain of stages. 'warmup' (part 0) lasts from the start tap until the range
   // low is first reached. Then each part is two halves: 'reach', the climb to the range high
@@ -4487,8 +4508,19 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
     const btn = $('session');
     btn.hidden = phase !== 'active';
     btn.classList.toggle('quiet', phase === 'active');
-    $('startChoice').hidden = phase === 'active';
+    $('startChoice').hidden = phase === 'active' || !!connecting;
+    zoneRoot.classList.toggle('choose', phase !== 'active' && !connecting);
+    zoneRoot.classList.toggle('connecting', !!connecting);
+    $('connCancel').hidden = !connecting;
     const line = $('stateline');
+    if (connecting){
+      setState('idle');
+      zoneRoot.classList.remove('pulsing');
+      line.innerHTML = (connecting === 'walk' ? 'Brisk walk' : 'Run') + '<span class="sub">' +
+        (!connected ? 'connecting the Polar H10…' : hr > 0 ? 'Polar H10 connected — starting'
+          : 'Polar H10 connected — waiting for the heart rate…') + '</span>';
+      return;
+    }
     if (!connected){
       setState('idle');
       zoneRoot.classList.remove('pulsing');
@@ -4978,14 +5010,27 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   $('stateline').addEventListener('click', () => { if (phase === 'active' && !isConnected()) ensureConnected(); });
   $('coolBtn').addEventListener('click', () => setCool(!cool));
   // Two ways in (Maxime, 2026-09-25): Brisk walk, one plain session, or Run, the parts.
+  /* The tap shows the strap connecting first (Maxime, 2026-10-04), and the session opens
+     once the heart rate comes in — or after 10 s connected without it. Cancel goes back to
+     the choice. */
+  $('connCancel').addEventListener('click', () => { connecting = null; releaseIfIdle(); render(); });
   async function begin(asWalk){
-    if (phase === 'active') return;
+    if (phase === 'active' || connecting) return;
+    connecting = asWalk ? 'walk' : 'run';
+    render();
     // Starting needs the strap, and asks for it; a session that could not get it does not start.
-    if (!(await ensureConnected())) return;
+    let ok = await ensureConnected();
+    for (let i = 0; ok && connecting && hr <= 0 && i < 40; i++) await new Promise(r => setTimeout(r, 250));
+    ok = ok && !!connecting;
+    connecting = null;
+    if (!ok){ render(); return; }
     walk = asWalk;
     // The service answers with a state push straight away, so the buttons
     // never wait on the next tick to change.
-    if (NATIVE) NativeSession.start(asWalk);
+    if (NATIVE) NativeSession.start(asWalk, {
+      min: settings.min, max: settings.max, delay: settings.delay, vib: settings.vib, snd: settings.snd,
+      hrmax: settings.hrmax, resting: settings.resting
+    });
     else startSession(asWalk);
     logStart();
     render();
@@ -5355,7 +5400,6 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   // history entries, so the Android back button closes them naturally.
   function route(){
     const h = location.hash;
-    $('settingsPage').classList.toggle('open', h === '#settings');
     const liveNow = h === '#live';
     $('livePage').classList.toggle('open', liveNow);
     if (liveNow && !liveOpen){
@@ -5370,8 +5414,6 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   }
   window.addEventListener('hashchange', route);
   function closePage(){ if (location.hash) history.back(); }
-  $('settingsBtn').addEventListener('click', () => { location.hash = '#settings'; });
-  $('setClose').addEventListener('click', closePage);
   $('liveBack').addEventListener('click', closePage);
   route();
 
