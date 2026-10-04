@@ -103,7 +103,7 @@ final class WalkAlarm {
       o.put("note", "");
       o.put("minutesUntouchedBeforeStop", 0);
       // Held like every other log (Outbox.HOLD_MS), so it can still be deleted from the log.
-      Outbox.put(c, id, o.toString(), "", "sessions", "", System.currentTimeMillis() + Outbox.HOLD_MS);
+      Outbox.putForLog(c, id, o.toString(), System.currentTimeMillis() + Outbox.HOLD_MS);
       UploadWorker.scheduleDue(c);
     } catch (Exception ignored){}    // an unrecorded walk must not leave the alarm stuck
     prefs(c).edit().putString(KEY_DONE_DAY, today()).apply();

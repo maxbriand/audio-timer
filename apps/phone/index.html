@@ -2141,10 +2141,12 @@ function exportSession(s){
 
    Deleting a night locally is downstream of the server confirming it, never of having sent
    it: the server answers with the ids it stored, and only those are stamped. Nothing is
-   deleted at that moment either — a stamped run has to also be older than UPLOAD_KEEP_DAYS,
-   and to have reached every other destination that is configured (the GitHub sync above), so
-   a server-side mistake is still recoverable from the phone for two weeks. */
-const UPLOAD_KEEP_DAYS = 14;
+   deleted at that moment either — a stamped run has to also be older than UPLOAD_KEEP_DAYS, so
+   a server-side mistake is still recoverable from the phone for that long. The same rule
+   cleans every log (sweepOld): 10 days on the phone once the server has it (Maxime,
+   2026-10-04). An entry the server never confirmed stays until it does — cleaning it would
+   lose it. */
+const UPLOAD_KEEP_DAYS = 10;
 const UPLOAD_DEBOUNCE_MS = 4000;
 const UPLOAD_BATCH = 100;
 /* Nothing leaves the phone until 2 hours after it ended (Maxime, 2026-09-30; 2 h since
@@ -2262,7 +2264,27 @@ async function sweepUploaded(){
   const now = Date.now();
   const gone = (await allSessions()).filter(s => clearable(s, now));
   for (const s of gone) await delSession(s.id);
+  await sweepOld();
   return gone.length;
+}
+
+/* The other logs, same rule: older than UPLOAD_KEEP_DAYS and confirmed by the server. A test
+   fatigue check is never sent, so its age alone clears it. A walk or a dose is two rows — the
+   marker that rides the upload, cleared above, and the event log with its pictures — which
+   goes once its marker has; any other event goes once /events has it. (The runs clear themselves in their own script, saveLog.) */
+async function sweepOld(){
+  const old = t => !!t && Date.now() - t >= UPLOAD_KEEP_DAYS * 86400e3;
+  try {
+    for (const k of await allFatigueChecks())
+      if (old(k.endedAt || k.at) && (k.syncedAt || k.test)){ await unstage(k.id); await delFatigueCheck(k.id); }
+    for (const n of await allNightTracks()) if (old(n.end) && n.syncedAt) await delNightTrack(n.id);
+    const sessions = await allSessions();
+    for (const l of await allEventLogs()){
+      const twin = PINNED_MARKER[l.issueId];
+      if (!old(l.at)) continue;
+      if (twin ? !sessions.some(x => x.stopReason === twin && x.startedAt === l.at) : l.syncedAt) await delEventLog(l.id);
+    }
+  } catch(_){}
 }
 
 /* Stamp the runs the server said it stored — with the revision that was actually sent, not
@@ -2313,6 +2335,7 @@ async function drainUploads(){
     const got = new Set(ids), now = Date.now();
     try { for (const k of await allFatigueChecks()) if (got.has(k.id) && !k.syncedAt){ k.syncedAt = now; await putFatigueCheck(k); } } catch(_){}
     try { for (const n of await allNightTracks()) if (got.has(n.id) && !n.syncedAt){ n.syncedAt = now; await putNightTrack(n); } } catch(_){}
+    try { for (const l of await allEventLogs()) if (got.has(l.id) && !l.syncedAt){ l.syncedAt = now; await putEventLog(l); } } catch(_){}
     if (window.ZoneLog) window.ZoneLog.markSynced(ids);
   }
 }
@@ -2470,20 +2493,17 @@ const DELETE_WINDOW_MS = 2 * 3600e3;
    end undefined = an instant (no Stopped field); save or del null = not changeable;
    upload {sent, due, send} for what goes to the server, null for what stays on the phone. */
 async function logItems(){
-  const sessions = await allSessions();
-  let logs = [];
-  try { logs = await allEventLogs(); } catch(_){}
-  let cats = {};
-  try { for (const ev of await allEvents()) cats[ev.id] = ev.cat === 'habit' ? 'habit' : 'issue'; } catch(_){}
+  // Every store at once rather than one after the other.
+  const none = () => [];
+  const [sessions, logs, evs, checks, tracks] = await Promise.all([allSessions(),
+    allEventLogs().catch(none), allEvents().catch(none), allFatigueChecks().catch(none), allNightTracks().catch(none)]);
+  const cats = {};
+  for (const ev of evs) cats[ev.id] = ev.cat === 'habit' ? 'habit' : 'issue';
   // A walk is saved in both stores (the event log carries the pictures, the marker rides the
   // upload), so its marker is dropped when the matching event log is there — one walk, one row.
   const pinnedTaps = new Set(logs.filter(l => PINNED_MARKER[l.issueId]).map(l => PINNED_MARKER[l.issueId] + '@' + l.at));
-  let checks = [];
-  try { checks = await allFatigueChecks(); } catch(_){}
-  let tracks = [];
-  try { tracks = await allNightTracks(); } catch(_){}
   const running = window.ZoneLog ? window.ZoneLog.running() : null;
-  const phone = await phoneDays();
+  const phone = phoneDays();
   return [
     // A day's phone time is read from Android, not recorded here: nothing to change.
     ...phone.map(d => ({at: d.at, title: '📱 Phone time — ' + d.day, lines: d.lines, photos: [], edit: null})),
@@ -2518,9 +2538,10 @@ async function logItems(){
         note: [kind, l.note && '“' + l.note + '”'].filter(Boolean).join(' · ') || 'no note',
         edit: {start: l.at, note: l.note || '', photos: l.photos || [], loggedAt: l.loggedAt || l.at,
                save: v => saveDayEntry(l, sessions, v), del: () => deleteDayEntry(l, sessions),
-               // Only the walk and the dose leave the phone, through their twin marker.
-               upload: sessionUpload(PINNED_MARKER[l.issueId] &&
-                 sessions.find(x => x.stopReason === PINNED_MARKER[l.issueId] && x.startedAt === l.at))}
+               // The walk and the dose leave through their twin marker, the others on /events.
+               upload: PINNED_MARKER[l.issueId]
+                 ? sessionUpload(sessions.find(x => x.stopReason === PINNED_MARKER[l.issueId] && x.startedAt === l.at))
+                 : {sent: !!l.syncedAt, due: dueAt(l.id, l.at), send: () => sendNow(l.id, pushEvents)}}
       };
     }),
     ...sessions.filter(isDayMarker)
@@ -2616,9 +2637,12 @@ async function renderLog(){
   }
 }
 
+/* The page shows at once, with the list it had last time; the fresh one replaces it a moment
+   later. The phone time is asked for after that, and repaints only if it changed. */
 async function openLog(){
-  await renderLog();
   $('#logsheet').classList.add('on');
+  await renderLog();
+  if (await refreshPhoneDays()) await renderLog();
   if (window.ZoneLog) window.ZoneLog.push();
 }
 // Something changed under an open log page (an upload ack, a check fetched): paint it again.
@@ -2751,7 +2775,9 @@ async function saveSession(s, v){
 async function saveDayEntry(l, sessions, v){
   const twin = PINNED_MARKER[l.issueId], oldAt = l.at;
   Object.assign(l, {loggedAt: v.loggedAt, at: v.start, note: v.note, photos: v.photos});
+  if (!twin) delete l.syncedAt;            // due again on /events
   await putEventLog(l);
+  if (!twin) pushEvents();
   // The walk's and the dose's twin marker carries the same time and note to the server.
   if (twin) for (const s of sessions.filter(x => x.stopReason === twin && x.startedAt === oldAt))
     await saveSession(s, {loggedAt: s.loggedAt || oldAt, start: v.start, note: v.note});
@@ -2798,6 +2824,7 @@ async function deleteFatigueCheck(k){
 // A day entry goes with its pictures, and a walk with its twin marker.
 async function deleteDayEntry(l, sessions){
   if (!confirm('Delete this entry' + ((l.photos || []).length ? ' and its pictures' : '') + '?')) return false;
+  await unstage(l.id);
   await delEventLog(l.id);
   const twin = PINNED_MARKER[l.issueId];
   if (twin){
@@ -2835,20 +2862,32 @@ async function deleteNightTrack(n){
    the midnight that closes its day — after anything logged up to 23:59:59 — and names that
    day, since its own date reads the next one (00:00). Not deletable: it is read, not
    recorded, and would come back at the next open. */
-async function phoneDays(){
+/* Asking for them makes the native side re-read Android's usage log first — slow on the phone,
+   so the log page never waits for it: it paints the last answer, then asks again in the
+   background (refreshPhoneDays) and repaints if anything moved. */
+let phoneCache = null;
+async function refreshPhoneDays(){
   const C = window.Capacitor;
   const P = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.PhoneUsage;
-  if (!P || !P.days) return [];
+  if (!P || !P.days) return false;
   let r;
-  try { r = await P.days(); } catch(_){ return []; }
+  try { r = await P.days(); } catch(_){ return false; }
+  const same = JSON.stringify(r) === JSON.stringify(phoneCache);
+  phoneCache = r;
+  return !same;
+}
+function phoneDays(){
+  const r = phoneCache;
+  if (!r) return [];
   const sentAt = +r.sentAt || 0;
   const hm = s => Math.floor(s / 3600) + ' h ' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ' min';
   return (r.days || []).map(d => {
     const [y, m, day] = d.date.split('-').map(Number);
     const at = new Date(y, m - 1, day + 1).getTime();
-    return {at, day: fmtDay(new Date(y, m - 1, day).getTime()), lines: ['Screen on ' + hm(d.seconds) + ' · ' + d.sessions + (d.sessions === 1 ? ' time' : ' times') +
+    return {at, sent: sentAt >= at, day: fmtDay(new Date(y, m - 1, day).getTime()), lines: ['Screen on ' + hm(d.seconds) + ' · ' + d.sessions + (d.sessions === 1 ? ' time' : ' times') +
       (upCfg && upCfg.url ? (sentAt >= at ? ' · on the server' : ' · waiting for the server') : '')]};
-  });
+  // Past the 10 days and on the server: cleaned like every other log.
+  }).filter(d => !(d.sent && Date.now() - d.at >= UPLOAD_KEEP_DAYS * 86400e3));
 }
 
 /* Everything a fatigue check collected, one line per step it was given. A step that was not
@@ -3300,6 +3339,79 @@ async function pushFatigueLog(){
   fatiguePushing = false;
 }
 addEventListener('online', pushFatigueLog);
+
+/* The day screen's own events (issues and habits made on the phone) go up too, since
+   2026-10-04: own route (/events), body key "events", one row per tap, held 2 hours like
+   every log. The pictures stay here — the row says how many. The walk and the dose are not
+   sent this way: their marker rows already ride the night log. */
+let eventsPushing = false;
+async function eventRows(){
+  const [logs, evs] = await Promise.all([allEventLogs(), allEvents()]);
+  const cat = {};
+  for (const e of evs) cat[e.id] = e.cat === 'habit' ? 'habit' : 'issue';
+  return logs.filter(l => !PINNED_MARKER[l.issueId]).map(l => ({log: l, row: {
+    id: l.id, started: new Date(l.at).toISOString(), localDay: dayKey(l.at), eventId: l.issueId,
+    name: l.issue || '', cat: cat[l.issueId] || 'issue', note: l.note || '', photos: (l.photos || []).length}}));
+}
+async function pushEvents(){
+  if (eventsPushing || !upCfg || !upCfg.url) return;
+  const url = upCfg.url.replace(/\/+$/, '') + '/events';
+  if (!/^https:/.test(url) && !/^http:\/\/(localhost|127\.)/.test(url)) return;
+  let todo = [];
+  try { todo = (await eventRows()).filter(x => !x.log.syncedAt); } catch(_){ return; }
+  if (nativeUpload){
+    for (const x of todo){ try { await stage(x.log.id, x.row, 'events', 'events', 'audio-timer', x.log.at); } catch(_){} }
+    return;
+  }
+  retryWhenRipe('events', todo.filter(x => !ripe(x.log.at, x.log.id)).map(x => x.log.at), pushEvents);
+  todo = todo.filter(x => ripe(x.log.at, x.log.id));
+  if (!todo.length) return;
+  eventsPushing = true;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {'Authorization': 'Bearer ' + (upCfg.token || ''), 'Content-Type': 'application/json'},
+      body: JSON.stringify({device: 'audio-timer', events: todo.map(x => x.row)})
+    });
+    const out = await res.json().catch(() => ({}));
+    if (res.ok && Array.isArray(out.accepted)){
+      const now = Date.now();
+      for (const x of todo) if (out.accepted.includes(x.log.id)){ x.log.syncedAt = now; await putEventLog(x.log); }
+      refreshLog();
+    }
+  } catch(_){ /* offline: kept, retried on the next launch, foreground or network */ }
+  eventsPushing = false;
+}
+addEventListener('online', pushEvents);
+
+/* What the reminders' own buttons recorded with the page closed — "Taken ✓" on melatonin,
+   "Done" on the walk — comes over from the native side into the sessions store, so the log
+   shows it like the same tap made here. The native outbox already holds it: a row still
+   staged is queued again by the next upload pass (same id, same file), one the worker already
+   sent is stamped as on the server. */
+async function collectHandoff(){
+  if (!nativeUpload || !nativeUpload.handoff) return;
+  let rows = [];
+  try { rows = ((await nativeUpload.handoff()) || {}).rows || []; } catch(_){ return; }
+  if (!rows.length) return;
+  const have = new Set((await allSessions()).map(s => s.id)), done = [];
+  for (const r of rows){
+    try {
+      const o = JSON.parse(r.json);
+      if (!have.has(o.id)){
+        const at = Date.parse(o.started), end = Date.parse(o.ended) || at;
+        const s = {id: o.id, startedAt: at, endedAt: end, trackStart: '', trackEnd: '', timerMinutes: null,
+          timerArmedAt: null, autoArmed: false, fadeInSeconds: 0, speed: 1, stopReason: o.stopReason || '',
+          stopPosition: 0, listenedSeconds: 0, lastInteraction: end, note: o.note || '', updatedAt: end};
+        if (r.staged) s.uploadQueuedRev = end; else s.uploadedAt = end;
+        await putSessionRaw(s);
+      }
+      done.push(r.id);
+    } catch(_){}
+  }
+  try { await nativeUpload.handoffAck({ids: done}); } catch(_){}
+  refreshLog();
+}
 
 /* ---------- night tracking ----------
    Switching to night mode asks one question: track this night? Yes connects the strap and
@@ -3769,9 +3881,9 @@ function paintSun(){
    done — walk, stretching) and issues (things suffered — headache); rows without a cat
    predate the split and read as issues, which is what they all were. Deleting a type
    removes only the button: entries already logged are records of days that happened and
-   are kept, the same rule as the walk toggle. Everything stays in IndexedDB on the phone —
-   photos are stored as blobs, like the audio itself — and is read back in the log's ☀️ Day
-   part. (The stores and log fields keep their
+   are kept, the same rule as the walk toggle. Each entry is kept in IndexedDB — photos as
+   blobs, like the audio itself — shown in the log, and sent to the server (pushEvents)
+   without its photos. (The stores and log fields keep their
    historical names, issues/issuelogs/issueId: renaming them means migrating user data for
    zero benefit — "event" is the concept, not the storage key.) */
 const allEvents   = async () => req((await os('issues','readonly')).getAll());
@@ -3884,11 +3996,10 @@ $('#evsave').onclick = async () => {
     id: uid(), issueId: logEvent.id, issue: logEvent.name, at: logAt,
     note: note, photos: logPhotos
   });
-  /* The two built-in habits also leave the phone: a zero-length marker row, stamped
-     with the tap time, rides the sync/upload pipeline like the wake-up. The walk IS
-     the daylight log (the diary's Morning light column) and the screens-off tap is the
-     blue-light cutoff (the diary's screens_off column). Other events (and the photos,
-     always) stay local. */
+  /* The two built-in habits leave the phone as a zero-length marker row, stamped with
+     the tap time, riding the night log like the wake-up: the walk IS the daylight log (the
+     diary's Morning light column). Every other event goes up on its own route (pushEvents);
+     the photos always stay here. */
   const markerReason = PINNED_MARKER[logEvent.id] || null;
   if (markerReason){
     await putSession({
@@ -3912,6 +4023,7 @@ $('#evsave').onclick = async () => {
       try { await nativeMelatonin.dosed(); } catch(_){}
     }
   }
+  if (!markerReason) pushEvents();
   toast(logEvent.name + ' logged — ' + fmtClock(logAt));
   closeEventSheet();
 };
@@ -4056,8 +4168,9 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   }
 
   function saveLog(){
-    const cutoff = Date.now() - 14 * 86400e3;
-    sessLog = sessLog.filter(s => Date.parse(s.started) > cutoff);
+    // Kept UPLOAD_KEEP_DAYS once synced; one the server never took stays until it does.
+    const cutoff = Date.now() - UPLOAD_KEEP_DAYS * 86400e3;
+    sessLog = sessLog.filter(s => Date.parse(s.started) > cutoff || !s.syncedAt);
     try { localStorage.setItem('za-sessions', JSON.stringify(sessLog)); } catch(e){}
     vaultSoon();
   }
@@ -5709,13 +5822,15 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   await checkPendingWake();
   await collectFatigueResults();
   pushFatigueLog();
+  pushEvents();
+  await collectHandoff();
   await collectNights();
   pushNights();
   paintTrackline();
   document.addEventListener('visibilitychange', () => {
     // A fatigue check runs in a screen of its own; coming back from it (or from anywhere)
     // is when its record is fetched into the log.
-    if (document.visibilityState === 'visible'){ checkPendingWake(); collectFatigueResults(); refreshFatigueStatus(); pushFatigueLog(); collectNights(); pushNights(); paintTrackline(); }
+    if (document.visibilityState === 'visible'){ checkPendingWake(); collectFatigueResults(); refreshFatigueStatus(); pushFatigueLog(); pushEvents(); collectHandoff(); collectNights(); pushNights(); paintTrackline(); }
   });
   await render();
   showStorage();
@@ -5723,6 +5838,8 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   // Reopen in the mode the app was closed in. Restoring is not a switch: no confirmation,
   // and no wake-up row — those belong to the deliberate tap on the toggle.
   if ((await getMeta('view')) === 'sun') showView('sun');
+  // The log page is built once in the background, so the first tap on 📊 shows it at once.
+  setTimeout(() => { refreshPhoneDays().then(renderLog).catch(() => {}); }, 3000);
   const last = await getMeta('lastTimer');
   if (last) $('#custom').placeholder = 'Custom minutes (last: ' + last + ')';
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});

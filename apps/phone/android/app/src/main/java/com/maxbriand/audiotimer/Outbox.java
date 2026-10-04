@@ -131,6 +131,43 @@ final class Outbox {
     }
   }
 
+  /* A row staged natively — "Taken ✓" on the melatonin reminder, "Done" on the walk one —
+     never passes through the page, so the log would not show it. A copy waits in
+     files/handoff/ until the page has written it into its own log (handoff() / handoffAck()),
+     and from there it is a log entry like any other: edited, sent now, deleted in its first
+     2 hours (2026-10-04). */
+  static void putForLog(Context c, String id, String rowJson, long notBefore) throws IOException {
+    put(c, id, rowJson, "", "sessions", "", notBefore);
+    synchronized (LOCK){
+      File d = handoffDir(c);
+      File tmp = new File(d, safe(id) + ".tmp"), out = new File(d, safe(id) + ".json");
+      try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)){
+        w.write(rowJson);
+      }
+      if (!tmp.renameTo(out)) tmp.delete();
+    }
+  }
+  static File handoffDir(Context c){
+    File d = new File(c.getFilesDir(), "handoff");
+    if (!d.isDirectory()) d.mkdirs();
+    return d;
+  }
+  static List<File> handoff(Context c){
+    synchronized (LOCK){
+      File[] fs = handoffDir(c).listFiles((d, n) -> n.endsWith(".json"));
+      List<File> out = new ArrayList<>();
+      if (fs != null) for (File f : fs) out.add(f);
+      return out;
+    }
+  }
+  static void handoffAck(Context c, String id){
+    synchronized (LOCK){ new File(handoffDir(c), safe(id) + ".json").delete(); }
+  }
+  // Still waiting in the outbox — false once the worker has sent it.
+  static boolean staged(Context c, String id){
+    synchronized (LOCK){ return new File(dir(c), safe(id) + ".json").exists(); }
+  }
+
   static List<File> list(Context c){
     synchronized (LOCK){
       File[] fs = dir(c).listFiles((d, n) -> n.endsWith(".json"));
