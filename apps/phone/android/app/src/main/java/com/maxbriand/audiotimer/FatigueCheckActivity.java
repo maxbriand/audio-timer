@@ -38,6 +38,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
@@ -159,8 +160,20 @@ public class FatigueCheckActivity extends Activity {
   private boolean strapLive, ownsLink;
   private Boolean foreignLink;      // was the strap's service already someone else's? decided once
   private long firstBeatAt, lastBeatAt, recFromWall;
-  private long hrSum; private int hrN, dropped;
+  private long hrSum; private int hrN, dropped, ectopic;
   private final ArrayList<Float> rr = new ArrayList<>();     // NaN = a hole in the chain
+  // Every interval received while recording, unfiltered, and what became of it:
+  // 0 kept, 1 out of range (lost contact), 2 rejected as ectopic (> 20% off the reference).
+  private final ArrayList<Integer> rrRaw = new ArrayList<>(), rrFlag = new ArrayList<>();
+  private float rrRef = Float.NaN;  // last accepted interval: what the next one is compared with
+  private int rrRejectRun;          // ectopic rejections in a row since the last accepted one
+  // Held back until the starting reference is known: the median of the first 5 in-range
+  // intervals, so one extra beat at the very start can't become the reference.
+  private final ArrayList<Float> rrPending = new ArrayList<>();
+  private static final float ECTOPIC_FRAC = 0.20f;
+  private static final int REANCHOR_AFTER = 3, START_REF_N = 5;
+  // Over 5% of the intervals left out (lost contact or extra/missed beats): RMSSD isn't trusted.
+  private static final double POOR_FRAC = 0.05;
   private TextView hrView, phaseView, clockView, hintView;
   private Button connectBtn;
   private BluetoothLeScanner scanner;
@@ -376,6 +389,7 @@ public class FatigueCheckActivity extends Activity {
 
     firstBeatAt = lastBeatAt = recFromWall = 0;
     hrSum = 0; hrN = 0; dropped = 0; rr.clear();
+    ectopic = 0; rrRaw.clear(); rrFlag.clear(); rrPending.clear(); rrRef = Float.NaN; rrRejectRun = 0;
     strapLive = true;
 
     if (Build.VERSION.SDK_INT >= 31
@@ -432,9 +446,38 @@ public class FatigueCheckActivity extends Activity {
     if (recFromWall == 0) recFromWall = System.currentTimeMillis();
     hrSum += bpm; hrN++;
     for (float v : rrMs){
-      if (v >= RR_MIN && v <= RR_MAX) rr.add(v);
-      else { dropped++; rr.add(Float.NaN); }
+      rrRaw.add(Math.round(v));
+      if (!Float.isNaN(rrRef)){ classifyRr(v); continue; }
+      rrPending.add(v);
+      int inRange = 0;
+      for (float p : rrPending) if (p >= RR_MIN && p <= RR_MAX) inRange++;
+      if (inRange >= START_REF_N) flushPendingRr();
     }
+  }
+
+  /** Sets the starting reference from what is held back, then runs it through the filter. */
+  private void flushPendingRr(){
+    ArrayList<Float> ok = new ArrayList<>();
+    for (float p : rrPending) if (p >= RR_MIN && p <= RR_MAX) ok.add(p);
+    if (!ok.isEmpty()){
+      java.util.Collections.sort(ok);
+      int m = ok.size() / 2;
+      rrRef = ok.size() % 2 == 1 ? ok.get(m) : (ok.get(m - 1) + ok.get(m)) / 2f;
+    }
+    for (float p : rrPending) classifyRr(p);
+    rrPending.clear();
+  }
+
+  private void classifyRr(float v){
+    if (v < RR_MIN || v > RR_MAX){ dropped++; rr.add(Float.NaN); rrFlag.add(1); return; }
+    // An extra beat or a missed one stays in range but jumps from its neighbours. Compare with
+    // the last accepted interval (not the last raw one), so the beat after an early beat is
+    // judged against a normal one. After 3 rejections in a row the heart rate really moved:
+    // take this one as the new reference.
+    if (!Float.isNaN(rrRef) && Math.abs(v - rrRef) > ECTOPIC_FRAC * rrRef && rrRejectRun < REANCHOR_AFTER){
+      ectopic++; rrRejectRun++; rr.add(Float.NaN); rrFlag.add(2); return;
+    }
+    rrRef = v; rrRejectRun = 0; rr.add(v); rrFlag.add(0);
   }
 
   private boolean recording;
@@ -464,6 +507,7 @@ public class FatigueCheckActivity extends Activity {
   private void finishStrap(){
     final long toWall = System.currentTimeMillis();
     buzz(500);
+    flushPendingRr();     // a recording too short to fill the starting window
     final double[] h = FatigueChecks.hrv(rr);
     final int n = (int) h[0];
     endStrap();
@@ -483,12 +527,17 @@ public class FatigueCheckActivity extends Activity {
     }
     final double hr = Math.round(hrSum * 10.0 / hrN) / 10.0;
     final double rmssd = Math.round(h[1] * 10.0) / 10.0;
+    final boolean poor = rrFlag.size() > 0 && (dropped + ectopic) > POOR_FRAC * rrFlag.size();
     JSONObject r = status("done");
     try {
       r.put("hr", hr);
       r.put("rmssd", rmssd);
       r.put("beats", n);
       r.put("dropped", dropped);
+      r.put("ectopic", ectopic);
+      r.put("quality", poor ? "poor" : "good");
+      r.put("rr", new JSONArray(rrRaw));
+      r.put("rrFlag", new JSONArray(rrFlag));
       r.put("meanRr", Math.round(h[2]));
       r.put("from", recFromWall);
       r.put("to", toWall);
@@ -498,7 +547,14 @@ public class FatigueCheckActivity extends Activity {
     add(text("bpm — average over the 3 minutes", 14, MUTED, false), 0);
     add(text(String.valueOf(rmssd), 56, GOOD, true), 20);
     add(text("ms — HRV (RMSSD) over " + n + " beat-to-beat intervals"
-      + (dropped > 0 ? ", " + dropped + " left out as lost contact" : ""), 14, MUTED, false), 0);
+      + (dropped > 0 ? ", " + dropped + " left out as lost contact" : "")
+      + (ectopic > 0 ? ", " + ectopic + " left out as extra or missed beats" : ""), 14, MUTED, false), 0);
+    if (poor){
+      add(text("Unreliable: " + (dropped + ectopic) + " of " + rrFlag.size()
+        + " intervals were left out (over 5%), so this HRV isn't counted. "
+        + "Wet the electrodes, sit still and run it again.", 15, WARN, false), 14);
+      button("Run it again", false, this::showStrap);
+    }
     button(index + 1 < steps.size() ? "Next" : "Done", true, this::next);
   }
 
