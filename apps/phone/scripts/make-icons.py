@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate the PWA launcher icons. Requires Pillow."""
 
+import os
+
 from PIL import Image, ImageDraw
 
 BG = (11, 13, 16)
@@ -25,8 +27,12 @@ def icon(size, maskable=False):
     return img
 
 
+# The icons sit at the app root, beside index.html.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 if __name__ == '__main__':
-    icon(192).save('icon-192.png')
-    icon(512).save('icon-512.png')
-    icon(512, maskable=True).save('icon-maskable-512.png')
+    icon(192).save(os.path.join(ROOT, 'icon-192.png'))
+    icon(512).save(os.path.join(ROOT, 'icon-512.png'))
+    icon(512, maskable=True).save(os.path.join(ROOT, 'icon-maskable-512.png'))
     print('icons written')

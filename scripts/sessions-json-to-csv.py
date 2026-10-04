@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Flatten the per-day session JSON pushed by the PWA into one CSV.
 
-    python3 tools/sessions-json-to-csv.py <json-dir> <out.csv>
+    python3 scripts/sessions-json-to-csv.py <json-dir> <out.csv>
 
 Reads every YYYY-MM-DD.json in <json-dir>, sorts the runs by start time, and writes a single
 CSV with the same columns as the app's own "Export CSV". Prints the row count and nothing

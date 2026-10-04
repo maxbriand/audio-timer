@@ -1,5 +1,18 @@
 # audio-timer — rules for working on this app
 
+## Where things go
+
+Same layout as the Trent repo — keep it:
+
+- `apps/phone/` — the app (web `index.html` + Capacitor `android/`), with its own
+  `package.json` and build scripts. Run `npm` commands from here.
+- `apps/receiver/` — the upload receiver.
+- `deploy/` — the Mac's launchd plists and the script they run. The live jobs in
+  `~/Library/LaunchAgents/` point at these paths in the main checkout: after moving or
+  renaming anything they run, re-install the plists and kickstart the jobs.
+- `scripts/` — data tools over the uploaded nights (CSV, daily record, Body import).
+- `docs/` — all written docs. The root holds only `README.md` (a short map) and this file.
+
 ## Rings (alarms, reminders, fatigue checks)
 
 The phone is a **Redmi Note 10S on MIUI 14 (Android 13)**. Stock Android and the emulator do not
@@ -11,7 +24,7 @@ behave like it, so a ring that works on the emulator proves nothing on its own.
   full-screen screen that rings goes with it (2026-10-01 — checks fired on time, never rang).
 - **One notification id per ring**, declared in `Ring.java` (`ID_*`). Two rings sharing an id
   cancel each other.
-- `scripts/check-rings.mjs` enforces both on every `npm run apk` and stops the build otherwise.
+- `apps/phone/scripts/check-rings.mjs` enforces both on every `npm run apk` and stops the build otherwise.
   Do not weaken it to get a build through — fix the ring.
 - **A Test button for a ring goes through the real path**: an alarm a few seconds ahead, the
   receiver, `Ring.post()` — as `FatigueChecks.ringTest()` does. Never start the ring's activity
@@ -36,7 +49,7 @@ adb shell cmd appops get com.maxbriand.audiotimer  # MIUI's own permissions (MIU
 
 ## Delivering a build
 
-`npm run apk` builds the signed release into `~/Downloads/audio-timer-standalone.apk`. A build
+`npm run apk` (in `apps/phone/`) builds the signed release into `~/Downloads/audio-timer-standalone.apk`. A build
 is delivered when it is on the phone: copy it over the Drive file and cut an
-`audio-timer-builds` release (see the README); with the phone plugged in,
+release in the private `audio-timer-builds` repo; with the phone plugged in,
 `adb install -r` installs it in place, data kept.

@@ -4,10 +4,10 @@
   Template. launchd does not expand ~, so install it with the home path substituted in:
 
     sed "s|__HOME__|$HOME|g" \
-      ~/Projects/audio-timer/mac/com.maxbriand.computer-time.plist \
+      ~/Projects/audio-timer/deploy/com.maxbriand.computer-time.plist \
       > ~/Library/LaunchAgents/com.maxbriand.computer-time.plist
 
-  See SETUP.md for the full sequence.
+  See docs/setup.md for the full sequence.
 -->
 <plist version="1.0">
 <dict>
@@ -20,7 +20,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; exec python3 "$HOME/Projects/audio-timer/tools/computer-time.py" "$HOME/Documents/Body/sources/computer-time.csv"</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; exec python3 "$HOME/Projects/audio-timer/scripts/computer-time.py" "$HOME/Documents/Body/sources/computer-time.csv"</string>
   </array>
 
   <!-- Cadence rewrites sessions.json when a session ends, so computer-time.csv follows it
