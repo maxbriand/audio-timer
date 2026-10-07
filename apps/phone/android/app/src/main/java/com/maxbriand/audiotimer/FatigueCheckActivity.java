@@ -62,8 +62,11 @@ import java.util.UUID;
  *      300–2000 ms (a 200 or a 30 bpm beat) is a lost contact, not a heartbeat: it is left
  *      out, counted, and the successive difference is not taken across the hole it leaves.
  *   2. PVT — done on the computer; the phone only waits to be told it is over.
- *   3. The fatigue question — AlarmActivity's own, and staged for the server exactly as it
+ *   3. The fatigue question — FatigueQuestion's, and staged for the server exactly as it
  *      always was, so the sleep diary keeps reading its morning score where it did.
+ *   4. Eyes — the same kind of question about eye fatigue (Maxime, 2026-10-06). Both are
+ *      0–5 scales with a sentence per level (FatigueQuestion.FATIGUE_LEVELS / EYE_LEVELS),
+ *      recorded with their scale.
  *
  * The whole check is ONE record, handed to FatigueChecks for the page to file in its log.
  * A run started from ⚙'s Test button is the same run, but its record is marked as a test
@@ -90,7 +93,7 @@ import java.util.UUID;
 public class FatigueCheckActivity extends Activity {
   static final String EXTRA_CHECK_ID = "checkId";
   private static final String EXTRA_LABEL = "label", EXTRA_STRAP = "strap", EXTRA_PVT = "pvt",
-    EXTRA_QUESTION = "question", EXTRA_TEST = "test", EXTRA_DUE = "dueAt",
+    EXTRA_QUESTION = "question", EXTRA_EYES = "eyes", EXTRA_TEST = "test", EXTRA_DUE = "dueAt",
     EXTRA_DAY = "localDay", EXTRA_ANCHOR = "anchor", EXTRA_OFFSET = "offsetMin", EXTRA_MANUAL = "manual";
 
   /** The heart page's HR / HRV test: the strap test alone, started now, no ring. */
@@ -109,8 +112,8 @@ public class FatigueCheckActivity extends Activity {
   private static final float RR_MIN = 300f, RR_MAX = 2000f;
   private static final int MIN_INTERVALS = 30;      // under this, three minutes recorded nothing usable
 
-  private static final int BG = AlarmActivity.BG, SURFACE = AlarmActivity.SURFACE,
-    TEXT = AlarmActivity.TEXT, MUTED = AlarmActivity.MUTED, ACCENT = AlarmActivity.ACCENT;
+  private static final int BG = FatigueQuestion.BG, SURFACE = FatigueQuestion.SURFACE,
+    TEXT = FatigueQuestion.TEXT, MUTED = FatigueQuestion.MUTED, ACCENT = FatigueQuestion.ACCENT;
   private static final int GOOD = Color.parseColor("#7ee0a1"), WARN = Color.parseColor("#ffdf8e");
 
   static Intent intent(Context c, JSONObject k, long dueAt, boolean test){
@@ -124,6 +127,7 @@ public class FatigueCheckActivity extends Activity {
       .putExtra(EXTRA_STRAP, k.optBoolean("strap"))
       .putExtra(EXTRA_PVT, k.optBoolean("pvt"))
       .putExtra(EXTRA_QUESTION, k.optBoolean("question"))
+      .putExtra(EXTRA_EYES, k.optBoolean("eyes"))
       .putExtra(EXTRA_TEST, test)
       .putExtra(EXTRA_DUE, dueAt)
       .putExtra(EXTRA_DAY, dayOf(wake, Math.max(0, k.optInt("offsetMin", 0)), dueAt));
@@ -144,6 +148,7 @@ public class FatigueCheckActivity extends Activity {
     if (k.optBoolean("strap")) s.add("strap test");
     if (k.optBoolean("pvt")) s.add("PVT");
     if (k.optBoolean("question")) s.add("fatigue question");
+    if (k.optBoolean("eyes")) s.add("eyes");
     return s.isEmpty() ? "no step" : android.text.TextUtils.join(" · ", s);
   }
 
@@ -235,6 +240,7 @@ public class FatigueCheckActivity extends Activity {
     if (in.getBooleanExtra(EXTRA_STRAP, false)) steps.add("strap");
     if (in.getBooleanExtra(EXTRA_PVT, false)) steps.add("pvt");
     if (in.getBooleanExtra(EXTRA_QUESTION, false)) steps.add("question");
+    if (in.getBooleanExtra(EXTRA_EYES, false)) steps.add("eyes");
     startedAt = System.currentTimeMillis();
     try {
       record.put("id", UUID.randomUUID().toString());
@@ -269,7 +275,7 @@ public class FatigueCheckActivity extends Activity {
 
   // ------------------------------------------------------------------ widgets
 
-  private int dp(int v){ return AlarmActivity.dp(this, v); }
+  private int dp(int v){ return FatigueQuestion.dp(this, v); }
 
   private TextView text(String s, int size, int color, boolean bold){
     TextView t = new TextView(this);
@@ -336,7 +342,8 @@ public class FatigueCheckActivity extends Activity {
   private static String stepName(String s){
     return "strap".equals(s) ? "Strap test — 5 calm minutes"
          : "pvt".equals(s) ? "PVT — on the computer"
-         : "Fatigue question";
+         : "eyes".equals(s) ? "Eyes — 0 to 5"
+         : "Fatigue question — 0 to 5";
   }
 
   private void ring(){
@@ -388,6 +395,7 @@ public class FatigueCheckActivity extends Activity {
     String s = steps.get(index);
     if ("strap".equals(s)) showStrap();
     else if ("pvt".equals(s)) showPvt();
+    else if ("eyes".equals(s)) showEyes();
     else showQuestion();
   }
 
@@ -772,23 +780,41 @@ public class FatigueCheckActivity extends Activity {
     head("");                        // the question brings its own title
     root.removeViewAt(root.getChildCount() - 1);
     boolean wake = !"sleep".equals(anchor);
-    AlarmActivity.buildQuestion(this, root,
-      (label == null || label.isEmpty() ? "" : label + " — ") + "10 is the maximum fatigue.",
+    FatigueQuestion.buildQuestion(this, root, "How tired are you?",
+      (label == null || label.isEmpty() ? "" : label + " — ") + "0 to 5.", FatigueQuestion.FATIGUE_LEVELS,
       wake ? "A note about the night (optional)" : "A note about the day (optional)",
-      "Skip the question", new AlarmActivity.Answer(){
+      "Skip the question", new FatigueQuestion.Answer(){
         @Override public void onScore(int score, String note){
           JSONObject r = status("done");
-          try { r.put("score", score); r.put("note", note); r.put("at", System.currentTimeMillis()); } catch (Exception ignored){}
+          try { r.put("score", score); r.put("scale", FatigueQuestion.SCALE); r.put("note", note); r.put("at", System.currentTimeMillis()); } catch (Exception ignored){}
           put("question", r);
           if (!test){
             try {
-              AlarmActivity.stageRow(FatigueCheckActivity.this, score, note, day);
+              FatigueQuestion.stageRow(FatigueCheckActivity.this, score, note, day);
               UploadWorker.schedule(FatigueCheckActivity.this);
             } catch (Exception ignored){}   // staging failed: the record below still has it
           }
           next();
         }
         @Override public void onSkip(){ put("question", status("skipped")); next(); }
+      });
+  }
+
+  // ---- 4. eyes
+
+  private void showEyes(){
+    head("");                        // the question brings its own title
+    root.removeViewAt(root.getChildCount() - 1);
+    FatigueQuestion.buildQuestion(this, root, "How are your eyes?",
+      (label == null || label.isEmpty() ? "" : label + " — ") + "0 to 5.", FatigueQuestion.EYE_LEVELS,
+      "A note about your eyes (optional)", "Skip the eyes", new FatigueQuestion.Answer(){
+        @Override public void onScore(int score, String note){
+          JSONObject r = status("done");
+          try { r.put("score", score); r.put("scale", FatigueQuestion.SCALE); r.put("note", note); r.put("at", System.currentTimeMillis()); } catch (Exception ignored){}
+          put("eyes", r);
+          next();
+        }
+        @Override public void onSkip(){ put("eyes", status("skipped")); next(); }
       });
   }
 

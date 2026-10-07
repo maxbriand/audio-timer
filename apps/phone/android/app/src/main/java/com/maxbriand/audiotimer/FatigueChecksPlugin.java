@@ -85,6 +85,7 @@ public class FatigueChecksPlugin extends Plugin {
       k.put("strap", Boolean.TRUE.equals(call.getBoolean("strap", false)));
       k.put("pvt", Boolean.TRUE.equals(call.getBoolean("pvt", false)));
       k.put("question", Boolean.TRUE.equals(call.getBoolean("question", false)));
+      k.put("eyes", Boolean.TRUE.equals(call.getBoolean("eyes", false)));
       String strap = call.getString("strapAddress", "");
       if (strap != null && !strap.isEmpty())
         FatigueChecks.configureStrap(getContext(), strap);

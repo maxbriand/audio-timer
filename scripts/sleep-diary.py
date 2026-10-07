@@ -17,8 +17,9 @@ rise time — raw, never derived. The diary's Note column reads the fatigue answ
 note (where the free text lives since 2026-09-05), falling back to the rise
 marker's note for the earlier era, when the wake-up sheet carried the field. A row
 whose stopReason is "fatigue" is the answer to the alarm that rings 45 minutes
-after the rise: a 1–10 self-score (10 = maximum fatigue), zero-length like the
-marker; the night's Fatigue column is the FIRST score after its onset — the
+after the rise: a self-score — 1–10 (10 = maximum fatigue) until 2026-10-06, 0–5 with a
+sentence per level since, the row then saying "fatigueScale": 5 — zero-length like the
+marker; the night's fatigue_1to10 / fatigue_0to5 column is the FIRST score after its onset — the
 morning's answer; a second ring after an evening mode switch belongs to the day. A row whose
 stopReason is "morning-walk" is the daylight marker: the ☀️ Morning walk event on
 the day screen, stamped with the tap that logged it — the walk IS the daylight
@@ -306,8 +307,23 @@ def load_phone():
 _fatigue_env = os.environ.get("AUDIO_TIMER_FATIGUE_DIR")
 FATIGUE_DIR = (Path(_fatigue_env).expanduser() if _fatigue_env
                else SRC.parent / "fatigue-checks")
+# The fatigue question was a bare 1–10 until 2026-10-06, then a 0–5 scale with a sentence
+# per level, and an eye question on the same kind of scale came with it (Maxime). An answer
+# says its scale ("scale": 5); one without is 1–10. The two scales never share a column:
+# the 1–10 answers stay in "Fatigue <when>" as history, the 0–5 ones fill "Fatigue05 <when>".
 FATIGUE_MEASURES = (("strap", "hr", "HR"), ("strap", "rmssd", "HRV"),
-                    ("pvt", "at", "PVT"), ("question", "score", "Fatigue"))
+                    ("pvt", "at", "PVT"), ("question", "score", "Fatigue"),
+                    ("question", "score", "Fatigue05"), ("eyes", "score", "Eyes"))
+
+
+def on_scale(what, st):
+    """Whether this answer belongs to this column: Fatigue is the 1–10 scale, Fatigue05
+    the 0–5 one; every other measure has a single kind."""
+    if what == "Fatigue":
+        return st.get("scale") in (None, 10)
+    if what == "Fatigue05":
+        return st.get("scale") == 5
+    return True
 
 
 def check_day(r):
@@ -370,7 +386,7 @@ def load_fatigue_checks():
             pass
         for step, field, what in FATIGUE_MEASURES:
             st = r["steps"].get(step)
-            if not isinstance(st, dict):
+            if not isinstance(st, dict) or not on_scale(what, st):
                 continue
             cell = c["values"].setdefault(what, {})     # the step exists: so does its column
             v = st.get(field)
@@ -463,7 +479,7 @@ def load_rows():
                 score = s.get("fatigueScore")
                 if isinstance(score, (int, float)):
                     rows.append({"kind": "fatigue", "start": start, "end": start,
-                                 "score": float(score),
+                                 "score": float(score), "scale": s.get("fatigueScale") or 10,
                                  "note": (s.get("note") or "").strip()})
                 continue
             if not s.get("ended"):
@@ -548,7 +564,7 @@ def day_row(date, melatonin=None, light=None):
     """A row with no night: the day's inputs only."""
     return {"date": date, "bedtime": None, "sol": None, "awakenings": None,
             "waso": None, "final_wake": None, "rise": None, "tib": None,
-            "tst": None, "se": None, "fatigue": None, "note": "",
+            "tst": None, "se": None, "fatigue": None, "fatigue05": None, "note": "",
             "melatonin": melatonin, "light": light, "phone_off": None,
             "cadence_off": None}
 
@@ -579,7 +595,7 @@ def night_metrics(rows, overrides):
     n = {"date": (bedtime - timedelta(hours=12)).strftime("%Y-%m-%d"), "bedtime": bedtime,
          "sol": mins(onset - bedtime), "awakenings": None, "waso": None,
          "final_wake": None, "rise": None, "tib": None, "tst": None, "se": None,
-         "fatigue": None, "light": None, "phone_off": None, "cadence_off": None,
+         "fatigue": None, "fatigue05": None, "light": None, "phone_off": None, "cadence_off": None,
          "note": ""}
 
     # The morning's self-score, if the alarm was answered: the last one after onset.
@@ -588,7 +604,8 @@ def night_metrics(rows, overrides):
     # note rides this answer too (moved off the wake-up sheet, 2026-09-05).
     scores = [r for r in rows if r["kind"] == "fatigue" and r["start"] > onset]
     if scores:
-        n["fatigue"] = scores[0]["score"]
+        # On its own scale's column: fatigue_1to10 until 2026-10-06, fatigue_0to5 after.
+        n["fatigue05" if scores[0]["scale"] == 5 else "fatigue"] = scores[0]["score"]
         n["note"] = scores[0].get("note", "")
 
     # Rise and final wake are different facts, each with exactly one source, and neither
@@ -675,7 +692,7 @@ def main():
     for n in nights:
         if overrides.get(n["date"], {}).get("bedtime_only", False):
             for k in ("sol", "awakenings", "waso", "final_wake", "rise", "tib", "tst",
-                      "se", "fatigue"):
+                      "se", "fatigue", "fatigue05"):
                 n[k] = None
     cad_sessions = load_cadence()
     attach_day_inputs(nights, doses, lights, load_phone_uses(), [b for _, b, _ in cad_sessions])
@@ -738,7 +755,7 @@ def main():
         w.writerow(["night", "morning_light", "melatonin", "computer",
                     "work", "personal", "computer_off", "phone", "phone_off", *fatigue_cols, "manual_test", "bedtime", "sol",
                     "awakenings", "waso", "final_wake", "rise", "tib", "tst",
-                    "se_pct", "fatigue_1to10", "avg4w_tst", "avg4w_se_pct", "note"])
+                    "se_pct", "fatigue_1to10", "fatigue_0to5", "avg4w_tst", "avg4w_se_pct", "note"])
         for n in nights:
             w_tst, w_se = window_avgs(n["bedtime"])
             w.writerow([
@@ -751,7 +768,7 @@ def main():
                 manual_tests.get(n["date"], ""),
                 iso(n["bedtime"]),
                 hm(n["sol"]), num(n["awakenings"]), hm(n["waso"]), iso(n["final_wake"]),
-                iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]),
+                iso(n["rise"]), hm(n["tib"]), hm(n["tst"]), num(n["se"]), num(n["fatigue"]), num(n["fatigue05"]),
                 hm(sum(w_tst) / len(w_tst)) if w_tst else "",
                 num(sum(w_se) / len(w_se)) if w_se else "",
                 n["note"],

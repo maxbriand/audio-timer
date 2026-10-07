@@ -48,6 +48,8 @@ FIELDS = (
     "id", "started", "ended", "listenedMinutes", "timerMinutes", "timerCancelled",
     "timerAutoArmed", "speed", "fadeInSeconds", "stopReason", "trackStart", "trackEnd",
     "stopPositionSeconds", "minutesUntouchedBeforeStop", "note", "fatigueScore",
+    # The scale of fatigueScore: 5 since the 0–5 question (2026-10-06); absent = 1–10.
+    "fatigueScale",
 )
 
 # POST /cardio files zone-alarm's sessions in their own folder with their own whitelist —
