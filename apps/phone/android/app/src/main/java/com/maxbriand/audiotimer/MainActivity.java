@@ -54,7 +54,6 @@ public class MainActivity extends BridgeActivity {
     applyWakeUp(getIntent());
     registerPlugin(ShakeWatchPlugin.class);
     registerPlugin(LogUploadPlugin.class);
-    registerPlugin(FatigueAlarmPlugin.class);
     registerPlugin(MelatoninAlarmPlugin.class);
     registerPlugin(WalkAlarmPlugin.class);
     registerPlugin(ZoneServicePlugin.class);

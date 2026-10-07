@@ -667,7 +667,7 @@
 <div id="fcsheet">
   <div class="sheetbox">
     <h2 id="fctitle">Fatigue check</h2>
-    <p>When it rings, and what it asks. The steps always run in this order: strap test, PVT, fatigue question.</p>
+    <p>When it rings, and what it asks. The steps always run in this order: strap test, PVT, fatigue question, eyes.</p>
     <div class="setrow"><label>Counted</label>
       <div class="chips two" id="fcanchor">
         <button class="chip sm" data-anchor="wake">After wake-up</button>
@@ -680,10 +680,11 @@
              placeholder="5" autocomplete="off" spellcheck="false">
     </div>
     <div class="setrow"><label>Steps</label>
-      <div class="chips three" id="fcsteps">
+      <div class="chips sm" id="fcsteps">
         <button class="chip sm" data-step="strap">Strap test</button>
         <button class="chip sm" data-step="pvt">PVT</button>
-        <button class="chip sm" data-step="question">Question</button>
+        <button class="chip sm" data-step="question">Fatigue</button>
+        <button class="chip sm" data-step="eyes">Eyes</button>
       </div>
     </div>
     <div id="fcwhen"></div>
@@ -1010,7 +1011,7 @@
         <label>Fatigue tracking — checks that ring during the day, each a delay after the last
                wake-up or before the next sleep time (next alarm − sleep duration). A check runs
                its steps in order — strap test (5 calm minutes; HR and HRV over the last 3),
-               PVT (on the computer), fatigue question — each with its own Skip, and lands as
+               PVT (on the computer), fatigue (0–5), eyes (0–5) — each with its own Skip, and lands as
                one entry in the log (needs the APK)</label>
         <div id="fclist"></div>
         <button class="addevent" id="fcadd">+ Add a fatigue check</button>
@@ -2556,13 +2557,16 @@ async function logItems(){
       }
     })),
     ...checks.map(k => {
-      const q = (k.steps || {}).question;
+      const q = (k.steps || {}).question, ey = (k.steps || {}).eyes;
       return {
         at: k.at, title: k.anchor === 'manual' ? '🫀 Manual test' : '🩺 Fatigue check' + (k.test ? ' — test' : ''),
         lines: fatigueCheckLines(k), photos: [],
         edit: {
           start: k.at, end: k.endedAt || null, note: q && q.status === 'done' ? q.note || '' : undefined,
-          extra: q && q.status === 'done' ? [{key: 'score', label: 'Fatigue (0–10)', value: q.score}] : [],
+          extra: [
+            q && q.status === 'done' && {key: 'score', label: 'Fatigue (0–' + (q.scale || 10) + ')', value: q.score, max: q.scale || 10},
+            ey && ey.status === 'done' && {key: 'eyes', label: 'Eyes (0–' + (ey.scale || 5) + ')', value: ey.score, max: ey.scale || 5}
+          ].filter(Boolean),
           loggedAt: k.loggedAt || k.endedAt || k.at,
           save: v => saveFatigueCheck(k, v), del: () => deleteFatigueCheck(k),
           upload: k.test ? null : {sent: !!k.syncedAt, due: dueAt(k.id, k.endedAt || k.at), send: () => sendNow(k.id, pushFatigueLog)}
@@ -2707,7 +2711,8 @@ function openEntry(it){
     extra.innerHTML = '';
     for (const f of e.extra || []){
       const row = document.createElement('div'); row.className = 'enrow';
-      row.innerHTML = '<label></label><input type="number" min="0" max="10" step="1" inputmode="numeric" class="syncin">';
+      row.innerHTML = '<label></label><input type="number" min="0" step="1" inputmode="numeric" class="syncin">';
+      row.querySelector('input').max = f.max || 10;
       row.querySelector('label').textContent = f.label;
       const inp = row.querySelector('input');
       inp.dataset.key = f.key;
@@ -2773,7 +2778,8 @@ $('#ensave').onclick = async () => {
   const extra = {};
   for (const inp of $('#enextra').querySelectorAll('input')){
     const v = inp.value === '' ? null : Math.round(Number(inp.value));
-    if (v != null && (isNaN(v) || v < 0 || v > 10)) return toast('Keep it between 0 and 10');
+    const max = Number(inp.max) || 10;
+    if (v != null && (isNaN(v) || v < 0 || v > max)) return toast('Keep it between 0 and ' + max);
     extra[inp.dataset.key] = v;
   }
   await e.save({start, end, note: $('#ennote').value.trim(), extra, photos: entryPhotos, loggedAt: e.loggedAt});
@@ -2827,6 +2833,8 @@ async function saveFatigueCheck(k, v){
   k.localDay = dayKey(v.start);
   const q = (k.steps || {}).question;
   if (q && q.status === 'done'){ if (v.extra.score != null) q.score = v.extra.score; q.note = v.note; }
+  const ey = (k.steps || {}).eyes;
+  if (ey && ey.status === 'done' && v.extra.eyes != null) ey.score = v.extra.eyes;
   delete k.syncedAt;
   await putFatigueCheck(k);
   pushFatigueLog();
@@ -2943,10 +2951,13 @@ function fatigueCheckLines(k){
     : r.status === 'failed' ? 'too few beats (' + (r.beats || 0) + ') — no result' : 'skipped'));
   const v = st.pvt;
   if (v) out.push('PVT — ' + (v.status === 'done' ? 'done' + (v.at ? ' at ' + fmtClock(v.at) : '') : 'skipped'));
+  // 0–5 since 2026-10-06 (scale 5 on the answer); an answer without a scale is 1–10.
   const q = st.question;
   if (q) out.push('Fatigue — ' + (q.status === 'done'
-    ? q.score + '/10' + (q.note ? ' · “' + q.note + '”' : '') + (k.test ? ' · not sent to the server (test)' : '')
+    ? q.score + '/' + (q.scale || 10) + (q.note ? ' · “' + q.note + '”' : '') + (k.test ? ' · not sent to the server (test)' : '')
     : 'skipped'));
+  const e = st.eyes;
+  if (e) out.push('Eyes — ' + (e.status === 'done' ? e.score + '/' + (e.scale || 5) + (e.note ? ' · “' + e.note + '”' : '') : 'skipped'));
   return out;
 }
 /* The cardio sessions, as entries of the day log — everything a row of
@@ -3125,9 +3136,9 @@ async function pushMelatonin(){
 /* ---------- fatigue tracking (⚙ → Day) ----------
    Any number of checks a day. Each hangs on one of the day's two fixed points — a delay
    AFTER the last wake-up, or a delay BEFORE the next sleep time (the next alarm minus the
-   sleep duration of ⚙ → Sleep) — and is made of up to three steps, always run in the same
-   order: strap test, PVT, fatigue question. This replaces the single question that rang 45
-   minutes after the rise: it is the list's default first entry now, editable like the rest.
+   sleep duration of ⚙ → Sleep) — and is made of up to four steps, always run in the same
+   order: strap test, PVT, fatigue question, eyes. This replaces the single question that rang
+   45 minutes after the rise; the list starts empty (2026-10-07) — no check rings until made.
 
    The list lives here; the clocks, the ring and the check itself are native (FatigueChecks),
    because they must work with the page long gone. So this side only pushes — the list, the
@@ -3140,7 +3151,8 @@ const nativeFatigue = (() => {
   return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueChecks) || null;
 })();
 const FC_MAX = 20;           // the native side has that many alarm slots
-const FC_DEFAULT = [{id: 'morning', anchor: 'wake', offsetMin: 45, strap: false, pvt: false, question: true}];
+// No check by default (Maxime, 2026-10-07): a fatigue alarm rings only once one is made in ⚙ → Day.
+const FC_DEFAULT = [];
 let fatigueChecks = [], fcLoaded = false, fcArmed = {}, fcEdit = null;
 
 // The same words the native ring and record use: "5 min after wake-up", "1 h 30 before sleep".
@@ -3158,7 +3170,7 @@ function fcColumn(k){
   const d = m < 60 ? m + 'min' : Math.floor(m / 60) + 'h' + (m % 60 ? String(m % 60).padStart(2, '0') : '');
   return (sleep ? '-' : '+') + d + (sleep ? ' sleep' : '');
 }
-const fcSteps = k => [k.strap && 'strap test', k.pvt && 'PVT', k.question && 'fatigue question']
+const fcSteps = k => [k.strap && 'strap test', k.pvt && 'PVT', k.question && 'fatigue question', k.eyes && 'eyes']
   .filter(Boolean).join(' · ') || 'no step';
 // In day order: the morning's checks by their delay, then the evening's, furthest from bed first.
 const fcOrder = (a, b) => (a.anchor === 'sleep') - (b.anchor === 'sleep') ||
@@ -3194,7 +3206,7 @@ async function loadFatigueChecks(){
       if (Array.isArray(k) && k.length){ saved = k; await setMeta('fatigueChecks', k); }
     } catch(_){}
   }
-  // Never saved: the one check the app always had. An empty list is a choice, and is kept.
+  // Never saved: no check (FC_DEFAULT). An empty list is a choice, and is kept.
   fatigueChecks = Array.isArray(saved) ? saved : FC_DEFAULT.map(k => Object.assign({}, k));
   fcLoaded = true;
 }
@@ -3245,11 +3257,11 @@ function paintFatigueChecks(){
 }
 
 async function testFatigueCheck(k){
-  if (!k.strap && !k.pvt && !k.question) return toast('Pick at least one step');
+  if (!k.strap && !k.pvt && !k.question && !k.eyes) return toast('Pick at least one step');
   if (!nativeFatigue) return toast('Needs the APK — the check is a screen of the installed app');
   try {
     await nativeFatigue.test({id: k.id, anchor: k.anchor, offsetMin: k.offsetMin, strap: !!k.strap,
-      pvt: !!k.pvt, question: !!k.question, strapAddress: strapAddress()});
+      pvt: !!k.pvt, question: !!k.question, eyes: !!k.eyes, strapAddress: strapAddress()});
     // It rings through the real path (alarm → notification → screen), so locking the phone
     // tests what a real check does.
     toast('Rings in 5 seconds — lock the phone to test it like a real check');
@@ -3279,8 +3291,8 @@ const closeFcSheet = () => { $('#fcsheet').classList.remove('on'); fcEdit = null
 function readFcSheet(){
   const m = parseOffset($('#fcoffset').value);
   if (isNaN(m) || m > 720){ toast('Write the delay as minutes or h:mm, 12 h at most'); return null; }
-  if (!fcEdit.strap && !fcEdit.pvt && !fcEdit.question){ toast('Pick at least one step'); return null; }
-  return {id: fcEdit.id, anchor: fcEdit.anchor, offsetMin: m, strap: !!fcEdit.strap, pvt: !!fcEdit.pvt, question: !!fcEdit.question};
+  if (!fcEdit.strap && !fcEdit.pvt && !fcEdit.question && !fcEdit.eyes){ toast('Pick at least one step'); return null; }
+  return {id: fcEdit.id, anchor: fcEdit.anchor, offsetMin: m, strap: !!fcEdit.strap, pvt: !!fcEdit.pvt, question: !!fcEdit.question, eyes: !!fcEdit.eyes};
 }
 
 $('#fcadd').onclick = () => openFcSheet(null);
@@ -4102,13 +4114,9 @@ function goNight(){
   $('#nightsheet').classList.remove('on');
   {
     /* Back to bed means the morning is over: a fatigue check still counting down from the
-       last rise would ring into the nap, so those are withdrawn. The next rise re-arms them.
-       (FatigueAlarm is the single 45-minute question they replaced — one may still be
-       pending from before the update.) */
+       last rise would ring into the nap, so those are withdrawn. The next rise re-arms them. */
     try {
       const C = window.Capacitor;
-      const FA = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.FatigueAlarm;
-      if (FA) FA.cancel();
       if (nativeFatigue) nativeFatigue.cancelWake().then(st => { fcArmed = (st && st.armed) || {}; paintFatigueChecks(); }).catch(() => {});
       const WA = C.Plugins.WalkAlarm;
       if (WA) WA.cancel();

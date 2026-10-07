@@ -29,7 +29,7 @@ import android.os.Build;
 final class Ring {
   // Notification ids. Every notification id of the app is unique (check-rings.mjs);
   // HrService (1) and ShakeService (7, 8) keep theirs, outside this list.
-  static final int ID_FATIGUE_ALARM = 45;
+  // 45 was the single 45-minute fatigue question, removed 2026-10-07.
   static final int ID_FATIGUE_CHECK = 46;
   static final int ID_WALK = 47;
   static final int ID_WAKE = 48;
