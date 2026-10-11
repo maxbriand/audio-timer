@@ -72,6 +72,13 @@ final class MelatoninAlarm {
     return prefs(c).getLong(KEY_SHOWN, 0) >= next ? 0 : next;
   }
 
+  /* The ring's PendingIntent still exists: AlarmManager holds every armed one, so none means
+     nothing is armed (one may outlive its alarm, so its presence alone proves less). */
+  static boolean intentAlive(Context c){
+    return PendingIntent.getBroadcast(c, 10, new Intent(c, MelatoninReceiver.class),
+      PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null;
+  }
+
   private static PendingIntent ring(Context c){
     Intent i = new Intent(c, MelatoninReceiver.class);
     return PendingIntent.getBroadcast(c, 10, i,
