@@ -92,7 +92,9 @@ import java.util.UUID;
  *
  * Auto (Maxime, 2026-10-12): switched on from the manual test's screen, each test that ends is
  * saved and the next one starts at once, on the same strap link, until Auto is switched off —
- * the test under way then ends as usual, with Run again / Done.
+ * the test under way then ends as usual, with Run again / Done. Auto skips the two settling
+ * minutes (2026-10-12): switching it on skips them for the test under way, if it is not
+ * recording yet, and every chained test records its 3 minutes from its first beat.
  */
 public class FatigueCheckActivity extends Activity {
   static final String EXTRA_CHECK_ID = "checkId";
@@ -434,7 +436,10 @@ public class FatigueCheckActivity extends Activity {
     skipSettleBtn.setTextColor(ACCENT);
     if (manual){
       final Button[] autoBtn = new Button[1];
-      autoBtn[0] = button(autoLabel(), false, () -> { auto = !auto; autoBtn[0].setText(autoLabel()); styleAuto(autoBtn[0]); });
+      autoBtn[0] = button(autoLabel(), false, () -> {
+        auto = !auto; autoBtn[0].setText(autoLabel()); styleAuto(autoBtn[0]);
+        if (auto && strapLive && !recording) skipSettle();     // Auto never settles
+      });
       styleAuto(autoBtn[0]);
       button("Stop", false, this::finishCheck);
       showSitting();
@@ -442,6 +447,7 @@ public class FatigueCheckActivity extends Activity {
     else button("Skip the strap test", false, () -> { endStrap(); put("strap", status("skipped")); next(); });
 
     recFrom = RECORD_FROM_MS; calmEnd = CALM_MS; skipAsked = false;
+    if (manual && auto) skipSettle();      // sitting still since the last test: record at once
     firstBeatAt = lastBeatAt = recFromWall = 0;
     hrSum = 0; hrN = 0; dropped = 0; rr.clear();
     ectopic = 0; rrRaw.clear(); rrFlag.clear(); rrPending.clear(); rrRef = Float.NaN; rrRejectRun = 0;
