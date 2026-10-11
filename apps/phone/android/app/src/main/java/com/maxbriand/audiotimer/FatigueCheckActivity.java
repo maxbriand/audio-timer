@@ -89,6 +89,10 @@ import java.util.UUID;
  * and the screen lists all of this sitting's results. Its records carry anchor "manual" and
  * the column "manual_test": the diary keeps them out of the fatigue columns and lists the
  * day's tests in one manual_test column.
+ *
+ * Auto (Maxime, 2026-10-12): switched on from the manual test's screen, each test that ends is
+ * saved and the next one starts at once, on the same strap link, until Auto is switched off —
+ * the test under way then ends as usual, with Run again / Done.
  */
 public class FatigueCheckActivity extends Activity {
   static final String EXTRA_CHECK_ID = "checkId";
@@ -178,6 +182,9 @@ public class FatigueCheckActivity extends Activity {
   private boolean test, saved, manual;
   // The manual test's results this sitting, newest last: "HH:MM — HR bpm · HRV ms".
   private final ArrayList<String> sitting = new ArrayList<>();
+  // Auto: the next manual test starts as soon as one ends. Stays on across tests.
+  private boolean auto;
+  private String autoNote = "";     // what the last auto test ended with, when it gave nothing
   // When recording starts and ends, counted from the first beat: 2 and 5 minutes, unless the
   // settling was skipped.
   private long recFrom = RECORD_FROM_MS, calmEnd = CALM_MS;
@@ -418,12 +425,20 @@ public class FatigueCheckActivity extends Activity {
     clockView = add(text("", 34, ACCENT, true), 20);
     phaseView = add(text("", 15, MUTED, false), 6);
     hintView = add(text("", 14, WARN, false), 14);
+    // Its own line: the hint is cleared by the first beat, which comes at once on a kept link.
+    if (!autoNote.isEmpty()){ add(text(autoNote, 14, WARN, false), 6); autoNote = ""; }
     connectBtn = button("Connect sensor", false, this::pickSensor);
     connectBtn.setTextColor(ACCENT);
     connectBtn.setTextSize(17);
     skipSettleBtn = button("Skip the 2 min — record now", false, this::skipSettle);
     skipSettleBtn.setTextColor(ACCENT);
-    if (manual) button("Stop", false, this::finishCheck);
+    if (manual){
+      final Button[] autoBtn = new Button[1];
+      autoBtn[0] = button(autoLabel(), false, () -> { auto = !auto; autoBtn[0].setText(autoLabel()); styleAuto(autoBtn[0]); });
+      styleAuto(autoBtn[0]);
+      button("Stop", false, this::finishCheck);
+      showSitting();
+    }
     else button("Skip the strap test", false, () -> { endStrap(); put("strap", status("skipped")); next(); });
 
     recFrom = RECORD_FROM_MS; calmEnd = CALM_MS; skipAsked = false;
@@ -440,6 +455,8 @@ public class FatigueCheckActivity extends Activity {
     }
     HrService.setBeatListener((bpm, rrMs) -> ui.post(() -> onBeats(bpm, rrMs)));
     phaseView.setText("Looking for the strap — put it on, sit down.");
+    // Auto kept the link this test asked for: the beats are already coming, nothing to connect.
+    if (ownsLink && HrService.isRunning()){ ui.postDelayed(tick, 500); return; }
     // Decided on the first attempt only: after "Run it again" the service this test started
     // may still be winding down, and must not be mistaken for a run's.
     if (foreignLink == null) foreignLink = HrService.isRunning();
@@ -459,6 +476,15 @@ public class FatigueCheckActivity extends Activity {
       connect(address);
     }, wasRunning ? FIND_MS : 0);
     ui.postDelayed(tick, 500);
+  }
+
+  private String autoLabel(){
+    return auto ? "Auto: on — test after test (tap to stop)" : "Auto: off — tap to chain tests";
+  }
+
+  private void styleAuto(Button b){
+    b.setTextColor(auto ? GOOD : MUTED);
+    b.setTypeface(auto ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
   }
 
   /** The two settling minutes, skipped: the 3 recorded minutes start now (or at the first beat). */
@@ -558,10 +584,16 @@ public class FatigueCheckActivity extends Activity {
     flushPendingRr();     // a recording too short to fill the starting window
     final double[] h = FatigueChecks.hrv(rr);
     final int n = (int) h[0];
-    endStrap();
+    final boolean chain = manual && auto;     // Auto: keep the strap for the next test
+    endStrap(chain);
     head("Strap test");
     final int beats = n;
     if (n < MIN_INTERVALS || Double.isNaN(h[1]) || hrN == 0){
+      if (chain){
+        autoNote = "Last test: only " + n + " beat-to-beat intervals — nothing saved. Check the contact.";
+        showStrap();
+        return;
+      }
       add(text("Not enough beats", 22, WARN, true), 22);
       add(text("The strap sent " + n + " beat-to-beat intervals in the three minutes — too few to mean anything. "
         + "Check the contact (wet the electrodes) and run it again, or skip.", 15, MUTED, false), 10);
@@ -606,6 +638,7 @@ public class FatigueCheckActivity extends Activity {
     }
     if (manual){
       saveManual(r, poor);
+      if (chain){ showStrap(); return; }
       showSitting();
       button("Run again", true, this::showStrap);
       button("Done", false, this::finishCheck);
@@ -745,13 +778,16 @@ public class FatigueCheckActivity extends Activity {
   }
 
   /** Stop listening; and if this test asked for the strap, give it back. */
-  private void endStrap(){
+  private void endStrap(){ endStrap(false); }
+
+  /** keepLink: Auto chains another test on the same link, so the strap is not given back yet. */
+  private void endStrap(boolean keepLink){
     stopScan();
     if (picker != null){ try { picker.dismiss(); } catch (Exception ignored){} picker = null; }
     strapLive = false; recording = false;
     ui.removeCallbacks(tick);
     HrService.setBeatListener(null);
-    if (ownsLink){
+    if (ownsLink && !keepLink){
       ownsLink = false;
       try {
         if (HrService.isRunning())
