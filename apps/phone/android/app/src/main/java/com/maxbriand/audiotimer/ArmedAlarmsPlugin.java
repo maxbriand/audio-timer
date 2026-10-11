@@ -24,7 +24,8 @@ import org.json.JSONObject;
 
 /*
  * 🔔 — every ring the app has armed, and whether the phone will let each one ring
- * (Maxime, 2026-10-12).
+ * (Maxime, 2026-10-12). Rings that are set up but have no time yet (a fatigue check waiting
+ * for the wake-up it counts from) are listed too, with what they wait for.
  *
  * Android does not let an app list its own alarms, so each one is read where it was armed
  * (the time kept beside every setAlarmClock) and then checked against the system:
@@ -56,12 +57,21 @@ public class ArmedAlarmsPlugin extends Plugin {
     if (WalkAlarm.at(c) > 0)
       alarms.put(alarm(c, "walk", "🌅 Morning walk", WalkAlarm.at(c),
         WalkAlarm.intentAlive(c), WalkAlarmReceiver.CHANNEL, false, now));
+    // Set up but with no ring time yet — a check waiting for its wake-up, mostly.
+    JSArray waiting = new JSArray();
     JSONArray checks = FatigueChecks.checks(c);
     for (int i = 0; i < checks.length() && i < FatigueChecks.MAX; i++){
       JSONObject k = checks.optJSONObject(i);
       if (k == null) continue;
       long at = FatigueChecks.armedAt(c, k.optString("id"));
-      if (at == 0) continue;            // not armed for this anchor (rung, or no anchor yet)
+      if (at == 0){
+        JSObject w = new JSObject();
+        w.put("kind", "fatigue");
+        w.put("title", "🩺 Fatigue check — " + FatigueChecks.label(k));
+        w.put("why", FatigueChecks.waitingFor(c, k));
+        waiting.put(w);
+        continue;
+      }
       alarms.put(alarm(c, "fatigue", "🩺 Fatigue check — " + FatigueChecks.label(k), at,
         FatigueChecks.intentAlive(c, i), FatigueCheckReceiver.CHANNEL, true, now));
     }
@@ -99,6 +109,7 @@ public class ArmedAlarmsPlugin extends Plugin {
     out.put("now", now);
     out.put("systemNext", sysNext);
     out.put("alarms", alarms);
+    out.put("waiting", waiting);
     out.put("phone", phone);
     call.resolve(out);
   }

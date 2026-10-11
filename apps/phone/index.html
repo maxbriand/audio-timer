@@ -935,11 +935,15 @@
       <button id="alarmsBack" class="ghost">&#8592; Back</button>
       <h2 id="alarmsTitle">Alarms</h2>
     </div>
-    <p class="cardsub">Every ring the app has armed in Android, checked against what stops a ring on this phone. Only the ones with nothing in the way are under "Will ring".</p>
+    <p class="cardsub">Every ring the app has armed in Android, checked against what stops a ring on this phone. Only the ones with nothing in the way are under "Will ring"; the ones set up but with no time yet are listed below them.</p>
     <p id="alarmsNote" class="cardsub"></p>
     <div class="card">
       <div class="cardtitle">Will ring</div>
       <div id="alarmsSure"></div>
+    </div>
+    <div class="card" id="alarmsWaitCard" hidden>
+      <div class="cardtitle">Set up, waiting for a time</div>
+      <div id="alarmsWait"></div>
     </div>
     <div class="card" id="alarmsBadCard" hidden>
       <div class="cardtitle abad">Armed, but will not ring</div>
@@ -5940,7 +5944,8 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
    held; the earliest matched with the system's next alarm clock) and the phone against
    what has silenced rings here before (notifications, channel, alarm volume, Do Not
    Disturb, MIUI's lock-screen and background-window permissions). "Will ring" lists only
-   the alarms with nothing in the way; the others are listed with why. */
+   the alarms with nothing in the way; the others are listed with why. Rings set up but with
+   no time yet (a check waiting for its wake-up, the walk reminder) are listed apart. */
 (() => {
   const el = id => document.getElementById(id);
   const plugin = () => {
@@ -5992,6 +5997,13 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
     el('alarmsSure').innerHTML = sure.length
       ? sure.map(([a]) => row(a, now, a.systemConfirmed ? '✓ confirmed by Android as the next alarm' : '', false)).join('')
       : '<div class="uempty">Nothing armed that will ring.</div>';
+    // Set up, no ring time yet. The walk reminder is the page's setting: it is armed at the rise.
+    const wait = (r.waiting || []).slice();
+    if (typeof settings !== 'undefined' && settings.walkReminder && !list.some(a => a.kind === 'walk'))
+      wait.unshift({ title: '🌅 Morning walk', why: 'rings 30 min after your next wake-up' });
+    el('alarmsWaitCard').hidden = !wait.length;
+    el('alarmsWait').innerHTML = wait.map(w => '<div class="arow"><div class="atop"><span>' + esc(w.title)
+      + '</span></div><div class="asub">' + esc(w.why) + '</div></div>').join('');
     el('alarmsBadCard').hidden = !bad.length;
     el('alarmsBad').innerHTML = bad.map(([a, b]) => row(a, now, b.join(' · '), true)).join('');
 

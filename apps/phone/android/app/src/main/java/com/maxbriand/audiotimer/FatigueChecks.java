@@ -212,6 +212,21 @@ final class FatigueChecks {
     catch (Exception e){ return null; }
   }
 
+  /* Why a check that is set up has no ring time — what 🔔 says under "Waiting for a time".
+     The same tests as rearm(), in words. */
+  static String waitingFor(Context c, JSONObject k){
+    boolean sleep = "sleep".equals(k.optString("anchor"));
+    long a = anchor(c, k);
+    if (a == 0) return sleep
+      ? (WakeAlarm.goal(c).isEmpty() ? "needs the wake-up alarm on — bedtime is counted back from it"
+                                     : "waits for the wake-up alarm to be armed again (snoozed now)")
+      : "waits for your next wake-up";
+    if (prefs(c).getLong(FIRED + k.optString("id"), 0) == a) return sleep
+      ? "rang for tonight — next one from the next wake-up alarm" : "rang for this wake-up — next one after your next wake-up";
+    return sleep ? "its time tonight has passed — next one from the next wake-up alarm"
+                 : "its time after this wake-up has passed — next one after your next wake-up";
+  }
+
   /** The armed moment of a check, 0 when it is not armed — what ⚙ shows under each one. */
   static long armedAt(Context c, String id){ return prefs(c).getLong(ARMED_AT + id, 0); }
 
