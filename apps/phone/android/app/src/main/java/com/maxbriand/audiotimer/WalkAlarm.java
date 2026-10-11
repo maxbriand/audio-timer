@@ -49,6 +49,13 @@ final class WalkAlarm {
     return today().equals(prefs(c).getString(KEY_DONE_DAY, ""));
   }
 
+  /* The ring's PendingIntent still exists: AlarmManager holds every armed one, so none means
+     nothing is armed (one may outlive its alarm, so its presence alone proves less). */
+  static boolean intentAlive(Context c){
+    return PendingIntent.getBroadcast(c, 20, new Intent(c, WalkAlarmReceiver.class),
+      PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null;
+  }
+
   private static PendingIntent ring(Context c){
     Intent i = new Intent(c, WalkAlarmReceiver.class);
     return PendingIntent.getBroadcast(c, 20, i,

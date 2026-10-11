@@ -78,6 +78,13 @@ final class WakeAlarm {
     return ((a - b + 720 + 1440) % 1440) - 720;
   }
 
+  /* The ring's PendingIntent still exists: AlarmManager holds every armed one, so none means
+     nothing is armed (one may outlive its alarm, so its presence alone proves less). */
+  static boolean intentAlive(Context c){
+    return PendingIntent.getBroadcast(c, 30, new Intent(c, WakeAlarmReceiver.class),
+      PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null;
+  }
+
   private static PendingIntent ring(Context c){
     Intent i = new Intent(c, WakeAlarmReceiver.class);
     return PendingIntent.getBroadcast(c, 30, i,

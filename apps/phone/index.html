@@ -37,18 +37,19 @@
   h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
   #storage{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums}
   .hright{display:flex;align-items:center;gap:10px}
-  #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav{
+  #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav,#alarmsnav{
     background:var(--surface-2);border:1px solid var(--line);color:var(--accent);
     width:34px;height:34px;border-radius:10px;font-size:16px;line-height:1;flex:none
   }
-  #setnav:active,#lognav:active,#modenav:active,#livenav:active,#phonenav:active,#zonenav:active{background:var(--line)}
-  /* Six buttons and the title do not fit a 360 dp phone at full size — 📱 was the one too
-     many. Below 400 px the row tightens instead of wrapping the title onto a second line. */
+  #setnav:active,#lognav:active,#modenav:active,#livenav:active,#phonenav:active,#zonenav:active,#alarmsnav:active{background:var(--line)}
+  /* Seven buttons and the title do not fit a 360 dp phone at full size — 📱 was already one
+     too many, 🔔 is another. Below 400 px the row tightens instead of wrapping the title onto
+     a second line. */
   @media (max-width:400px){
-    header{padding-left:14px;padding-right:14px}
-    h1{font-size:17px;white-space:nowrap}
-    .hright{gap:6px}
-    #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav{width:32px;height:32px;font-size:15px}
+    header{padding-left:12px;padding-right:12px}
+    h1{font-size:16px;white-space:nowrap}
+    .hright{gap:5px}
+    #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav,#alarmsnav{width:32px;height:32px;font-size:15px}
   }
   #sunview{display:none}
 
@@ -560,6 +561,19 @@
      dressed as .krow. */
   #phonewrap{display:contents}
   #phonewrap .page{z-index:40}
+  /* 🔔 Alarms: the same kind of page, on the #alarms route. */
+  #alarmswrap{display:contents}
+  #alarmswrap .page{z-index:40}
+  .zone .arow{padding:9px 0;border-bottom:1px solid var(--line)}
+  .zone .arow:last-child{border-bottom:none}
+  .zone .arow .atop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font:500 13px/1.4 var(--sans)}
+  .zone .arow .atop b{flex:none;font:500 12px/1.4 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+  .zone .arow .asub{font:400 10.5px/1.5 var(--mono);color:var(--dim);margin-top:2px}
+  .zone .arow .asub.bad{color:#FFC9C4}
+  .zone .aok{color:#B9F6CF}
+  .zone .abad{color:#FFC9C4}
+  .zone .aunk{color:#FFDF8E}
+  .zone #alarmsAppInfo{margin-top:12px;width:100%;padding:13px 8px}
   .zone .daybar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px}
   .zone .daybar b{font:700 15px/1 var(--sans);letter-spacing:.02em}
   .zone .daybar .ghost{font-size:16px;padding:8px 16px}
@@ -588,6 +602,7 @@
 <header>
   <h1>Audio Timer</h1>
   <div class="hright">
+    <button id="alarmsnav" aria-label="Armed alarms">🔔</button>
     <button id="zonenav" aria-label="Zone alarm">🏃</button>
     <button id="livenav" aria-label="Live sensor data">🫀</button>
     <button id="phonenav" aria-label="Phone use">📱</button>
@@ -907,6 +922,33 @@
         <div class="cardtitle">Raw log <span class="cardsub" style="display:inline">— every event of the day, by kind</span></div>
         <div id="phoneRaw"></div>
       </div>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- 🔔 Alarms — every ring the app has armed, and whether the phone will let it ring -->
+<div id="alarmswrap" class="zone">
+<section id="alarmsPage" class="page" role="region" aria-labelledby="alarmsTitle">
+  <div class="inner">
+    <div class="pagehead">
+      <button id="alarmsBack" class="ghost">&#8592; Back</button>
+      <h2 id="alarmsTitle">Alarms</h2>
+    </div>
+    <p class="cardsub">Every ring the app has armed in Android, checked against what stops a ring on this phone. Only the ones with nothing in the way are under "Will ring".</p>
+    <p id="alarmsNote" class="cardsub"></p>
+    <div class="card">
+      <div class="cardtitle">Will ring</div>
+      <div id="alarmsSure"></div>
+    </div>
+    <div class="card" id="alarmsBadCard" hidden>
+      <div class="cardtitle abad">Armed, but will not ring</div>
+      <div id="alarmsBad"></div>
+    </div>
+    <div class="card">
+      <div class="cardtitle">The phone</div>
+      <div id="alarmsPhone"></div>
+      <button id="alarmsAppInfo" class="ghost">Open App info</button>
     </div>
   </div>
 </section>
@@ -5889,6 +5931,113 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
     else refresh();
   };
   el('phoneBack').onclick = () => { if (location.hash) history.back(); };
+  route();
+})();
+
+/* ---------- 🔔 alarms ----------
+   Every ring the app has armed — wake-up, melatonin, morning walk, fatigue checks — read
+   from the ArmedAlarms plugin, which checks each against Android (its PendingIntent still
+   held; the earliest matched with the system's next alarm clock) and the phone against
+   what has silenced rings here before (notifications, channel, alarm volume, Do Not
+   Disturb, MIUI's lock-screen and background-window permissions). "Will ring" lists only
+   the alarms with nothing in the way; the others are listed with why. */
+(() => {
+  const el = id => document.getElementById(id);
+  const plugin = () => {
+    const C = window.Capacitor;
+    return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.ArmedAlarms) || null;
+  };
+  const esc = t => String(t).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+  const pad = n => String(n).padStart(2, '0');
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let open = false, timer = 0;
+
+  function when(at, now){
+    const d = new Date(at), today = new Date(now);
+    const t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const days = Math.round((new Date(d).setHours(0,0,0,0) - new Date(today).setHours(0,0,0,0)) / 86400000);
+    const day = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : DAYS[d.getDay()] + ' ' + d.getDate();
+    const m = Math.max(0, Math.round((at - now) / 60000));
+    const left = m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + pad(m % 60);
+    return day + ' ' + t + ' · in ' + left;
+  }
+
+  // What stands between this alarm and a ring. Empty = it rings.
+  function blockers(a, ph){
+    const out = [];
+    if (!a.ahead) out.push('its time has passed');
+    if (!a.intentAlive) out.push('Android no longer holds it — reopen the app to re-arm');
+    if (!ph.notifications) out.push('notifications are off for the app');
+    if (a.importance === 0) out.push('its notification channel is turned off');
+    else if (a.importance > 0 && a.importance < 4) out.push('its notification channel was lowered — no ring screen');
+    if (ph.alarmVolume === 0) out.push('the alarm volume is at 0');
+    if (ph.totalSilence) out.push('Do Not Disturb is on Total silence');
+    if (!ph.exactAlarms) out.push('exact alarms are not allowed');
+    if (a.fullScreen && !ph.fullScreenIntent) out.push('full-screen notifications are not allowed');
+    if (a.fullScreen && ph.miuiLockScreen === 'denied') out.push('MIUI: "Show on Lock screen" is off');
+    if (a.fullScreen && ph.miuiBackgroundWindows === 'denied') out.push('MIUI: "Open new windows while running in the background" is off');
+    return out;
+  }
+
+  function row(a, now, sub, bad){
+    return '<div class="arow"><div class="atop"><span>' + esc(a.title) + '</span><b>' + esc(when(a.at, now)) + '</b></div>'
+      + (sub ? '<div class="asub' + (bad ? ' bad' : '') + '">' + esc(sub) + '</div>' : '') + '</div>';
+  }
+
+  function paint(r){
+    const ph = r.phone || {}, now = r.now || Date.now();
+    const list = (r.alarms || []).slice().sort((x, y) => x.at - y.at);
+    const sure = [], bad = [];
+    for (const a of list){ const b = blockers(a, ph); (b.length ? bad : sure).push([a, b]); }
+    el('alarmsSure').innerHTML = sure.length
+      ? sure.map(([a]) => row(a, now, a.systemConfirmed ? '✓ confirmed by Android as the next alarm' : '', false)).join('')
+      : '<div class="uempty">Nothing armed that will ring.</div>';
+    el('alarmsBadCard').hidden = !bad.length;
+    el('alarmsBad').innerHTML = bad.map(([a, b]) => row(a, now, b.join(' · '), true)).join('');
+
+    const yes = '<span class="aok">✓</span>', no = '<span class="abad">✗</span>', unk = '<span class="aunk">?</span>';
+    const op = v => v === 'allowed' ? yes : v === 'denied' ? no : unk;
+    const krow = (k, v) => '<div class="krow"><span>' + k + '</span><b>' + v + '</b></div>';
+    const vol = ph.alarmVolume < 0 ? unk : (ph.alarmVolume > 0 ? yes : no) + ' ' + ph.alarmVolume + ' / ' + ph.alarmVolumeMax;
+    let rows = krow('Notifications', ph.notifications ? yes : no)
+      + krow('Alarm volume', vol)
+      + krow('Do Not Disturb', ph.totalSilence ? no + ' total silence' : yes)
+      + krow('Exact alarms', ph.exactAlarms ? yes : no);
+    if (ph.miui) rows += krow('MIUI · Show on Lock screen', op(ph.miuiLockScreen))
+      + krow('MIUI · Open windows in background', op(ph.miuiBackgroundWindows));
+    el('alarmsPhone').innerHTML = rows;
+    el('alarmsNote').textContent = ph.miui && (ph.miuiLockScreen === 'unknown' || ph.miuiBackgroundWindows === 'unknown')
+      ? 'MIUI\'s permissions could not be read — check them in App info → Other permissions.' : '';
+  }
+
+  async function refresh(){
+    const P = plugin();
+    if (!P){
+      el('alarmsSure').innerHTML = '';
+      el('alarmsNote').textContent = 'Only the installed app (the APK) arms alarms — a browser has none to show.';
+      return;
+    }
+    try { paint(await P.list()); }
+    catch(e){ el('alarmsNote').textContent = 'Could not read the alarms: ' + (e && e.message || e); }
+  }
+
+  function route(){
+    const now = location.hash === '#alarms';
+    el('alarmsPage').classList.toggle('open', now);
+    if (now && !open){ open = true; refresh(); timer = setInterval(refresh, 30000); }
+    else if (!now && open){ open = false; clearInterval(timer); }
+  }
+  window.addEventListener('hashchange', route);
+  document.addEventListener('visibilitychange', () => {
+    if (open && document.visibilityState === 'visible') refresh();
+  });
+  el('alarmsnav').onclick = () => {
+    document.getElementById('zoneapp').classList.remove('on');
+    if (location.hash !== '#alarms') location.hash = '#alarms';
+    else refresh();
+  };
+  el('alarmsBack').onclick = () => { if (location.hash) history.back(); };
+  el('alarmsAppInfo').onclick = () => { const P = plugin(); if (P) P.openAppInfo().catch(() => {}); };
   route();
 })();
 

@@ -99,6 +99,13 @@ final class FatigueChecks {
     return "sleep".equals(k.optString("anchor")) ? anchor - off : anchor + off;
   }
 
+  /** Slot's ring intent still exists — see WakeAlarm.intentAlive. */
+  static boolean intentAlive(Context c, int slot){
+    Intent i = new Intent(c, FatigueCheckReceiver.class).setData(Uri.parse("fatiguecheck://slot/" + slot));
+    return PendingIntent.getBroadcast(c, REQ_BASE + slot, i,
+      PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null;
+  }
+
   private static PendingIntent ring(Context c, int slot, String id){
     Intent i = new Intent(c, FatigueCheckReceiver.class)
       .setData(Uri.parse("fatiguecheck://slot/" + slot))
