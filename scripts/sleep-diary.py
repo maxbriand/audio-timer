@@ -587,6 +587,13 @@ def night_metrics(rows, overrides):
         blocks = blocks[1:]
     if not blocks:
         return None                       # an evening of tests is not a night
+    # A night marked "onset_blocks": N was still falling asleep across its first N
+    # blocks: a restart forgotten for over 20 minutes split the bedtime block, and
+    # the split read as an awakening the night never had (2026-10-10).
+    date = (blocks[0][0]["start"] - timedelta(hours=12)).strftime("%Y-%m-%d")
+    k = overrides.get(date, {}).get("onset_blocks", 1)
+    if k > 1:
+        blocks = [[p for b in blocks[:k] for p in b]] + blocks[k:]
     plays = [p for b in blocks for p in b]
     bedtime = blocks[0][0]["start"]
     base = blocks[0][-1]                      # last play of the initial block
@@ -636,6 +643,8 @@ def night_metrics(rows, overrides):
         # becomes the "final wake" and pushes TST past TIB (the impossible SE > 100 %).
         plays = [p for p in plays if p["start"] < n["rise"]]
         blocks = cluster(plays, timedelta(minutes=GAP_BLOCK_MIN))
+        if k > 1:                         # re-clustering re-splits the bedtime block
+            blocks = [[p for b in blocks[:k] for p in b]] + blocks[k:]
 
     # A marked night is one whose last block LOOKS like a morning wake but is known not
     # to be one — it demotes to an ordinary awakening and the morning stays unknown.
