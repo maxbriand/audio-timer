@@ -14,9 +14,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&amp;family=IBM+Plex+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0b0d10; --surface:#14181d; --surface-2:#1c2128; --line:#262c34;
-    --text:#e9ebee; --muted:#8b939c; --accent:#e8b046; --accent-dim:#5a4a2a;
-    --danger:#d8674f;
+    --bg:#0b0d10; --surface:#151a20; --surface-2:#1e242c; --line:#272e37;
+    --text:#eef0f3; --text-2:#c3c9d0; --muted:#8b939c; --accent:#f0b44c; --accent-dim:#5e4a26;
+    --accent-soft:rgba(240,180,76,.12); --danger:#e2715a; --danger-soft:rgba(226,113,90,.12);
+    --r:16px;
     --safe-b:env(safe-area-inset-bottom,0px);
     /* Installed from Chrome the browser kept its own bar above the page, so the header never
        had to clear the status bar. The APK draws edge to edge and it does. */
@@ -29,27 +30,43 @@
     font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     display:flex;flex-direction:column;overscroll-behavior:none;
   }
+  /* Header (2026-11-16 redesign): the title with the two things you reach for most — the
+     day/night switch, worded as what it does, and ⚙ — then a labelled shortcut bar for the
+     other pages. Seven bare emoji squares said nothing about where they led. */
   header{
-    padding:calc(18px + var(--safe-t)) 18px 12px;
-    display:flex;align-items:baseline;justify-content:space-between;
+    padding:calc(14px + var(--safe-t)) 16px 12px;
+    background:linear-gradient(180deg,#12161c 0%,var(--bg) 100%);
     border-bottom:1px solid var(--line);
   }
-  h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
+  .hrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:10px;white-space:nowrap}
+  h1 img{width:30px;height:30px;border-radius:9px;flex:none}
   #storage{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums}
-  .hright{display:flex;align-items:center;gap:10px}
-  #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav,#alarmsnav{
-    background:var(--surface-2);border:1px solid var(--line);color:var(--accent);
-    width:34px;height:34px;border-radius:10px;font-size:16px;line-height:1;flex:none
+  .hright{display:flex;align-items:center;gap:8px}
+  #modenav{
+    display:flex;align-items:center;gap:6px;height:40px;padding:0 14px 0 11px;border-radius:999px;
+    background:var(--accent-soft);border:1px solid var(--accent-dim);color:var(--accent);
+    font:inherit;font-size:14px;font-weight:650;white-space:nowrap;flex:none
   }
-  #setnav:active,#lognav:active,#modenav:active,#livenav:active,#phonenav:active,#zonenav:active,#alarmsnav:active{background:var(--line)}
-  /* Seven buttons and the title do not fit a 360 dp phone at full size — 📱 was already one
-     too many, 🔔 is another. Below 400 px the row tightens instead of wrapping the title onto
-     a second line. */
-  @media (max-width:400px){
-    header{padding-left:12px;padding-right:12px}
-    h1{font-size:16px;white-space:nowrap}
-    .hright{gap:5px}
-    #setnav,#lognav,#modenav,#livenav,#phonenav,#zonenav,#alarmsnav{width:32px;height:32px;font-size:15px}
+  #modenav i{font-style:normal;font-size:16px;line-height:1}
+  #setnav{
+    width:40px;height:40px;border-radius:50%;flex:none;font-size:18px;line-height:1;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--text)
+  }
+  #modenav:active{filter:brightness(1.2)}
+  #setnav:active{background:var(--line)}
+  .quick{display:flex;gap:6px;margin-top:12px}
+  .quick button{
+    flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;
+    padding:9px 2px 8px;border-radius:14px;background:var(--surface);border:1px solid var(--line);
+    color:var(--text-2);font:inherit;font-size:12px;font-weight:600;white-space:nowrap
+  }
+  .quick button i{font-style:normal;font-size:20px;line-height:1}
+  .quick button:active{background:var(--surface-2);transform:scale(.97)}
+  @media (max-width:370px){
+    h1{font-size:17px} h1 img{width:26px;height:26px}
+    #modenav{font-size:13px;padding:0 11px 0 9px}
+    .quick button{font-size:11px}
   }
   #sunview{display:none}
 
@@ -257,7 +274,7 @@
   #habitspage[hidden],#strengthpage[hidden]{display:none}
   /* As a day tab, the run page sits between the app's own top bar and the nav bar, like
      Habits and Strength — under the full pages (⚙, the log), which open over it. */
-  body.daytabs #zoneapp{top:var(--hdr-h, 64px);bottom:calc(58px + var(--safe-b));z-index:5}
+  body.daytabs #zoneapp{top:var(--hdr-h, 64px);bottom:calc(75px + var(--safe-b));z-index:5}   /* the day bar: 62 + 12 padding + border */
   body.daytabs .zone .app{padding-top:14px;padding-bottom:10px}
   /* The first screen is the choice alone: Brisk walk or Run (Maxime, 2026-10-04). Tapping
      one shows the strap connecting (.connecting), and the session opens once the heart rate
@@ -595,21 +612,296 @@
   .zone #phoneGrant:active{filter:brightness(.9)}
   .zone #phoneAppInfo{margin-top:8px;width:100%;padding:13px 8px}
   #phoneAccess[hidden],#phoneBody[hidden]{display:none}
+
+  /* ================= 2026-11-16 visual refresh =================
+     Overrides only — same selectors, later in the cascade. Every button that does the thing
+     you came for is filled; the rest are quiet but still look tappable (no grey-on-grey
+     outlines that read as disabled). */
+
+  /* --- night: the audio list --- */
+  main{padding:14px 14px calc(18px + var(--safe-b))}
+  .empty{padding:40px 24px 28px;color:var(--muted)}
+  #empty::before{content:'🎧';display:flex;align-items:center;justify-content:center;
+    width:84px;height:84px;margin:0 auto 18px;border-radius:50%;font-size:38px;
+    background:radial-gradient(circle at 30% 30%,#2a2f37,#171b21);border:1px solid var(--line)}
+  #addwrap{padding:12px 0 0}
+  #add{padding:16px;border-radius:var(--r);border:0;background:var(--accent);color:#1a1405;
+    font-size:16px;font-weight:700;box-shadow:0 6px 20px rgba(240,180,76,.18)}
+  #add:active{background:var(--accent);filter:brightness(.92);transform:scale(.99)}
+  /* With a list above it, adding is no longer the main thing to do: it steps back. */
+  #list:not(:empty) ~ #addwrap #add{background:var(--accent-soft);color:var(--accent);box-shadow:none;
+    border:1.5px dashed var(--accent-dim);font-size:15px}
+  #nextwake,#trackline{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    padding:12px 14px;margin-bottom:10px;font-size:13.5px}
+  #search{border-radius:var(--r);padding:13px 16px}
+  ul{gap:10px}
+  li.track{border-radius:var(--r);padding:14px 10px 12px 14px;gap:14px}
+  li.track::before{content:'▶';flex:none;display:flex;align-items:center;justify-content:center;
+    width:42px;height:42px;border-radius:50%;background:var(--surface-2);color:var(--accent);
+    font-size:15px;padding-left:2px;border:1px solid var(--line)}
+  li.track.playing::before{content:'♪';background:var(--accent);color:#1a1405;border-color:var(--accent);padding-left:0;font-size:18px}
+  li.track:active{background:var(--surface-2)}
+  .tname{font-size:15.5px;font-weight:600}
+  .bar{height:4px;margin-top:9px}
+  .del{width:36px;height:36px;padding:0;font-size:15px;border-radius:50%;opacity:.7}
+
+  /* --- the player --- */
+  #player{border-top:0;border-radius:24px 24px 0 0;padding:16px 18px calc(16px + var(--safe-b));
+    background:linear-gradient(180deg,#1b2027,#14181d);box-shadow:0 -10px 30px rgba(0,0,0,.45)}
+  #ptitle{font-size:16px;font-weight:650}
+  #pclose{width:36px;height:36px;padding:0;border-radius:50%;background:var(--surface-2);font-size:15px}
+  #seek{margin-top:14px}
+  #seek::-webkit-slider-runnable-track{height:6px;border-radius:3px}
+  #seek::-webkit-slider-thumb{width:20px;height:20px;margin-top:-7px;box-shadow:0 0 0 5px rgba(240,180,76,.18)}
+  .controls{gap:28px;margin:12px 0 6px}
+  .ctl{width:58px;height:58px;min-width:0;padding:0;border-radius:50%;font-size:14px;font-weight:700}
+  #playpause{width:76px;height:76px;font-size:28px;box-shadow:0 8px 24px rgba(240,180,76,.25)}
+  #timerbtn{padding:14px;border-radius:14px;font-size:15px}
+  #timerbtn.armed{background:var(--accent-soft)}
+
+  /* --- sheets (bottom pop-ups) --- */
+  #sheet,#logsheet,#setsheet,#eventsheet,#wakesheet,#fcsheet,#nightsheet,#entrysheet{
+    background:rgba(4,6,9,.72);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  #logsheet,#setsheet{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}
+  .sheetbox{border-radius:26px 26px 0 0;padding:10px 18px calc(22px + var(--safe-b));
+    background:linear-gradient(180deg,#1a1f26,#14181d)}
+  .sheetbox::before{content:'';display:block;width:40px;height:4px;border-radius:2px;
+    background:#3a424c;margin:0 auto 16px}
+  #logsheet .sheetbox::before,#setsheet .sheetbox::before{display:none}
+  .sheetbox h2{font-size:19px;font-weight:700;margin-bottom:6px}
+  .sheetbox p{font-size:13.5px;line-height:1.5}
+  .chips{gap:8px}
+  .chip{padding:15px 0;border-radius:14px;font-size:15px}
+  .chip:active{background:var(--surface-2);color:var(--text);border-color:var(--line);transform:scale(.97)}
+  .chip.on,.chip.tgl[aria-pressed="true"]{box-shadow:0 4px 14px rgba(240,180,76,.18)}
+  #custom{border-radius:14px}
+  #startcustom{border-radius:14px}
+  .sheetfoot{gap:8px;margin-top:16px;flex-wrap:wrap}
+  .sheetfoot button{padding:14px 10px;border-radius:14px;border:0;background:var(--surface-2);
+    color:var(--text);font-size:15px;font-weight:650;min-width:0}
+  .sheetfoot button:active{filter:brightness(1.25)}
+  /* the one thing each sheet is for */
+  #evsave,#wakego,#fcsave,#ensave,#upsave,#wakesave,#nighttrack,#ensend{
+    background:var(--accent);color:#1a1405;border:0}
+  #fctest{background:var(--accent-soft);color:var(--accent)}
+  #cancel,#fcdelete,#endelete,#upforget,#wakeoff{background:var(--danger-soft);color:var(--danger);border:0}
+  #nightsheet .sheetfoot button{padding:16px}
+
+  /* --- full pages: Settings, Log --- */
+  .pagetop{gap:12px;padding-bottom:12px;margin-bottom:10px}
+  .pagetop h2{font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .pagetop button{padding:10px 15px 10px 12px;border-radius:999px;border:0;background:var(--surface-2);
+    font-size:14.5px;font-weight:600}
+  .setcat > p{font-size:13.5px;color:var(--muted);line-height:1.5;margin:0 2px 14px}
+  .setrow{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:10px}
+  .setrow label,.runnums label{font-size:13.5px;color:var(--text-2);line-height:1.45;margin-bottom:10px}
+  .setsplit{border-top:0;margin:0;padding-top:0}
+  .setsplit .sheetfoot{margin:4px 0 0}
+  .syncin{padding:13px 14px;border-radius:12px;font-size:15px;color-scheme:dark}
+  .runnums .syncin{font-size:19px}
+  .setrow .chip.sm{padding:12px 0}
+  #alarmline{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:10px}
+  .fcrow{border-radius:14px;padding:12px 12px 12px 14px}
+  .fcrow button{border:0;background:var(--surface);border-radius:12px;padding:10px 13px}
+  .fcrow button.fctest{background:var(--accent-soft)}
+  #loglist{display:flex;flex-direction:column;gap:8px}
+  .logrow{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px}
+  .logrow:last-child{border-bottom:1px solid var(--line)}
+  .logrow:active{background:var(--surface-2)}
+  .logday{font-size:14.5px}
+  .logempty{padding:60px 0;font-size:15px}
+  .logempty::before{content:'📊';display:block;font-size:40px;margin-bottom:12px}
+
+  /* --- bottom bars: day tabs, settings categories --- */
+  #daynav,#setcats{border-top:1px solid var(--line);background:#11151a;padding:6px 6px calc(6px + var(--safe-b))}
+  #daynav button,#setcats button{height:58px;gap:4px;font-size:12px}
+  #daynav button i,#setcats button i{filter:none;opacity:.55;font-size:19px;display:flex;align-items:center;
+    justify-content:center;width:56px;height:30px;border-radius:999px;transition:background .2s}
+  #daynav button.on i,#setcats button.on i{background:var(--accent-soft);opacity:1}
+  #daynav button{height:62px}
+
+  /* --- day: issues and habits --- */
+  .evcat{margin:18px 4px 10px;font-size:12.5px;letter-spacing:.1em}
+  #habitspage > .evcat:first-of-type{margin-top:6px}
+  .eventgrid{gap:10px;margin-bottom:10px}
+  .eventbtn{min-height:68px;padding:14px 30px 14px 16px;border-radius:var(--r);text-align:left;
+    font-size:15.5px;background:linear-gradient(160deg,#1b2027,#151a20);white-space:normal;line-height:1.25}
+  .eventbtn:active{transform:scale(.98);background:var(--surface-2)}
+  .evdel{top:6px;right:6px;width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;
+    border-radius:50%;font-size:11px;background:rgba(255,255,255,.05)}
+  .addevent{padding:14px;border-radius:var(--r);border:1.5px dashed #343c46;color:var(--accent);font-weight:650}
+  .addevent:active{background:var(--accent-soft)}
+  #evnote,#ennote{border-radius:14px}
+
+  #toast{border-radius:14px;padding:12px 18px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+
+  /* --- the run: the first choice --- */
+  .zone.choose #startChoice{gap:14px}
+  .zone.choose .startbtn{display:flex;flex-direction:column;align-items:center;gap:10px;
+    padding:30px 16px;border-radius:22px;font-size:21px}
+  .zone #startWalk{background:linear-gradient(150deg,#1f5a3d,#123a29);color:#B9F6CF}
+  .zone #startRun{background:linear-gradient(150deg,#6a4413,#3f2a0d);color:#FFDF8E}
+  .zone.choose #startWalk::before{content:'🚶';font-size:40px;line-height:1}
+  .zone.choose #startRun::before{content:'🏃';font-size:40px;line-height:1}
+
+  /* --- Heart, Phone, Alarms pages: sans and readable sizes, not 10 px monospace capitals --- */
+  .zone .page .inner{padding-left:16px;padding-right:16px}
+  .zone .pagehead{gap:12px;margin-bottom:10px}
+  .zone .pagehead h2{font:700 22px/1.2 var(--sans);letter-spacing:-.01em}
+  .zone .ghost{font:600 14px/1 system-ui,-apple-system,Roboto,sans-serif;letter-spacing:0;text-transform:none;
+    border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.06)}
+  .zone .pagehead .ghost{border:0;border-radius:999px;padding:10px 15px 10px 12px;background:#1e242c}
+  .zone .card{border-radius:18px;padding:16px;margin-top:12px}
+  .zone .cardtitle{font:700 15px/1.3 var(--sans);margin-bottom:6px}
+  .zone .cardsub{font:400 13px/1.5 system-ui,-apple-system,Roboto,sans-serif;color:var(--dim)}
+  .zone .krow{font:400 13.5px/1.4 system-ui,-apple-system,Roboto,sans-serif;letter-spacing:0;padding:10px 0}
+  .zone .krow b{font:600 13.5px/1.4 var(--mono)}
+  .zone .arow .atop{font:600 14.5px/1.4 system-ui,-apple-system,Roboto,sans-serif}
+  .zone .arow .atop b{font:500 13px/1.4 var(--mono)}
+  .zone .arow .asub{font:400 12.5px/1.5 system-ui,-apple-system,Roboto,sans-serif}
+  .zone .urow > summary{font:400 13.5px/1.4 system-ui,-apple-system,Roboto,sans-serif;letter-spacing:0;padding:11px 0}
+  .zone .usub{font:400 12.5px/1.7 system-ui,-apple-system,Roboto,sans-serif}
+  .zone .uempty{font:400 13px/1.5 system-ui,-apple-system,Roboto,sans-serif}
+  .zone .tabs .tgl{font:600 13px/1 system-ui,-apple-system,Roboto,sans-serif;letter-spacing:0;text-transform:none;padding:10px 0;border-radius:10px}
+  .zone #liveNote,.zone #phoneNote{font:400 13px/1.5 system-ui,-apple-system,Roboto,sans-serif}
+  .zone .startbtn{border-radius:14px}
+  .zone #liveTest{background:var(--accent);color:#1a1405}
+  /* By id, so the run-tab rule (body.daytabs .zone .card{margin-top:auto}) stops squeezing
+     these pages' cards together when they open in day mode. */
+  #livewrap .card,#phonewrap .card,#alarmswrap .card{margin-top:12px;padding:16px}
+  .zone .arow{padding:12px 0}
+  .zone .arow .atop{flex-wrap:wrap;row-gap:2px}
+  .zone .arow .atop b{font:600 13px/1.4 system-ui,-apple-system,Roboto,sans-serif;font-variant-numeric:tabular-nums;color:var(--dim)}
+  .zone #phoneGrant{background:var(--accent);color:#1a1405;border-radius:14px}
+  .zone #phoneAppInfo,.zone #alarmsAppInfo{border:0}
+
+  /* --- the run in progress: readable zone boxes --- */
+  .zone .setbar{font:600 13px/1.3 var(--mono)}
+  .zone .bd{border-radius:12px;padding:10px 4px}
+  .zone .bd span{font:500 11.5px/1 var(--mono);margin-bottom:7px}
+  .zone .bd b{font-size:18px}
+  .zone .bd.on{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.55);box-shadow:0 0 0 1px rgba(255,255,255,.2) inset}
+  .zone .stats{font-size:12.5px}
+  .zone #session{border-radius:16px;padding:18px;font-size:16px}
+  .zone .partsbar .ghost{border-radius:999px}
+
+  /* --- the run's dialogs (effort, parts) --- */
+  .zone #partsDlg,.zone #setDlg,.zone #rpeDlg{border-radius:24px;padding:22px 18px 18px;background:#161b22;
+    box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .zone #rpeDlg h2,.zone #partsTitle{font:700 20px/1.25 var(--sans)}
+  .zone #rpeHint,.zone #partsHint{margin-top:8px;font:400 13.5px/1.5 system-ui,-apple-system,Roboto,sans-serif;color:var(--dim)}
+  .zone #rpeGrid{gap:8px;margin-top:16px}
+  .zone #rpeGrid button{padding:14px 0;border-radius:12px;font-size:16px;border-width:1.5px}
+  /* effort 0–10 runs green to red, so the scale reads at a glance */
+  .zone #rpeGrid button:nth-child(-n+3){border-color:#2f7a52}
+  .zone #rpeGrid button:nth-child(n+4):nth-child(-n+6){border-color:#8a7a2a}
+  .zone #rpeGrid button:nth-child(n+7):nth-child(-n+9){border-color:#a0582a}
+  .zone #rpeGrid button:nth-child(n+10){border-color:#a63a35}
+  .zone #rpeGrid button.on{background:var(--accent);color:#1a1405;border-color:var(--accent)}
+  .zone #rpeNote{font:400 14px/1.5 system-ui,-apple-system,Roboto,sans-serif;border-radius:12px;padding:12px}
+  .zone #rpeFoot .ghost{padding:15px;border:0}
+  .zone #rpeSave{background:var(--accent)!important;color:#1a1405!important}
+  .zone .plist li,.zone .running{border-radius:14px}
+  .zone #partsClose{padding:15px;border:0}
+
+  /* --- text fields: the old shorthand "font:15px/1.4 inherit" is invalid and fell back to
+     the browser's monospace; say the family out loud --- */
+  #evnote,#ennote{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.45;padding:13px 14px}
+  input,textarea,select{font-family:inherit}
+
+  /* --- notes and placeholders --- */
+  #nextwake::before{content:'⏰  '}
+  #trackline::before{content:'🫀  '}
+  #melamiss{background:var(--danger-soft);border-radius:var(--r);padding:12px 14px;margin-bottom:6px}
+  #strengthpage .empty{padding-top:70px}
+  #strengthpage .empty::first-line{font-size:56px;line-height:1.6}
+  .zone #liveNote,.zone #phoneNote{background:rgba(255,223,142,.08);border:1px solid rgba(255,223,142,.22);
+    border-radius:14px;padding:12px 14px;margin-top:12px}
+  .zone #alarmsNote:not(:empty){background:rgba(255,255,255,.04);border-radius:14px;padding:12px 14px}
+
+  /* --- round 3: cleaner to use --- */
+  /* settings labels: a title to scan, the explanation under it */
+  .setrow label .lt{display:block;font-size:15px;font-weight:650;color:var(--text);line-height:1.3}
+  .setrow label .lh{display:block;font-size:12.5px;color:var(--muted);line-height:1.45;margin-top:3px;font-weight:400}
+  .setrow > label{margin-bottom:12px;font-size:15px;font-weight:650;color:var(--text);line-height:1.3}
+  /* multi-choice settings: one segmented control instead of separate boxes */
+  .setrow .chips{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:4px;gap:4px}
+  .setrow .chips .chip{border:0;background:transparent;border-radius:10px;padding:11px 0;color:var(--text-2)}
+  .setrow .chips .chip.on,.setrow .chips .chip.tgl[aria-pressed="true"]{background:var(--accent);color:#1a1405;box-shadow:none}
+  /* independent toggles (alerts, a check's steps) stay separate chips — a joined bar would
+     read as "pick one" */
+  .setrow #fcsteps,.setrow .chips:has(.tgl){background:none;border:0;padding:0;gap:6px}
+  .setrow #fcsteps .chip,.setrow .chips:has(.tgl) .chip{background:var(--surface-2);border:1px solid var(--line);border-radius:12px}
+  .setrow #fcsteps .chip.on,.setrow .chips:has(.tgl) .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent)}
+  /* off/on settings: title left, a switch right */
+  .setrow.tglrow{display:flex;align-items:center;gap:14px}
+  .setrow.tglrow > label{flex:1;min-width:0;margin:0}
+  .setrow.tglrow > .chips{flex:none;display:block;background:none;border:0;padding:0}
+  .switch{position:relative;width:52px;height:32px;border-radius:999px;border:0;padding:0;
+    background:#3a424c;transition:background .2s}
+  .switch::after{content:'';position:absolute;top:4px;left:4px;width:24px;height:24px;border-radius:50%;
+    background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.35);transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+  .switch[aria-checked="true"]{background:var(--accent)}
+  .switch[aria-checked="true"]::after{transform:translateX(20px)}
+  .switch:active:not(:disabled){transform:none}
+  /* settings intros between cards: quieter */
+  .setcat > p{font-size:12.5px}
+
+  /* header: slimmer shortcuts, more room for the page */
+  header{padding-bottom:10px}
+  .quick{margin-top:10px;gap:6px}
+  .quick button{flex-direction:row;justify-content:center;gap:5px;padding:9px 2px;border-radius:12px;
+    border:0;background:var(--surface);font-size:12.5px}
+  .quick button i{font-size:15px}
+  /* five fit in a row with the icon beside the word only on wider phones; narrower, stack */
+  @media (max-width:430px){
+    .quick button{flex-direction:column;gap:3px;padding:8px 2px 7px;font-size:11.5px}
+    .quick button i{font-size:17px}
+  }
+
+  /* page intros folded to two lines */
+  .zone .cardsub.fold{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;cursor:pointer}
+  .zone .cardsub.fold.open{display:block}
+
+  /* day: section headers lighter, habit cards a bit tighter */
+  .evcat{color:#6f7882}
+  .eventbtn{min-height:60px}
+
+  /* --- touch feedback, focus, motion --- */
+  button{transition:transform .09s ease,filter .15s ease,background-color .15s ease}
+  button:active:not(:disabled){transform:scale(.97)}
+  #playpause:active{transform:scale(.94)}
+  button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  @media (prefers-reduced-motion: no-preference){
+    @keyframes sheetup{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+    @keyframes fadein{from{opacity:0}to{opacity:1}}
+    @keyframes pagein{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+    #sheet.on,#eventsheet.on,#wakesheet.on,#fcsheet.on,#nightsheet.on,#entrysheet.on{animation:fadein .18s ease-out}
+    #sheet.on .sheetbox,#eventsheet.on .sheetbox,#wakesheet.on .sheetbox,#fcsheet.on .sheetbox,
+    #nightsheet.on .sheetbox,#entrysheet.on .sheetbox{animation:sheetup .24s cubic-bezier(.2,.8,.2,1)}
+    #logsheet.on .sheetbox,#setsheet.on .sheetbox,.zone .page.open .inner{animation:pagein .2s ease-out}
+    .zone #partsDlg[open],.zone #rpeDlg[open]{animation:fadein .18s ease-out}
+    #player.on{animation:sheetup .24s cubic-bezier(.2,.8,.2,1)}
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Audio Timer</h1>
-  <div class="hright">
-    <button id="alarmsnav" aria-label="Armed alarms">🔔</button>
-    <button id="zonenav" aria-label="Zone alarm">🏃</button>
-    <button id="livenav" aria-label="Live sensor data">🫀</button>
-    <button id="phonenav" aria-label="Phone use">📱</button>
-    <button id="modenav" aria-label="Day / night mode">🌙</button>
-    <button id="setnav" aria-label="Playback settings">⚙️</button>
-    <button id="lognav" aria-label="Log">📊</button>
+  <div class="hrow">
+    <h1><img src="./icon-192.png" alt="">Audio Timer</h1>
+    <div class="hright">
+      <button id="modenav" aria-label="Day / night mode"><i>☀️</i>I'm up</button>
+      <button id="setnav" aria-label="Settings">⚙️</button>
+    </div>
   </div>
+  <nav class="quick">
+    <button id="lognav"><i>📊</i>Log</button>
+    <button id="alarmsnav"><i>🔔</i>Alarms</button>
+    <button id="zonenav"><i>🏃</i>Run</button>
+    <button id="livenav"><i>🫀</i>Heart</button>
+    <button id="phonenav"><i>📱</i>Phone</button>
+  </nav>
 </header>
 
 <main>
@@ -1137,7 +1429,7 @@
 
   </div>
   <nav id="setcats">
-    <button data-cat="night" class="on"><i>🌙</i>Night audio</button>
+    <button data-cat="night" class="on"><i>🌙</i>Audio</button>
     <button data-cat="sleep"><i>⏰</i>Sleep</button>
     <button data-cat="day"><i>☀️</i>Day</button>
     <button data-cat="running"><i>🏃</i>Running</button>
@@ -3069,23 +3361,56 @@ function buildSettings(){
     const {values, labels} = SETTING_CHOICES[key];
     const box = $('#ch-' + key);
     box.innerHTML = '';
+    const choose = async v => {
+      settings[key] = v;
+      await saveSettings();
+      applySettings();
+      buildSettings();
+      // The pin toggles change what the day screen shows behind the sheet.
+      if (view === 'sun') paintEvents();
+      // Melatonin off withdraws its reminder, on arms it: the native side is told now.
+      if (key === 'melatonin'){ await pushSchedule(); paintSchedule(); paintModenav(); }
+    };
+    // An off/on setting is one switch at the end of its row, not two chips under it.
+    if (values.length === 2 && values[0] === false && values[1] === true){
+      box.closest('.setrow').classList.add('tglrow');
+      const b = document.createElement('button');
+      b.className = 'switch';
+      b.setAttribute('role', 'switch');
+      b.setAttribute('aria-checked', String(settings[key] === true));
+      const lbl = box.closest('.setrow').querySelector('.lt') || box.closest('.setrow').querySelector('label');
+      b.setAttribute('aria-label', lbl ? lbl.textContent : key);
+      b.onclick = () => choose(settings[key] !== true);
+      box.appendChild(b);
+      continue;
+    }
     values.forEach((v, i) => {
       const b = document.createElement('button');
       b.className = 'chip sm' + (settings[key] === v ? ' on' : '');
       b.textContent = labels[i];
-      b.onclick = async () => {
-        settings[key] = v;
-        await saveSettings();
-        applySettings();
-        buildSettings();
-        // The pin toggles change what the day screen shows behind the sheet.
-        if (view === 'sun') paintEvents();
-        // Melatonin off withdraws its reminder, on arms it: the native side is told now.
-        if (key === 'melatonin'){ await pushSchedule(); paintSchedule(); paintModenav(); }
-      };
+      b.onclick = () => choose(v);
       box.appendChild(b);
     });
   }
+}
+/* A settings label is written "Title — what it does and why". Shown whole it is a paragraph
+   to read before every switch; split once here, the title is what you scan and the rest
+   sits under it, smaller. */
+for (const l of document.querySelectorAll('#setsheet .setrow > label, #fcsheet .setrow > label')){
+  const t = l.textContent.replace(/\s+/g, ' ').trim();
+  const i = t.indexOf(' — ');
+  if (i < 0) continue;
+  const rest = t.slice(i + 3);
+  l.textContent = '';
+  const a = document.createElement('span'); a.className = 'lt'; a.textContent = t.slice(0, i);
+  const h = document.createElement('span'); h.className = 'lh'; h.textContent = rest.charAt(0).toUpperCase() + rest.slice(1);
+  l.append(a, h);
+}
+/* The long introduction at the top of Live, Phone and Alarms folds to two lines; a tap
+   opens it. */
+for (const p of document.querySelectorAll('.zone .pagehead + .cardsub')){
+  p.classList.add('fold');
+  p.onclick = () => p.classList.toggle('open');
 }
 /* ⚙ shows one category at a time, picked on its bottom bar; it always opens on the first. */
 function showSetCat(cat){
@@ -3910,8 +4235,8 @@ function showView(v){
   $('#audioview').style.display = v === 'audio' ? '' : 'none';
   $('#sunview').style.display   = v === 'sun'   ? 'block' : 'none';
   $('#player').classList.toggle('on', v === 'audio' && !!current);
-  // One toggle button, wearing the icon of the mode you are IN.
-  $('#modenav').textContent = v === 'audio' ? '🌙' : '☀️';
+  // One toggle button, worded as what tapping it does: leave the night, or go to bed.
+  $('#modenav').innerHTML = v === 'audio' ? '<i>☀️</i>I\'m up' : '<i>🌙</i>Bedtime';
   paintModenav();
   if (v === 'sun'){ paintEvents(); paintSun(); }
   paintSchedule();                    // both screens carry the next alarm's hour
