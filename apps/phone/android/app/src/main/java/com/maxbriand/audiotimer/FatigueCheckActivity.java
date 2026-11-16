@@ -14,7 +14,11 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioAttributes;
@@ -33,8 +37,10 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -92,9 +98,10 @@ import java.util.UUID;
  *
  * Auto (Maxime, 2026-10-12): switched on from the manual test's screen, each test that ends is
  * saved and the next one starts at once, on the same strap link, until Auto is switched off —
- * the test under way then ends as usual, with Run again / Done. Auto skips the two settling
- * minutes (2026-10-12): switching it on skips them for the test under way, if it is not
- * recording yet, and every chained test records its 3 minutes from its first beat.
+ * the test under way then ends as usual, with Run again / Done. The tests Auto chains skip
+ * the two settling minutes and record their 3 minutes from their first beat — the sitting
+ * already settled. Switching Auto on leaves the test under way alone: it settles unless
+ * Skip is tapped (2026-11-16; until then switching it on skipped them too).
  */
 public class FatigueCheckActivity extends Activity {
   static final String EXTRA_CHECK_ID = "checkId";
@@ -214,7 +221,8 @@ public class FatigueCheckActivity extends Activity {
   private static final int REANCHOR_AFTER = 3, START_REF_N = 5;
   // Over 5% of the intervals left out (lost contact or extra/missed beats): RMSSD isn't trusted.
   private static final double POOR_FRAC = 0.05;
-  private TextView hrView, phaseView, clockView, hintView;
+  private TextView hrView, phaseView, clockView, hintView, chipView;
+  private Ring ring;
   private Button connectBtn;
   private BluetoothLeScanner scanner;
   private ScanCallback scanCb;
@@ -315,21 +323,90 @@ public class FatigueCheckActivity extends Activity {
       bg.setCornerRadius(dp(14));
       b.setBackground(bg);
     } else {
-      b.setTextColor(MUTED);
-      b.setBackgroundColor(Color.TRANSPARENT);
+      // A solid pill, not grey text: it has to look like something you can press
+      // (2026-11-16 — Skip, Auto and Stop read as captions).
+      b.setTextColor(TEXT);
+      b.setBackground(pill(SURFACE));
     }
+    b.setStateListAnimator(null);
     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-      LinearLayout.LayoutParams.MATCH_PARENT, primary ? dp(58) : LinearLayout.LayoutParams.WRAP_CONTENT);
-    lp.setMargins(0, dp(primary ? 28 : 14), 0, 0);
+      LinearLayout.LayoutParams.MATCH_PARENT, dp(primary ? 58 : 52));
+    lp.setMargins(0, dp(primary ? 28 : 10), 0, 0);
     b.setLayoutParams(lp);
     b.setOnClickListener(v -> r.run());
     root.addView(b);
     return b;
   }
 
+  private GradientDrawable pill(int color){
+    GradientDrawable bg = new GradientDrawable();
+    bg.setColor(color);
+    bg.setCornerRadius(dp(14));
+    return bg;
+  }
+
+  /** The accent's own tint: for the action this screen suggests (connect, skip). */
+  private Button tonal(Button b){
+    b.setTextColor(ACCENT);
+    b.setTypeface(Typeface.DEFAULT_BOLD);
+    b.setBackground(pill((ACCENT & 0x00ffffff) | 0x26000000));
+    return b;
+  }
+
+  /** Adds any view under the last one, full width unless wrap. */
+  private <V extends View> V addView(V v, int top, boolean wrap){
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+      wrap ? LinearLayout.LayoutParams.WRAP_CONTENT : LinearLayout.LayoutParams.MATCH_PARENT,
+      LinearLayout.LayoutParams.WRAP_CONTENT);
+    lp.setMargins(0, dp(top), 0, 0);
+    lp.gravity = Gravity.CENTER_HORIZONTAL;
+    root.addView(v, lp);
+    return v;
+  }
+
+  /** A small rounded label: what phase the test is in. */
+  private void setChip(String s, int color){
+    if (chipView == null) return;
+    chipView.setText(s);
+    chipView.setTextColor(color);
+    GradientDrawable bg = new GradientDrawable();
+    bg.setColor((color & 0x00ffffff) | 0x26000000);
+    bg.setCornerRadius(dp(999));
+    chipView.setBackground(bg);
+  }
+
+  /** The strap test's clock as a ring: it fills over the whole test, blue while settling,
+   *  green once recording; a dot marks where recording starts. */
+  private static final class Ring extends View {
+    private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG), arc = new Paint(Paint.ANTI_ALIAS_FLAG),
+      mark = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF box = new RectF();
+    private float frac, markFrac = -1;
+    Ring(Context c, float stroke){
+      super(c);
+      for (Paint p : new Paint[]{track, arc, mark}){
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(stroke); p.setStrokeCap(Paint.Cap.ROUND);
+      }
+      track.setColor(Color.parseColor("#232b36"));
+      mark.setColor(Color.parseColor("#5b6675"));
+    }
+    void set(float frac, float markFrac, int color){
+      this.frac = Math.max(0f, Math.min(1f, frac)); this.markFrac = markFrac;
+      arc.setColor(color); invalidate();
+    }
+    @Override protected void onDraw(Canvas c){
+      float s = track.getStrokeWidth() / 2f;
+      box.set(s, s, getWidth() - s, getHeight() - s);
+      c.drawArc(box, 0, 360, false, track);
+      if (markFrac > 0 && markFrac < 1) c.drawArc(box, -90 + 360 * markFrac, 0.5f, false, mark);
+      if (frac > 0) c.drawArc(box, -90, 360 * frac, false, arc);
+    }
+  }
+
   /** "Step 2 of 3 · PVT" — where in the check this screen is. */
   private void head(String name){
     root.removeAllViews();
+    chipView = null; ring = null;      // the strap screen's, gone with it
     add(text(manual ? "HR / HRV — manual test" : (test ? "TEST · " : "") + "Step " + (index + 1) + " of " + steps.size(), 13, MUTED, false), 0);
     add(text(name, 26, TEXT, true), 6);
   }
@@ -422,33 +499,45 @@ public class FatigueCheckActivity extends Activity {
 
   private void showStrap(){
     head("Strap test");
-    hrView = add(text("--", 72, TEXT, true), 18);
-    add(text("bpm", 14, MUTED, false), 0);
-    clockView = add(text("", 34, ACCENT, true), 20);
-    phaseView = add(text("", 15, MUTED, false), 6);
-    hintView = add(text("", 14, WARN, false), 14);
+    // The heart rate inside a ring that fills over the test.
+    FrameLayout ringBox = new FrameLayout(this);
+    ring = new Ring(this, dp(10));
+    ringBox.addView(ring, new FrameLayout.LayoutParams(dp(236), dp(236), Gravity.CENTER));
+    LinearLayout mid = new LinearLayout(this);
+    mid.setOrientation(LinearLayout.VERTICAL);
+    mid.setGravity(Gravity.CENTER);
+    hrView = text("--", 64, TEXT, true);
+    mid.addView(hrView);
+    mid.addView(text("bpm", 14, MUTED, false));
+    ringBox.addView(mid, new FrameLayout.LayoutParams(
+      FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+    addView(ringBox, 22, true);
+    chipView = text("", 13, MUTED, true);
+    chipView.setLetterSpacing(0.08f);
+    chipView.setPadding(dp(14), dp(6), dp(14), dp(6));
+    addView(chipView, 18, true);
+    setChip("WAITING FOR THE STRAP", MUTED);
+    clockView = add(text("", 34, ACCENT, true), 10);
+    phaseView = add(text("", 15, MUTED, false), 4);
+    hintView = add(text("", 14, WARN, false), 10);
     // Its own line: the hint is cleared by the first beat, which comes at once on a kept link.
     if (!autoNote.isEmpty()){ add(text(autoNote, 14, WARN, false), 6); autoNote = ""; }
-    connectBtn = button("Connect sensor", false, this::pickSensor);
-    connectBtn.setTextColor(ACCENT);
-    connectBtn.setTextSize(17);
-    skipSettleBtn = button("Skip the 2 min — record now", false, this::skipSettle);
-    skipSettleBtn.setTextColor(ACCENT);
+    connectBtn = tonal(button("Connect sensor", false, this::pickSensor));
+    skipSettleBtn = tonal(button("Skip the 2 min — record now", false, this::skipSettle));
     if (manual){
-      final Button[] autoBtn = new Button[1];
-      autoBtn[0] = button(autoLabel(), false, () -> {
-        auto = !auto; autoBtn[0].setText(autoLabel()); styleAuto(autoBtn[0]);
-        if (auto && strapLive && !recording) skipSettle();     // Auto never settles
-      });
-      styleAuto(autoBtn[0]);
+      autoRow();
       button("Stop", false, this::finishCheck);
       showSitting();
     }
     else button("Skip the strap test", false, () -> { endStrap(); put("strap", status("skipped")); next(); });
 
     recFrom = RECORD_FROM_MS; calmEnd = CALM_MS; skipAsked = false;
-    if (manual && auto) skipSettle();      // sitting still since the last test: record at once
     firstBeatAt = lastBeatAt = recFromWall = 0;
+    // Sitting still since the last test: record at once. After the reset above, never before:
+    // skipSettle() measures from firstBeatAt, and the previous test's (5 min old) made it a
+    // no-op that still hid the Skip button — every chained test sat through 2:00 of settling
+    // with no way to skip it (2026-11-16).
+    if (manual && auto) skipSettle();
     hrSum = 0; hrN = 0; dropped = 0; rr.clear();
     ectopic = 0; rrRaw.clear(); rrFlag.clear(); rrPending.clear(); rrRef = Float.NaN; rrRejectRun = 0;
     strapLive = true;
@@ -484,20 +573,39 @@ public class FatigueCheckActivity extends Activity {
     ui.postDelayed(tick, 500);
   }
 
-  private String autoLabel(){
-    return auto ? "Auto: on — test after test (tap to stop)" : "Auto: off — tap to chain tests";
-  }
-
-  private void styleAuto(Button b){
-    b.setTextColor(auto ? GOOD : MUTED);
-    b.setTypeface(auto ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+  /** Auto as a switch on a card: what it does in one line, its state at a glance. */
+  private void autoRow(){
+    LinearLayout row = new LinearLayout(this);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    row.setBackground(pill(SURFACE));
+    row.setPadding(dp(16), dp(12), dp(12), dp(12));
+    LinearLayout words = new LinearLayout(this);
+    words.setOrientation(LinearLayout.VERTICAL);
+    TextView t = text("Auto", 16, TEXT, true); t.setGravity(Gravity.START);
+    TextView s = text("When a test ends, the next starts and records at once", 13, MUTED, false);
+    s.setGravity(Gravity.START);
+    words.addView(t); words.addView(s);
+    row.addView(words, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    Switch sw = new Switch(this);
+    sw.setChecked(auto);
+    int[][] states = {{android.R.attr.state_checked}, {}};
+    sw.setThumbTintList(new ColorStateList(states, new int[]{GOOD, Color.parseColor("#c9d1db")}));
+    sw.setTrackTintList(new ColorStateList(states, new int[]{(GOOD & 0x00ffffff) | 0x66000000, Color.parseColor("#3a4452")}));
+    // Switching Auto on leaves the test under way alone: it settles its 2 minutes unless
+    // Skip is tapped (Maxime, 2026-11-16). Only the tests Auto chains after it skip.
+    sw.setOnCheckedChangeListener((v, on) -> auto = on);
+    row.setOnClickListener(v -> sw.toggle());
+    row.addView(sw);
+    addView(row, 14, false);
   }
 
   /** The two settling minutes, skipped: the 3 recorded minutes start now (or at the first beat). */
   private void skipSettle(){
     skipAsked = true;
     long el = firstBeatAt == 0 ? 0 : SystemClock.elapsedRealtime() - firstBeatAt;
-    if (el < recFrom){ recFrom = el; calmEnd = el + (CALM_MS - RECORD_FROM_MS); }
+    if (el >= recFrom) return;           // already recording: nothing to skip, and the button stays as it is
+    recFrom = el; calmEnd = el + (CALM_MS - RECORD_FROM_MS);
     if (skipSettleBtn != null) skipSettleBtn.setVisibility(View.GONE);
   }
 
@@ -573,6 +681,9 @@ public class FatigueCheckActivity extends Activity {
         long left = calmEnd - el;
         clockView.setText(String.format(Locale.US, "%d:%02d", left / 60000, (left / 1000) % 60));
         clockView.setTextColor(rec ? GOOD : ACCENT);
+        if (ring != null) ring.set(calmEnd > 0 ? (float) el / calmEnd : 0f,
+          recFrom > 0 ? (float) recFrom / calmEnd : -1f, rec ? GOOD : ACCENT);
+        setChip(rec ? "● RECORDING" : "SETTLING", rec ? GOOD : ACCENT);
         long toRec = recFrom - el;
         phaseView.setText(rec
           ? "Recording — stay still, breathe normally."
@@ -630,10 +741,9 @@ public class FatigueCheckActivity extends Activity {
       r.put("to", toWall);
     } catch (Exception ignored){}
     put("strap", r);
-    add(text(String.valueOf(hr), 56, TEXT, true), 22);
-    add(text("bpm — average over the 3 minutes", 14, MUTED, false), 0);
-    add(text(String.valueOf(rmssd), 56, GOOD, true), 20);
-    add(text("ms — HRV (RMSSD) over " + n + " beat-to-beat intervals"
+    statCards(String.valueOf(hr), "bpm · heart rate", TEXT,
+              String.valueOf(rmssd), "ms · HRV (RMSSD)", poor ? WARN : GOOD);
+    add(text("Averaged over the 3 recorded minutes, " + n + " beat-to-beat intervals"
       + (dropped > 0 ? ", " + dropped + " left out as lost contact" : "")
       + (ectopic > 0 ? ", " + ectopic + " left out as extra or missed beats" : ""), 14, MUTED, false), 0);
     if (poor){
@@ -779,8 +889,40 @@ public class FatigueCheckActivity extends Activity {
   /** This sitting's results, oldest first. */
   private void showSitting(){
     if (sitting.isEmpty()) return;
-    add(text("This sitting", 13, MUTED, false), 26);
-    add(text(android.text.TextUtils.join("\n", sitting), 16, TEXT, false), 6);
+    add(text("THIS SITTING", 12, MUTED, true), 26).setLetterSpacing(0.1f);
+    LinearLayout card = new LinearLayout(this);
+    card.setOrientation(LinearLayout.VERTICAL);
+    card.setBackground(pill(SURFACE));
+    card.setPadding(dp(16), dp(6), dp(16), dp(6));
+    for (int i = sitting.size() - 1; i >= 0; i--){       // newest first
+      TextView row = text(sitting.get(i), 16, i == sitting.size() - 1 ? TEXT : MUTED, i == sitting.size() - 1);
+      row.setGravity(Gravity.START);
+      row.setPadding(0, dp(8), 0, dp(8));
+      card.addView(row);
+    }
+    addView(card, 8, false);
+  }
+
+  /** Two numbers side by side, each on its own card: value, unit, what it is. */
+  private void statCards(String a, String aUnit, int aColor, String b, String bUnit, int bColor){
+    LinearLayout row = new LinearLayout(this);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.addView(statCard(a, aUnit, aColor), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    View gap = new View(this);
+    row.addView(gap, new LinearLayout.LayoutParams(dp(10), 1));
+    row.addView(statCard(b, bUnit, bColor), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    addView(row, 22, false);
+  }
+
+  private LinearLayout statCard(String value, String unit, int color){
+    LinearLayout c = new LinearLayout(this);
+    c.setOrientation(LinearLayout.VERTICAL);
+    c.setGravity(Gravity.CENTER);
+    c.setBackground(pill(SURFACE));
+    c.setPadding(dp(10), dp(18), dp(10), dp(16));
+    c.addView(text(value, 44, color, true));
+    c.addView(text(unit, 13, MUTED, false));
+    return c;
   }
 
   /** Stop listening; and if this test asked for the strap, give it back. */
