@@ -867,6 +867,33 @@
   .evcat{color:#6f7882}
   .eventbtn{min-height:60px}
 
+  /* --- round 4: the log as a timeline --- */
+  #loglist{gap:6px}
+  .logdayhead{margin:14px 4px 2px;font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+  .logdayhead:first-child{margin-top:2px}
+  .logrow{display:grid;grid-template-columns:44px 34px minmax(0,1fr);align-items:start;column-gap:8px;padding:12px 14px 12px 12px}
+  .logtime{font-size:13.5px;font-weight:650;color:var(--text-2);font-variant-numeric:tabular-nums;padding-top:8px}
+  .logicon{width:34px;height:34px;border-radius:10px;background:var(--surface-2);display:flex;align-items:center;
+    justify-content:center;font-size:17px;line-height:1}
+  .logbody{min-width:0;padding-top:6px}
+  .logday{font-size:15px;font-weight:600;line-height:1.3}
+  .logmeta{margin-top:3px;font-size:12.5px;line-height:1.45}
+  .logpics img{width:56px;height:56px}
+  #enlines{background:var(--surface-2);border-radius:12px;padding:10px 12px;font-size:13px}
+  .enrow label{font-size:13px;font-weight:600;color:var(--text-2)}
+
+  /* --- round 5: habit cards say when they were last logged --- */
+  .eventbtn{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:4px}
+  .evname{display:block;max-width:100%}
+  .evlast{display:block;font-size:12px;font-weight:600;color:var(--muted)}
+  .eventbtn.done{border-color:var(--accent-dim);background:linear-gradient(160deg,#2a2416,#1b1a15)}
+  .eventbtn.done .evlast{color:var(--accent)}
+
+  /* one order in every sheet: the destructive button first, the main action last (right,
+     under the thumb) */
+  #cancel,#fcdelete,#endelete,#upforget,#wakeoff{order:-1}
+  #evsave,#wakego,#fcsave,#ensave,#upsave,#wakesave{order:9}
+
   /* --- touch feedback, focus, motion --- */
   button{transition:transform .09s ease,filter .15s ease,background-color .15s ease}
   button:active:not(:disabled){transform:scale(.97)}
@@ -1276,13 +1303,13 @@
 <div id="eventsheet">
   <div class="sheetbox">
     <h2 id="evtitle"></h2>
-    <p>Saved with the moment you tapped it — add a note and pictures if useful.</p>
+    <p>"Log it" records the time you opened this — add a note or pictures first if useful.</p>
     <textarea id="evnote" placeholder="A note about it (optional)"></textarea>
     <div id="evthumbs"></div>
     <input type="file" id="evpics" accept="image/*" multiple hidden>
     <div class="sheetfoot">
       <button id="evaddpics">+ Pictures</button>
-      <button id="evsave">Save</button>
+      <button id="evsave">Log it</button>
       <button id="evclose">Close</button>
     </div>
   </div>
@@ -2996,11 +3023,33 @@ async function renderLog(){
     box.innerHTML = '<div class="logempty">Nothing recorded yet.</div>';
     return;
   }
+  // A timeline: one header per day, then each entry as time · icon · title. The leading emoji
+  // of a title becomes the row's icon, so the eye can scan the column of icons.
+  const dayName = ms => {
+    const k = new Date(ms).toDateString(), now = Date.now();
+    if (k === new Date(now).toDateString()) return 'Today';
+    if (k === new Date(now - 864e5).toDateString()) return 'Yesterday';
+    return fmtDay(ms);
+  };
+  const lead = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s*/u;
+  let lastDay = null;
   for (const it of items){
+    const dk = new Date(it.at).toDateString();
+    if (dk !== lastDay){
+      lastDay = dk;
+      const h = document.createElement('div');
+      h.className = 'logdayhead';
+      h.textContent = dayName(it.at);
+      box.appendChild(h);
+    }
     const el = document.createElement('div');
     el.className = 'logrow';
-    el.innerHTML = '<div class="logday"></div><div class="logmeta"></div><div class="logpics"></div>';
-    el.querySelector('.logday').textContent = fmtDay(it.at) + ' · ' + fmtClock(it.at) + ' · ' + it.title;
+    el.innerHTML = '<div class="logtime"></div><div class="logicon"></div><div class="logbody">' +
+      '<div class="logday"></div><div class="logmeta"></div><div class="logpics"></div></div>';
+    const m = (it.title || '').match(lead);
+    el.querySelector('.logtime').textContent = fmtClock(it.at);
+    el.querySelector('.logicon').textContent = m ? m[1] : '•';
+    el.querySelector('.logday').textContent = m ? it.title.slice(m[0].length) : it.title;
     // The list shows the first 2 lines, one row each; the popup has them all.
     const meta = el.querySelector('.logmeta');
     for (const line of (it.lines || [it.note]).filter(Boolean).slice(0, 2)){
@@ -4355,15 +4404,34 @@ async function paintEvents(){
   const others = events.filter(ev => ev.cat !== 'habit');
   if (settings.melatonin) habits.unshift(MELATONIN);
   if (settings.morningWalk) habits.unshift(MORNING_WALK);
-  fillEventGrid($('#habitgrid'), habits);
-  fillEventGrid($('#issuegrid'), others);
+  // Each card says when it was last logged, so "did I already take it today?" is answered
+  // by looking, not by opening the log.
+  const last = {};
+  try { for (const l of await allEventLogs()) if (!(last[l.issueId] >= l.at)) last[l.issueId] = l.at; } catch(_){}
+  fillEventGrid($('#habitgrid'), habits, last);
+  fillEventGrid($('#issuegrid'), others, last);
 }
-function fillEventGrid(grid, list){
+function lastLoggedLabel(at){
+  if (!at) return '';
+  const d = new Date(at), today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((today - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+  if (days <= 0) return '✓ Today ' + fmtClock(at);
+  if (days === 1) return 'Yesterday';
+  return days + ' days ago';
+}
+function fillEventGrid(grid, list, last = {}){
   grid.innerHTML = '';
   for (const ev of list){
     const b = document.createElement('button');
     b.className = 'eventbtn';
-    b.textContent = ev.name;
+    const nm = document.createElement('span'); nm.className = 'evname'; nm.textContent = ev.name;
+    b.appendChild(nm);
+    const when = lastLoggedLabel(last[ev.id]);
+    if (when){
+      const s = document.createElement('span'); s.className = 'evlast'; s.textContent = when;
+      b.appendChild(s);
+      if (when.startsWith('✓')) b.classList.add('done');
+    }
     b.onclick = () => openEventSheet(ev);
     // The pinned habits are painted by their ⚙ toggles, not stored here — nothing to delete.
     if (!PINNED_MARKER[ev.id]){
@@ -4461,6 +4529,7 @@ $('#evsave').onclick = async () => {
   if (!markerReason) pushEvents();
   toast(logEvent.name + ' logged — ' + fmtClock(logAt));
   closeEventSheet();
+  paintEvents();   // the card now says "✓ Today"
 };
 $('#evclose').onclick = closeEventSheet;
 $('#eventsheet').onclick = e => { if (e.target.id === 'eventsheet') closeEventSheet(); };
@@ -6420,6 +6489,57 @@ $('#closelog').onclick = () => $('#logsheet').classList.remove('on');
   // clear the ones that are old enough — and push anything last night left behind. This is
   // the only moment the page learns anything about an upload it was not present for.
   uploadSoon(3000);
+})();
+
+/* ---------- Android Back ----------
+   Settings, the log and every sheet are shown by a class, not a URL, so Back had nothing to
+   go back to and Android closed the app (2026-11-16). Each overlay that opens now pushes a
+   history entry stamped with how many overlays are open; Back lands on an entry with a lower
+   count and the overlays above it close, through their own close buttons so their cleanup
+   runs. The hash pages (Live, Phone, Alarms, the run's pages) keep their own routing; their
+   entries are stamped too, so going back to one never closes what is under it. */
+(() => {
+  const CLOSERS = {
+    zoneapp:   () => document.body.classList.contains('daytabs') ? showDayTab('habits') : document.getElementById('zoneClose').click(),
+    setsheet:  () => $('#closeset').click(),
+    logsheet:  () => $('#closelog').click(),
+    sheet:     () => $('#close').click(),
+    fcsheet:   () => $('#fcclose').click(),
+    eventsheet:() => $('#evclose').click(),
+    entrysheet:() => $('#enclose').click(),
+    wakesheet: () => $('#wakecancel').click(),
+    nightsheet:() => $('#nightcancel').click()
+  };
+  const open = [];   // overlay ids, in the order they opened
+  const depth = () => (history.state && history.state.overlays) || 0;
+  const watch = new MutationObserver(muts => {
+    for (const m of muts){
+      const id = m.target.id, on = m.target.classList.contains('on'), i = open.indexOf(id);
+      if (on && i < 0){
+        open.push(id);
+        history.pushState({overlays: open.length}, '');
+      } else if (!on && i >= 0){
+        open.splice(i, 1);
+        // Closed by its own button: drop its history entry too, so the next Back is not a
+        // dead press. Only when that entry is the current one.
+        if (depth() === open.length + 1) history.back();
+      }
+    }
+  });
+  for (const id of Object.keys(CLOSERS)){
+    const el = document.getElementById(id);
+    if (el) watch.observe(el, {attributes: true, attributeFilter: ['class']});
+  }
+  window.addEventListener('hashchange', () => {
+    if (!history.state) history.replaceState({overlays: open.length}, '');
+  });
+  window.addEventListener('popstate', () => {
+    const keep = depth();
+    while (open.length > keep){
+      const id = open.pop();   // popped first, so the observer does not step back again
+      try { CLOSERS[id](); } catch(_){ document.getElementById(id).classList.remove('on'); }
+    }
+  });
 })();
 </script>
 </body>
