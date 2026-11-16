@@ -146,7 +146,7 @@ SRC = Path(sys.argv[1] if len(sys.argv) > 1 else ".").expanduser()
 
 # The day files are the raw log; the diary row spans the whole day (light,
 # melatonin, then the night), so the record lives as daily.csv at the ROOT of the folder
-# holding the day-file folders (~/.../sources/), above the per-domain subfolders. A
+# holding the day-file folders (~/.../sources/self-monitoring/, since 2026-11-09), beside the other logs. A
 # second argument names the destination outright; without one, the day-file folder's
 # parent is used.
 OUT_DIR = Path(sys.argv[2]).expanduser() if len(sys.argv) > 2 else SRC.parent

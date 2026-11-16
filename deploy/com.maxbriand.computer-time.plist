@@ -20,7 +20,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; exec python3 "$HOME/Projects/audio-timer/scripts/computer-time.py" "$HOME/Documents/Body/sources/computer-time.csv"</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"; exec python3 "$HOME/Projects/audio-timer/scripts/computer-time.py" "$HOME/Documents/Body/sources/self-monitoring/computer-time.csv"</string>
   </array>
 
   <!-- Cadence rewrites sessions.json when a session ends, so computer-time.csv follows it

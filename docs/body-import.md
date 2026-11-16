@@ -2,7 +2,7 @@
 
 **Automatically** — the server upload. The phone posts each finished night to the receiver
 running on the Mac (reached through the VPS relay), which writes it straight into
-`~/Documents/Body/sources/audio-sessions/`. Nothing to run. [setup.md](setup.md)
+`~/Documents/Body/sources/self-monitoring/audio-sessions/`. Nothing to run. [setup.md](setup.md)
 covers the one-time setup.
 
 **By hand**, still there for a phone that is not set up:

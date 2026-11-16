@@ -144,7 +144,7 @@ off just means the phone's WorkManager retries later — same contract as ever.
 
 The daily 16:00 job below remains, but its job is now only the derived views: it rebuilds
 `sessions.csv` next to the day files, writes Cadence's work sessions to `computer-time.csv`, and derives the
-daily record into `~/Documents/Body/sources/daily.csv` — one row per day, above the raw
+daily record into `~/Documents/Body/sources/self-monitoring/daily.csv` — one row per day, above the raw
 log folder. Asleep at 16:00, launchd runs the missed job on wake; powered off, it
 catches up at the next login (the script knows whether a 16:00 run is still owed). Run it by
 hand any time with `--force`.
@@ -162,7 +162,7 @@ macOS denies to background agents — silently, no prompt. System Settings → P
 Security → Full Disk Access → **+** → ⌘⇧G → `/bin/zsh` → toggle on. Until then every run
 logs `Operation not permitted` and retries harmlessly.
 
-What lands, same as the GitHub route would have: `~/Documents/Body/sources/audio-sessions/`
+What lands, same as the GitHub route would have: `~/Documents/Body/sources/self-monitoring/audio-sessions/`
 — one `YYYY-MM-DD.json` per night plus a derived `sessions.csv`, rebuilt on every run.
 
 ```bash

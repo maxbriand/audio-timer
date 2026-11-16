@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fill sources/exercise-log.csv from the cardio sessions the phone uploaded.
+"""Fill sources/self-monitoring/exercise-log.csv from the cardio sessions the phone uploaded.
 
 Unlike daily.csv, this file is NOT derived: it holds hand-written rows (a session
 logged from memory, a row recovered from a screenshot, a day whose data was lost)

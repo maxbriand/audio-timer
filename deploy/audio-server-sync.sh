@@ -7,12 +7,12 @@
 # So there is nothing to pull any more; this script's job is only to keep the CSV and the
 # daily record from drifting away from the day files.
 #
-#   Day files    ~/Documents/Body/sources/audio-sessions/YYYY-MM-DD.json
+#   Day files    ~/Documents/Body/sources/self-monitoring/audio-sessions/YYYY-MM-DD.json
 #                (written live by log-receiver.py as the phone uploads)
 #   Derived      sessions.csv next to them, and the daily record (scripts/sleep-diary.py)
-#                as ~/Documents/Body/sources/daily.csv — the row spans the whole
+#                as ~/Documents/Body/sources/self-monitoring/daily.csv — the row spans the whole
 #                day (light, melatonin, work, the night), so it sits at the sources
-#                root, above the per-domain folders
+#                root, beside the day-file folders (moved 2026-11-09)
 #
 # Run by ~/Library/LaunchAgents/com.maxbriand.audio-server-sync.plist. Safe to run by hand
 # at any time; it is idempotent and takes a lock, so two copies can never fight.
@@ -29,8 +29,8 @@ set -u
 # launchd gives a process almost no PATH, so name the tools' real locations.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-DEST_DIR="${AUDIO_SYNC_DEST:-$HOME/Documents/Body/sources/audio-sessions}"
-DIARY_DIR="${AUDIO_SYNC_DIARY_DEST:-$HOME/Documents/Body/sources}"
+DEST_DIR="${AUDIO_SYNC_DEST:-$HOME/Documents/Body/sources/self-monitoring/audio-sessions}"
+DIARY_DIR="${AUDIO_SYNC_DIARY_DEST:-$HOME/Documents/Body/sources/self-monitoring}"
 LOG_FILE="${AUDIO_SYNC_LOG:-$HOME/Library/Logs/audio-server-sync.log}"
 LOCK_DIR="${TMPDIR:-/tmp}/audio-server-sync.lock"
 # The CSV roll-up lives next to this script, in the audio-timer checkout.
@@ -108,7 +108,7 @@ python3 "$REPO_DIR/scripts/computer-time.py" "$DIARY_DIR/computer-time.csv" >/de
 
 # The daily record is derived, like the CSV: rebuilt whole on every run so it can never
 # drift from the day files. Its rules live in scripts/sleep-diary.py. Read from the day
-# files, written as daily.csv at the sources root.
+# files, written as daily.csv at the self-monitoring root.
 python3 "$REPO_DIR/scripts/sleep-diary.py" "$DEST_DIR" "$DIARY_DIR" >/dev/null 2>&1 || log "daily-record generation failed (data is safe; the record is derived)"
 
 # The exercise log is NOT derived: it carries hand-written rows (a session logged from
