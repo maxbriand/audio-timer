@@ -63,6 +63,19 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(VaultPlugin.class);
     registerPlugin(ArmedAlarmsPlugin.class);
     super.onCreate(savedInstanceState);
+    /* Back steps back inside the page — out of a sheet, Settings, the log, a sub-page — and
+       leaves the app only from the main screen. Without this Android finished the activity on
+       the first Back, wherever you were (2026-11-16). The page pushes a history entry for
+       everything it opens on top (see "Android Back" in index.html). */
+    getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true){
+      @Override public void handleOnBackPressed(){
+        android.webkit.WebView wv = getBridge() != null ? getBridge().getWebView() : null;
+        if (wv != null && wv.canGoBack()){ wv.goBack(); return; }
+        setEnabled(false);
+        getOnBackPressedDispatcher().onBackPressed();
+        setEnabled(true);
+      }
+    });
     // Android 13+ hides the shake-watch notification unless this is granted. The service
     // runs either way — the notification is just how the night-time watch stays honest.
     if (Build.VERSION.SDK_INT >= 33
