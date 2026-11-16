@@ -1,0 +1,11 @@
+- the log page should display the entire list of events that are saved by the app to be sent on the servers. 
+	- That should be a single list, not separate by tabs.
+	- Add 2 first lines max of description below the events
+- the events logs are sent to the server 2 hours after the log
+- it should not be possible to delete an event from the global view
+- no explanations should be displayed at the top of the page
+- Selection: clicking on the event should open the event popup that overwrite a part of the screen. On that popup I should be able:
+	- to modify the events datas: when it starts, when it stopped (if it's logged) and the other elements related to this event
+	- button tot send the event to the server right now
+	- delete the event if the event has been created logged less than 2 hours ago
+- Cleaning: log events are deleted after 10 days on app

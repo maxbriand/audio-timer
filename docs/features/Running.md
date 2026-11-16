@@ -1,0 +1,5 @@
+- the page should have the same top bar as the other page
+- First screen should display 2 buttons: "Brisk walk" and "Run", nothing more.
+	- when I click on one of the button that should display the strap polar h10 connection before starting the run or walk.
+- Settings: the settings of the running should be on a specific page of the app settings. Not on a different settings page.
+	- When the cool down button is played, that should not move the user straight from r5 to cooldown. That should just let the user move to cooldown phase when it reached the min of range. Until that the user be still in r5.

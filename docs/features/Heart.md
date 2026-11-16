@@ -1,0 +1,5 @@
+- On the heart page there is a button to start a HR / HRV same as the one I do when I do fatigue test.
+	- For both I should be able to skip the 2 min of preparation at the beginning using a skip button.
+	- I should be able to restart at the end of the test to have a list of result
+	- Log it as manual test on the log list
+	- That should be send and log to daily.csv in a column manual_test (after fatigue -1h30 sleep)
